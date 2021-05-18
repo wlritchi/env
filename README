@@ -1,0 +1,1 @@
+This repo contains a few small scripts and tools. They're largely (entirely?) written in Bash, but they are deliberately not suffixed with .sh so that I'm free to reimplement them somehow else in the future.
