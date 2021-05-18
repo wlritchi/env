@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+forTagHeader="$(git log --format=%B -n1 | grep '^For-Tag: ' | cut -d' ' -f2-)"
+tag="${1:-$forTagHeader}"
+firstline="$(git log --oneline --format=%B -n1 | head -n1)"
+message="${2:-$firstline}"
+git tag "$tag" -m "$message"

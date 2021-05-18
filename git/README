@@ -1,0 +1,5 @@
+Wrappers around git that add more workflow primitives.
+
+Wrappers whose names start with gerrit- depend on git-review.
+
+Some of these are probably horribly bad ideas. But they work, and they haven't broken anything yet.

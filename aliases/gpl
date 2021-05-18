@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+if b="$(git rev-parse --abbrev-ref @{u} 2>/dev/null)"; then
+    if git rev-parse --symbolic-full-name @{u} | grep -vq '^refs/remotes/' > /dev/null; then
+        gbpl "$b" || return $?
+    fi
+fi
+git pull || return $?
+gsmiu

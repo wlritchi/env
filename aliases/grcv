@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+# "git-recover", I think?
+# I don't actually use this
+
+git fsck --no-reflog | awk '/dangling commit/ {print $3}' | while read hash ; do gshw "$hash" ; done

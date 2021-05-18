@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+git commit "${@:2}"
+cm="$(git rev-parse HEAD)"
+b="$(git rev-parse --abbrev-ref HEAD)"
+if git-isclean; then
+    gco "$1"
+    git cherry-pick "$cm"
+    gco "$b"
+    gundo
+else
+    git stash push
+    gco "$1"
+    git cherry-pick "$cm"
+    gco "$b"
+    gundo
+    git stash pop
+fi

@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+b="$(git rev-parse --abbrev-ref HEAD)"
+git fetch --tags --all || return $?
+if git-isclean; then
+    gco "$1" || return $?
+    gpl || return $?
+    gco "$b"
+else
+    git stash push || return $?
+    gco "$1" || return $?
+    gpl || return $?
+    gco "$b" || return $?
+    git stash pop
+fi

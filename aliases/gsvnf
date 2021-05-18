@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+git svn fetch --use-log-author
+git for-each-ref refs/remotes/svn/tags | cut -d / -f 5- | grep -v @ | while read tagname; do
+    git tag -f "$tagname" "svn/tags/$tagname"
+    git branch -r -d "svn/tags/$tagname"
+done
+git for-each-ref refs/remotes/svn | cut -d / -f 4- | grep -v @ | while read branchname; do
+    git branch -f "$branchname" "refs/remotes/svn/$branchname"
+done

@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+# "git cherry-get"
+# cherry-pick another commit without staging or committing
+
+# BUG: Doesn't really do what it should, because it resets the stage
+
+git cherry-pick -n "$1"
+git reset --soft

@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+
+git revert -n "$1"
+git commit --amend -m "Temporarily revert commit '$1'"
+gchg "$1"

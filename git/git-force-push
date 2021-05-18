@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -lt 1 -o "$#" -gt 2 ]; then
+    printf 'Usage: %s REMOTE [LOCALBRANCH:REMOTEBRANCH]\n' "$0" 1>&2
+    return 1
+fi
+remote="$1"
+branches="${2:-master:master}"
+remotePushSpec="$(git remote get-url --push "$remote")"
+if [[ "$remotePushSpec" =~ ^[^@:]*@[^@:]+:[^@:]* ]]; then
+    remoteSsh="${remotePushSpec%:*}"
+    remotePath="${remotePushSpec#*:}"
+    status="$(ssh "$remoteSsh" git -C "$remotePath" status --porcelain)"
+    if [ -z "$status" ]; then
+        if git push "$remote" "$branches" && ssh "$remoteSsh" git -C "$remotePath" reset --hard; then
+            true
+        else
+            printf 'MANUAL INTERVENTION REQUIRED: failed to push to remote, remote status may be weird\n' 1>&2
+            return 2
+        fi
+    else
+        printf 'Error: cannot push to remote; worktree/index not clean\n\n' 1>&2
+        ssh -t "$remoteSsh" git -C "$remotePath" status 2>&1 | grep -v '^Shared connection to .*closed\.'
+        return 2
+    fi
+else
+    printf 'Error: remote push spec %s does not appear to be an SSH remote\n' "$remotePushSpec" 1>&2
+    return 2
+fi

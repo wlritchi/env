@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+gbcm "$1" -a "${@:2}"

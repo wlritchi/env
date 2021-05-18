@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+git update-ref "refs/heads/$1" HEAD && gco "$1"

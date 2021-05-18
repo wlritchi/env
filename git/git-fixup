@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+# "git fixup"
+# squash the two most recent commits, and take the former's commit message
+
+git-requireclean
+message="$(gshw -s --format=%B HEAD~)"
+git reset --soft HEAD~2
+git commit -m "$message"

@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+m="${1:-1}"
+if git-isclean; then
+    git reset --hard "HEAD~$m"
+    gsmiu
+else
+    git stash push
+    git reset --hard "HEAD~$m"
+    gsmiu
+    git stash pop
+fi

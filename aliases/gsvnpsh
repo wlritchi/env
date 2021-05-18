@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+if ! branch=${1-"$(git symbolic-ref HEAD 2>/dev/null)"}; then
+    echo "Please specify a branch to push while in a detached HEAD state." 1>&2
+    return 1
+fi
+echo "Warning! This action is dangerous; you MUST fetch and merge first, or you will overwrite history!"
+echo "Press Ctrl-C within 5 seconds to abort"
+sleep 5 && git svn set-tree "$branch"

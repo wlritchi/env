@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+
+# "git cherry-branch-get"
+# cherry-pick a commit by branch name, then pull the branch pointer to the new commit
+
+# TODO: make this use rebase like any sane person
+
+gco HEAD^0 && git cherry-pick "$@" && gbg "${@:$#}"
