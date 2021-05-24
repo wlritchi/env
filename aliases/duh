@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -gt 0 ]; then
+    for arg in "$@"; do
+        du -hs -- "$arg/"* | sort -h
+    done
+else
+    du -hs -- * | sort -h
+fi
