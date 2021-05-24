@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+if command -v exa >/dev/null 2>&1; then
+    exa -la --git "$@"
+else
+    ls -lah "$@"
+fi

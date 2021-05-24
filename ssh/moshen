@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+mosh "$@" -- tmux new -As main

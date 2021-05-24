@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+if command -v ack >/dev/null 2>&1; then
+    printf 'WARN: rg is not installed, falling back to ack\n' >&2
+    ack "$@"
+else
+    printf 'WARN: rg is not installed, falling back to grep -R\n' >&2
+    grep -R "$@"
+fi
