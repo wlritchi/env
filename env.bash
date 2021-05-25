@@ -1,49 +1,69 @@
 #!/bin/bash
 
-# different systems and configs seem to make it hard to predict when bashrc and/or bash_profile
-# are run, so this script is intended to be sourced by both
+# On good operating systems, .bash_profile is run on login shells only. It is best used to set
+# environment variables (e.g. PATH modifications), since these are inherited by child processes.
+# .bashrc is run on each new shell. It is best used to set aliases and define functions, since
+# these are NOT inherited by child processes.
 
-# if we've already run, don't run again
+# On macOS, .bash_profile is run for each new GUI terminal (rather than on login), but child
+# invocations of bash, such as by "exec bash", will still run .bashrc.
 
-if [ -n "$WLR_ENV_BASH" ]; then
-    return
-fi
-WLR_ENV_BASH=y
+# It is common, but not universal, practice for one of .bash_profile and .bashrc to source the
+# other one. It seems to me that the sensible approach is for .bash_profile to source .bashrc so
+# that aliases and function definitions are available in login shells. Unfortunately, that's not
+# necessarily the direction that all systems take.
 
-# output utils, only actually print the warnings/errors if we're in interactive mode
+# Because it's hard to predict when either of these will be run, this script is intended to be
+# sourced by BOTH .bashrc and .bash_profile. It uses the WLR_ENV_BASH environment variable to avoid
+# modifying the environment twice. In the not-altogether-unlikely event that it is sourced multiple
+# times, it will redefine aliases and functions, but this is harmless.
 
-tput_fg_red="$(tput setaf 1)"
-tput_fg_yellow="$(tput setaf 3)"
-tput_fg_reset="$(tput sgr0)"
+# Because this script deliberately avoids making repeated alterations to the environment, it should
+# be noted that if child commands (think tmux, venv, etc) also modify the PATH, these new
+# modifications can take precedence even if those children hand off to another instance of bash.
+# For example, if a Python script running in a venv calls a bash script, that bash script will see
+# Python from the venv, not Python from pyenv or the system.
+
 
 wlr_warn() {
     case "$-" in
-        *i*) printf '%sWARN:%s %s\n' "$tput_fg_yellow" "$tput_fg_reset" "$1" >&2
+        *i*) # if in interactive mode
+            tput setaf 3
+            printf 'WARN: '
+            tput sgr0
+            echo "$@"
+            ;;
     esac
 }
+
 wlr_err() {
     case "$-" in
-        *i*) printf '%sERR:%s %s\n' "$tput_fg_red" "$tput_fg_reset" "$1" >&2
+        *i*)
+            tput setaf 1
+            printf 'ERR: '
+            tput sgr0
+            echo "$@"
+            ;;
     esac
 }
 
-# other utils
-
-wlr_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}"
 try_source() {
     [ -r "$1" ] && . "$1"
 }
 
-# load env vars from .config/env and .config/env_secret
 
-try_source "$wlr_config_dir/env"
-try_source "$wlr_config_dir/env_secret"
+if [ -z "$WLR_ENV_BASH" ]; then
+    # remove caps on history size
 
-# remove caps on history size
+    export HISTSIZE=
+    export HISTFILESIZE=
+    export HISTCONTROL=ignoredups
 
-export HISTSIZE=
-export HISTFILESIZE=
-export HISTCONTROL=ignoredups
+    # load env vars from .config/env and .config/env_secret
+
+    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env"
+    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
+fi
 
 # initialize env shims
 
@@ -53,6 +73,12 @@ wlr_check_env_shim() {
 }
 
 if command -v pyenv >/dev/null 2>&1; then
+    if ! pyenv --version | grep -q 'pyenv 1'; then
+        # pyenv 2+ splits init into two parts
+        # "pyenv init --path" updates PATH (intended for .bash_profile)
+        # "pyenv init -" sets functions, completions, etc (also curiously PYENV_SHELL env var still lives here)
+        [ -z "$WLR_ENV_BASH" ] && eval "$(pyenv init --path)"
+    fi
     eval "$(pyenv init -)"
     if command -v pyenv-virtualenv >/dev/null 2>&1; then
         eval "$(pyenv virtualenv-init -)"
@@ -79,14 +105,16 @@ fi
 
 # initialize PATH for custom aliases, wrappers, and scripts
 
-export PATH="$PATH:$HOME/.local/bin"
-export WLR_UNALIASED_PATH="$PATH"
+if [ -z "$WLR_ENV_BASH" ]; then
+    export PATH="$PATH:$HOME/.local/bin"
+    export WLR_UNALIASED_PATH="$PATH"
 
-wlr_bin_dir="$HOME/bin"
-[ -n "$BASH_SOURCE" ] && wlr_bin_dir="$(realpath "${BASH_SOURCE%/*}")"
-while IFS=$'\n' read wlr_bin_subdir; do
-    export PATH="$PATH:$wlr_bin_subdir"
-done < <(find "$wlr_bin_dir" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+    wlr_bin_dir="$HOME/bin"
+    [ -n "$BASH_SOURCE" ] && wlr_bin_dir="$(realpath "${BASH_SOURCE%/*}")"
+    while IFS=$'\n' read wlr_bin_subdir; do
+        export PATH="$PATH:$wlr_bin_subdir"
+    done < <(find "$wlr_bin_dir" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+fi
 
 # initialize completions and corrections
 
@@ -128,3 +156,10 @@ wrappercd() {
         pushd "$1" >/dev/null
     fi
 }
+
+unset wlr_warn
+unset wlr_err
+unset try_source
+unset wlr_check_env_shim
+
+WLR_ENV_BASH=y
