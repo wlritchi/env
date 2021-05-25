@@ -95,6 +95,10 @@ try_source /usr/share/git/completion/git-completion.bash || \
 try_source /usr/share/git/completion/git-prompt.sh
 try_source /usr/share/doc/pkgfile/command-not-found.bash
 
+if command -v register-python-argcomplete >/dev/null 2>&1; then
+    command -v pipx >/dev/null 2>&1 && eval "$(register-python-argcomplete pipx)"
+fi
+
 if command -v thefuck >/dev/null 2>&1; then
     eval "$(thefuck --alias)"
 fi
