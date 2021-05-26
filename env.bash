@@ -109,11 +109,13 @@ if [ -z "$WLR_ENV_BASH" ]; then
     export PATH="$PATH:$HOME/.local/bin"
     export WLR_UNALIASED_PATH="$PATH"
 
-    wlr_bin_dir="$HOME/bin"
-    [ -n "$BASH_SOURCE" ] && wlr_bin_dir="$(realpath "${BASH_SOURCE%/*}")"
-    while IFS=$'\n' read wlr_bin_subdir; do
-        export PATH="$PATH:$wlr_bin_subdir"
-    done < <(find "$wlr_bin_dir" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+    wlr_env_dir="$HOME/.wlrenv"
+    [ -n "$BASH_SOURCE" ] && wlr_env_dir="$(realpath "${BASH_SOURCE%/*}")"
+    while IFS=$'\n' read wlr_env_subdir; do
+        export PATH="$PATH:$wlr_env_subdir"
+    done < <(find "$wlr_env_dir/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+    unset wlr_env_dir
+    unset wlr_env_subdir
 fi
 
 # initialize completions and corrections
