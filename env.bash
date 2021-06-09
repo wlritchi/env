@@ -144,6 +144,7 @@ fi
 
 # use aliases to resolve naming conflicts and overwrite default behaviour
 
+alias gap='git add -p'
 alias gs='git status'
 
 command -v exa >/dev/null 2>&1 && alias ls='exa'
