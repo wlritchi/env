@@ -106,7 +106,7 @@ fi
 # initialize PATH for custom aliases, wrappers, and scripts
 
 if [ -z "$WLR_ENV_BASH" ]; then
-    export PATH="$PATH:$HOME/.local/bin"
+    export PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
     export WLR_UNALIASED_PATH="$PATH"
 
     wlr_env_dir="$HOME/.wlrenv"
