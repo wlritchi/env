@@ -114,6 +114,7 @@ if [ -z "$WLR_ENV_BASH" ]; then
     while IFS=$'\n' read wlr_env_subdir; do
         export PATH="$PATH:$wlr_env_subdir"
     done < <(find "$wlr_env_dir/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+    export WLR_ENV_PATH="$wlr_env_dir"
     unset wlr_env_dir
     unset wlr_env_subdir
 fi
