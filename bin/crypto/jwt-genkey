@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: %s PRIVATE_KEY_FILE PUBLIC_KEY_FILE
+
+Generates a new keypair for use with ES256 JWTs.
+
+The underlying curve is P-256, also known as prime256v1 or secp256r1.
+
+The private key is converted to PKCS#8 format and stored with PEM encoding.
+The public key is stored with PEM encoding.
+
+Intermediate files are created in the same directory as the private key file,
+and are shredded after use.
+' "$0"
+}
+
+if [ "$#" -ne 2 ]; then
+    usage
+    exit 1
+fi
+
+openssl ecparam -name prime256v1 -genkey -noout -out "$1.tmp"
+openssl pkcs8 -topk8 -nocrypt -in "$1.tmp" -out "$1"
+shred -uz "$1.tmp"
+
+openssl ec -in "$1" -pubout > "$2"

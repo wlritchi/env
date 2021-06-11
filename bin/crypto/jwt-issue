@@ -1,0 +1,22 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: %s PRIVATE_KEY_FILE CONTENTS...
+
+Generates a new ES256 JWT using the given key file and contents.
+
+The private key must be in PKCS#8 format and stored with PEM encoding.
+
+Intermediate files are created in the same directory as the private key file,
+and are shredded after use.
+' "$0"
+}
+
+if [ "$#" -lt 2 ]; then
+    usage
+    exit 1
+fi
+
+keyfile="x$1" # jwt-cli has a very stupid bug reading filenames
+jwt encode -A ES256 --secret "$keyfile" "${@:2}"
