@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+
+case "${1:-}" in
+    -d)
+        # decode
+        tr '-_' '+/' | base64 "$@"
+        ;;
+    -n)
+        # base64url with no padding or wrapping
+        base64 "${@:2}" | tr '+/' '-_' | tr -d '\r\n='
+        ;;
+    *)
+        # base64url with standard = padding and line wrapping
+        base64 "$@" | tr '+/' '-_'
+        ;;
+esac
