@@ -77,6 +77,25 @@ try_source() {
 }
 
 
+# invoke tmux, if applicable
+
+if [ -n "$wlr_interactive" ]; then
+    if [ -n "$TMUX" ]; then
+        wlr_good 'tmux'
+    elif [ "$WLR_TMUX" == 'n' ]; then
+        wlr_warn 'tmux - skipping'
+    elif command -v tmux >/dev/null 2>&1; then
+        # printing output before tmux launches causes flickering, skip it
+        # wlr_working 'tmux'
+        exec tmux new
+    else
+        wlr_err 'tmux'
+    fi
+fi
+
+
+# early environment setup
+
 if [ -z "$WLR_ENV_BASH" ]; then
     # remove caps on history size
 
@@ -156,9 +175,29 @@ if [ -z "$WLR_ENV_BASH" ]; then
         export PATH="$PATH:$wlr_env_subdir"
     done < <(find "$wlr_env_dir/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
     export WLR_ENV_PATH="$wlr_env_dir"
+
+    export WLR_ENV_BASH=y
+
     unset wlr_env_dir
     unset wlr_env_subdir
 fi
+
+
+# invoke xonsh, if applicable
+
+if [ -n "$wlr_interactive" ]; then
+    if [ "$WLR_XONSH" == 'n' ]; then
+        wlr_warn 'xonsh - skipping'
+    elif command -v xonsh >/dev/null 2>&1; then
+        wlr_working 'xonsh'
+        exec xonsh
+    elif command -v pipx >/dev/null 2>&1; then
+        wlr_err 'xonsh is not installed (but you can install it with `pipx install xonsh`'
+    else
+        wlr_err 'xonsh'
+    fi
+fi
+
 
 # initialize completions and corrections
 
@@ -212,5 +251,3 @@ unset wlr_warn
 unset wlr_err
 unset try_source
 unset wlr_check_env_shim
-
-WLR_ENV_BASH=y
