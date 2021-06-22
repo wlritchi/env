@@ -25,30 +25,55 @@
 # Python from the venv, not Python from pyenv or the system.
 
 
+wlr_interactive=
+case "$-" in
+    *i*)
+        wlr_interactive=y
+        ;;
+esac
+
+wlr_good() {
+    if [ -n "$wlr_interactive" ]; then
+        tput setaf 2
+        printf '✔ '
+        tput sgr0
+        echo "$@"
+    fi
+}
+
+wlr_working() {
+    if [ -n "$wlr_interactive" ]; then
+        tput setaf 4
+        printf '↻ '
+        tput sgr0
+        echo "$@"
+    fi
+}
+
 wlr_warn() {
-    case "$-" in
-        *i*) # if in interactive mode
-            tput setaf 3
-            printf 'WARN: '
-            tput sgr0
-            echo "$@"
-            ;;
-    esac
+    if [ -n "$wlr_interactive" ]; then
+        tput setaf 3
+        printf '⚠ '
+        tput sgr0
+        echo "$@"
+    fi
 }
 
 wlr_err() {
-    case "$-" in
-        *i*)
-            tput setaf 1
-            printf 'ERR: '
-            tput sgr0
-            echo "$@"
-            ;;
-    esac
+    if [ -n "$wlr_interactive" ]; then
+        tput setaf 1
+        printf '❌ '
+        tput sgr0
+        echo "$@"
+    fi
 }
 
 try_source() {
-    [ -r "$1" ] && . "$1"
+    if [ -r "$1" ]; then
+        . "$1"
+    else
+        return 1
+    fi
 }
 
 
@@ -65,11 +90,14 @@ if [ -z "$WLR_ENV_BASH" ]; then
     try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
 fi
 
+
 # initialize env shims
 
 wlr_check_env_shim() {
-    [ -f "$HOME/.$1/shims/$2" ] || \
+    if ! [ -f "$HOME/.$1/shims/$2" ]; then
         wlr_warn "$1 is installed, but $2 shim is missing ($1 install <version> and/or $1 rehash to fix)"
+        return 1
+    fi
 }
 
 if command -v pyenv >/dev/null 2>&1; then
@@ -85,10 +113,13 @@ if command -v pyenv >/dev/null 2>&1; then
     else
         wlr_warn 'pyenv is installed, but pyenv-virtualenv was not found'
     fi
-    wlr_check_env_shim pyenv python
-    wlr_check_env_shim pyenv pip
+    wlr_check_env_shim pyenv python && \
+        wlr_check_env_shim pyenv pip && \
+        wlr_good 'pyenv'
 elif command -v python >/dev/null 2>&1; then
     wlr_warn 'python is installed, but pyenv was not found'
+else
+    wlr_err 'python'
 fi
 
 if command -v nodenv >/dev/null 2>&1; then
@@ -96,12 +127,22 @@ if command -v nodenv >/dev/null 2>&1; then
     if command -v nvm >/dev/null 2>&1; then
         wlr_warn 'nodenv is installed, but nvm is also present (you should uninstall nvm)'
     fi
-    wlr_check_env_shim nodenv node
-    wlr_check_env_shim nodenv npm
-    wlr_check_env_shim nodenv npx
+    wlr_check_env_shim nodenv node && \
+        wlr_check_env_shim nodenv npm && \
+        wlr_check_env_shim nodenv npx && \
+        wlr_good 'nodenv'
 elif command -v node >/dev/null 2>&1; then
     wlr_warn 'node is installed, but nodenv was not found'
+else
+    wlr_err 'node'
 fi
+
+if command -v pipx >/dev/null 2>&1; then
+    wlr_good 'pipx'
+else
+    wlr_err 'pipx'
+fi
+
 
 # initialize PATH for custom aliases, wrappers, and scripts
 
@@ -132,7 +173,9 @@ fi
 
 if command -v thefuck >/dev/null 2>&1; then
     eval "$(thefuck --alias)"
+    wlr_good 'thef***'
 fi
+
 
 # set up prompt
 
@@ -142,6 +185,7 @@ export PS4='$(foo=$?; [ $foo -gt 0 ] && printf "[%s]" $foo; unset foo)+ ${FUNCNA
 if command -v __git_ps1 >/dev/null 2>&1; then
     export PS1='\[\033[31m<\]\n\[\033[0G\033[m\]$(foo=$?; [ $foo -gt 0 ] && printf "[%s]" $foo; unset foo)\[\033[0;31m\]\t\[\033[0;32m\]\u@\h\[\033[0;34m\]\w\[\033[0;33m\]$(__git_ps1 "(%s)")\[\033[m\]\$ '
 fi
+
 
 # use aliases to resolve naming conflicts and overwrite default behaviour
 
@@ -161,6 +205,9 @@ wrappercd() {
     fi
 }
 
+
+unset wlr_good
+unset wlr_working
 unset wlr_warn
 unset wlr_err
 unset try_source
