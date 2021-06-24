@@ -68,6 +68,30 @@ wlr_err() {
     fi
 }
 
+wlr_countdown() {
+    if [ -n "$wlr_interactive" ]; then
+        wlr_cancelled=
+        trap 'wlr_cancelled=y' INT
+        tput civis
+        tput sc
+        for i in 2 1; do
+            for char in ⠋ ⠙ ⠸ ⠴ ⠦ ⠇; do
+                tput rc
+                printf '%s %s %s' "$char" "${1:-}" "$i"
+                if ! sleep 0.1; then
+                    wlr_cancelled=y
+                    break 2
+                fi
+            done
+        done
+        tput rc
+        tput el
+        tput cnorm
+        trap - INT
+        [ -z "$wlr_cancelled" ]
+    fi
+}
+
 try_source() {
     if [ -r "$1" ]; then
         . "$1"
@@ -85,9 +109,7 @@ if [ -n "$wlr_interactive" ]; then
     elif [ "$WLR_TMUX" == 'n' ]; then
         wlr_warn 'tmux - skipping'
     elif command -v tmux >/dev/null 2>&1; then
-        # printing output before tmux launches causes flickering, skip it
-        # wlr_working 'tmux'
-        exec tmux new
+        wlr_countdown 'tmux' && exec tmux new
     else
         wlr_err 'tmux'
     fi
@@ -249,5 +271,6 @@ unset wlr_good
 unset wlr_working
 unset wlr_warn
 unset wlr_err
+unset wlr_countdown
 unset try_source
 unset wlr_check_env_shim
