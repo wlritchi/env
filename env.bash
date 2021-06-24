@@ -208,10 +208,13 @@ fi
 # invoke xonsh, if applicable
 
 if [ -n "$wlr_interactive" ]; then
-    if [ "$WLR_XONSH" == 'n' ]; then
+    if [ "$WLR_XONSH" == 'y' ]; then
+        wlr_err 'xonsh failed reentrancy check'
+    elif [ "$WLR_XONSH" == 'n' ]; then
         wlr_warn 'xonsh - skipping'
     elif command -v xonsh >/dev/null 2>&1; then
         wlr_working 'xonsh'
+        export WLR_XONSH=y
         exec xonsh
     elif command -v pipx >/dev/null 2>&1; then
         wlr_err 'xonsh is not installed (but you can install it with `pipx install xonsh`'
