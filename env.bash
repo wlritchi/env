@@ -184,6 +184,13 @@ else
     wlr_err 'pipx'
 fi
 
+if command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.posix activate main)"
+    wlr_good 'conda'
+else
+    wlr_err 'conda'
+fi
+
 
 # initialize PATH for custom aliases, wrappers, and scripts
 
