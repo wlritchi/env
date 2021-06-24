@@ -1,5 +1,8 @@
 #!/usr/bin/env xonsh
 
+import sys
+
+import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
 from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
 
@@ -55,6 +58,40 @@ if pygments_version_info():
 $XONSH_COLOR_STYLE = 'solarized-dark-term'
 
 del solarized
-# del style
+del style
 
 $PROMPT = '{YELLOW}{localtime}{GREEN}{user}@{hostname}{BLUE}{cwd}{RESET}$ '
+
+# use aliases to resolve naming conflicts and overwrite default behaviour
+
+aliases['gap'] = 'git add -p'
+aliases['gs'] = 'git status'
+
+if $(which exa):
+    aliases['ls'] = 'exa'
+
+if $(which gradle-shim):
+    aliases['gradle'] = 'gradle-shim'
+
+def _cd(args):
+    if len(args) > 0:
+        _r = xonsh.dirstack.pushd(args)
+        if _r[1] is not None:
+            print(_r[1].strip(), file=sys.stderr)
+        return _r[2]
+    else:
+        xonsh.dirstack.popd(args)
+aliases['cd'] = _cd
+
+# temporary workaround for xonsh bug in 0.9.27
+# see https://github.com/xonsh/xonsh/issues/4243 and https://github.com/xonsh/xonsh/issues/2404
+aliases['gs'] = '$[git status]'
+def _gd(args):
+    $[git diff @(args)]
+aliases['gd'] = _gd
+def _glog(args):
+    $[~/.wlrenv/bin/aliases/glog @(args)]
+aliases['glog'] = _glog
+def _gtree(args):
+    $[~/.wlrenv/bin/aliases/gtree @(args)]
+aliases['gtree'] = _gtree
