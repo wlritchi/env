@@ -188,8 +188,15 @@ else
 fi
 
 if command -v conda >/dev/null 2>&1; then
-    eval "$(conda shell.posix activate main)"
-    wlr_good 'conda'
+    if [ -d "$HOME/.conda/envs/main" ]; then
+        if eval "$(conda shell.posix activate main)"; then
+            wlr_good 'conda'
+        else
+            wlr_err 'conda'
+        fi
+    else
+        wlr_warn 'conda is installed, but main env is missing (conda create -n main to fix)'
+    fi
 else
     wlr_err 'conda'
 fi
