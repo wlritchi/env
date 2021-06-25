@@ -168,6 +168,9 @@ if command -v nodenv >/dev/null 2>&1; then
     if command -v nvm >/dev/null 2>&1; then
         wlr_warn 'nodenv is installed, but nvm is also present (you should uninstall nvm)'
     fi
+    if ! command -v node-build >/dev/null 2>&1; then
+        wlr_warn 'nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)'
+    fi
     wlr_check_env_shim nodenv node && \
         wlr_check_env_shim nodenv npm && \
         wlr_check_env_shim nodenv npx && \
