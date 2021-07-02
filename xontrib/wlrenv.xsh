@@ -60,7 +60,22 @@ $XONSH_COLOR_STYLE = 'solarized-dark-term'
 del solarized
 del style
 
-$PROMPT = '{YELLOW}{localtime}{GREEN}{user}@{hostname}{BLUE}{cwd}{RESET}$ '
+
+# set up prompt
+def _prompt():
+    global _
+    rtn_str = ''
+    try:
+        if _.rtn != 0:
+            rtn_str = f'[{_.rtn}]'
+    except AttributeError: # previous command has no return code (e.g. because it's a xonsh function)
+        pass
+    except NameError: # no _, no previous command
+        pass
+    rtn_formatted = '{RED}<\n{RESET}' + rtn_str
+    return rtn_formatted + '{YELLOW}{localtime}{GREEN}{user}@{hostname}{BLUE}{cwd}{YELLOW}{curr_branch:({})}{RESET}$ '
+$PROMPT = _prompt
+
 
 # use aliases to resolve naming conflicts and overwrite default behaviour
 
