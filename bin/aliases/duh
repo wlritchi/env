@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+shopt -s dotglob
 
 if [ "$#" -gt 0 ]; then
     for arg in "$@"; do
