@@ -79,8 +79,9 @@ $PROMPT = _prompt
 
 # use aliases to resolve naming conflicts and overwrite default behaviour
 
-aliases['gap'] = 'git add -p'
-aliases['gs'] = 'git status'
+aliases['gap'] = 'git add -p' # some algebra package
+aliases['gm'] = 'git merge' # graphicsmagick
+aliases['gs'] = 'git status' # ghostscript
 
 if $(which exa):
     aliases['ls'] = 'exa'

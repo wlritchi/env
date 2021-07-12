@@ -270,8 +270,9 @@ fi
 
 # use aliases to resolve naming conflicts and overwrite default behaviour
 
-alias gap='git add -p'
-alias gs='git status'
+alias gap='git add -p' # some algebra package
+alias gm='git merge' # graphicsmagick
+alias gs='git status' # ghostscript
 
 command -v exa >/dev/null 2>&1 && alias ls='exa'
 

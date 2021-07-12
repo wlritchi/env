@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-gm --no-edit --no-ff "$@"
+git merge --no-edit --no-ff "$@"
