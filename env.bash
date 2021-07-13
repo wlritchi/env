@@ -109,7 +109,11 @@ if [ -n "$wlr_interactive" ]; then
     elif [ "$WLR_TMUX" == 'n' ]; then
         wlr_warn 'tmux - skipping'
     elif command -v tmux >/dev/null 2>&1; then
-        exec tmux new
+        if [ -n "$DISPLAY" ]; then
+            exec tmux new
+        else
+            wlr_countdown tmux && exec tmux new
+        fi
     else
         wlr_err 'tmux'
     fi
