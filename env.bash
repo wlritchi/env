@@ -109,10 +109,8 @@ if [ -n "$wlr_interactive" ]; then
     elif [ "$WLR_TMUX" == 'n' ]; then
         wlr_warn 'tmux - skipping'
     elif command -v tmux >/dev/null 2>&1; then
-        if [ -n "$DISPLAY" ]; then
+        if [ -n "$DISPLAY" ] || wlr_countdown tmux; then
             exec tmux new
-        else
-            wlr_countdown tmux && exec tmux new
         fi
     else
         wlr_err 'tmux'
@@ -234,9 +232,11 @@ if [ -n "$wlr_interactive" ]; then
     elif [ "$WLR_XONSH" == 'n' ]; then
         wlr_warn 'xonsh - skipping'
     elif command -v xonsh >/dev/null 2>&1; then
-        wlr_working 'xonsh'
-        export WLR_XONSH=y
-        exec xonsh
+        if [ -n "$DISPLAY" ] || wlr_countdown 'xonsh'; then
+            wlr_working 'xonsh'
+            export WLR_XONSH=y
+            exec xonsh
+        fi
     elif command -v pipx >/dev/null 2>&1; then
         wlr_err 'xonsh is not installed (but you can install it with `pipx install xonsh`'
     else
