@@ -6,7 +6,8 @@ if [ "$#" -lt 1 -o "$#" -gt 2 ]; then
     exit 1
 fi
 remote="$1"
-branches="${2:-master:master}"
+curbranch="$(git rev-parse --abbrev-ref HEAD)"
+branches="${2:-$curbranch:$curbranch}"
 remotePushSpec="$(git remote get-url --push "$remote")"
 if [[ "$remotePushSpec" =~ ^[^@:]*@[^@:]+:[^@:]* ]]; then
     remoteSsh="${remotePushSpec%:*}"
