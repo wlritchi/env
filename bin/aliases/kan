@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+kubectl "$1" --all-namespaces "${@:2}"
