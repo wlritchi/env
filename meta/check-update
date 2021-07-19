@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+if ! [ -e "$WLR_ENV_PATH/meta/.last-update-check" ] || [ -n "$(find "$WLR_ENV_PATH/meta/.last-update-check" -mmin +60 -print -quit)" ]; then
+    "$WLR_ENV_PATH/meta/git-verify-fast-forward"
+    touch "$WLR_ENV_PATH/meta/.last-update-check"
+fi

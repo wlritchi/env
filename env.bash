@@ -101,6 +101,22 @@ try_source() {
 }
 
 
+# check for update, at most once an hour
+
+if ! [ -e "$WLR_ENV_PATH/meta/.last-update-check" ] || [ -n "$(find "$WLR_ENV_PATH/meta/.last-update-check" -mmin +60 -print -quit)" ]; then
+    wlr_working env update check
+    if "$WLR_ENV_PATH/meta/git-verify-fast-forward"; then
+        touch "$WLR_ENV_PATH/meta/.last-update-check"
+        . "$WLR_ENV_PATH/env.bash"
+        return
+    else
+        wlr_err env update failed
+    fi
+else
+    wlr_good env up to date
+fi
+
+
 # invoke tmux, if applicable
 
 if [ -n "$wlr_interactive" ]; then

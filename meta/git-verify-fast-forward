@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+git -C "$WLR_ENV_PATH" fetch --all
+commit="$(git -C "$WLR_ENV_PATH" rev-parse '@{u}')"
+if "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$commit"; then
+    git -C "$WLR_ENV_PATH" merge --ff-only "$commit"
+else
+    printf 'Error: rejected signature.
+' >&2
+    exit 1
+fi
