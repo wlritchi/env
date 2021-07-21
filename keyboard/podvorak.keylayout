@@ -1,7 +1,7 @@
 <?xml version="1.1" encoding="UTF-8"?>
 <!DOCTYPE keyboard SYSTEM "file://localhost/System/Library/DTDs/KeyboardLayout.dtd">
 <!--Created by Ukelele version 343 on 2021-05-01 at 15:19 (EDT)-->
-<!--Last edited by Ukelele version 343 on 2021-05-02 at 20:32 (EDT)-->
+<!--Last edited by Ukelele version 343 on 2021-07-19 at 11:49 (EDT)-->
 <keyboard group="0" id="3401" name="Programisto Dvorak" maxout="1">
     <layouts>
         <layout first="0" last="17" mapSet="ANSI" modifiers="Modifiers"/>
@@ -226,16 +226,16 @@
             <key code="79" output="&#x0010;"/>
             <key code="80" output="&#x0010;"/>
             <key code="81" output="="/>
-            <key code="82" output="0"/>
-            <key code="83" output="1"/>
-            <key code="84" output="2"/>
-            <key code="85" output="3"/>
-            <key code="86" output="4"/>
-            <key code="87" output="5"/>
-            <key code="88" output="6"/>
-            <key code="89" output="7"/>
-            <key code="91" output="8"/>
-            <key code="92" output="9"/>
+            <key code="82" output=""/>
+            <key code="83" output="A"/>
+            <key code="84" output="B"/>
+            <key code="85" output="C"/>
+            <key code="86" output="D"/>
+            <key code="87" output="E"/>
+            <key code="88" output="F"/>
+            <key code="89" output=""/>
+            <key code="91" output=""/>
+            <key code="92" output=""/>
             <key code="96" output="&#x0010;"/>
             <key code="97" output="&#x0010;"/>
             <key code="98" output="&#x0010;"/>
@@ -333,12 +333,12 @@
             <key code="80" output="&#x0010;"/>
             <key code="81" output=""/>
             <key code="82" output=""/>
-            <key code="83" output="a"/>
-            <key code="84" output="b"/>
-            <key code="85" output="c"/>
-            <key code="86" output="d"/>
-            <key code="87" output="e"/>
-            <key code="88" output="f"/>
+            <key code="83" output=""/>
+            <key code="84" output=""/>
+            <key code="85" output=""/>
+            <key code="86" output=""/>
+            <key code="87" output=""/>
+            <key code="88" output=""/>
             <key code="89" output=""/>
             <key code="91" output=""/>
             <key code="92" output=""/>
@@ -439,12 +439,12 @@
             <key code="80" output="&#x0010;"/>
             <key code="81" output=""/>
             <key code="82" output=""/>
-            <key code="83" output="A"/>
-            <key code="84" output="B"/>
-            <key code="85" output="C"/>
-            <key code="86" output="D"/>
-            <key code="87" output="E"/>
-            <key code="88" output="F"/>
+            <key code="83" output=""/>
+            <key code="84" output=""/>
+            <key code="85" output=""/>
+            <key code="86" output=""/>
+            <key code="87" output=""/>
+            <key code="88" output=""/>
             <key code="89" output=""/>
             <key code="91" output=""/>
             <key code="92" output=""/>
