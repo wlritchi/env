@@ -147,6 +147,11 @@ if [ -z "$WLR_ENV_BASH" ]; then
 
     try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env"
     try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
+
+    # on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
+    if [ "$(uname)" == Darwin ] && [ -n "$SSH_AUTH_SOCK_LOCAL" ]; then
+        export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
+    fi
 fi
 
 
