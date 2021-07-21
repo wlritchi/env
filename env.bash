@@ -101,6 +101,23 @@ try_source() {
 }
 
 
+# invoke tmux, if applicable
+
+if [ -n "$wlr_interactive" ]; then
+    if [ -n "$TMUX" ]; then
+        wlr_good 'tmux'
+    elif [ "$WLR_TMUX" == 'n' ]; then
+        wlr_warn 'tmux - skipping'
+    elif command -v tmux >/dev/null 2>&1; then
+        if [ -n "$DISPLAY" ] || wlr_countdown tmux; then
+            exec tmux new
+        fi
+    else
+        wlr_err 'tmux'
+    fi
+fi
+
+
 # early environment setup
 
 if [ -z "$WLR_ENV_BASH" ]; then
@@ -140,23 +157,6 @@ if [ -n "$wlr_interactive" ]; then
         fi
     else
         wlr_good env up to date
-    fi
-fi
-
-
-# invoke tmux, if applicable
-
-if [ -n "$wlr_interactive" ]; then
-    if [ -n "$TMUX" ]; then
-        wlr_good 'tmux'
-    elif [ "$WLR_TMUX" == 'n' ]; then
-        wlr_warn 'tmux - skipping'
-    elif command -v tmux >/dev/null 2>&1; then
-        if [ -n "$DISPLAY" ] || wlr_countdown tmux; then
-            exec tmux new
-        fi
-    else
-        wlr_err 'tmux'
     fi
 fi
 
