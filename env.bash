@@ -101,6 +101,31 @@ try_source() {
 }
 
 
+# early environment setup
+
+if [ -z "$WLR_ENV_BASH" ]; then
+    export WLR_ENV_PATH="$HOME/.wlrenv"
+    [ -n "$BASH_SOURCE" ] && export WLR_ENV_PATH="$(realpath "${BASH_SOURCE%/*}")"
+
+    # remove caps on history size
+
+    export HISTSIZE=
+    export HISTFILESIZE=
+    export HISTCONTROL=ignoredups
+
+    # on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
+
+    if [ "$(uname)" == Darwin ] && [ -n "$SSH_AUTH_SOCK_LOCAL" ]; then
+        export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
+    fi
+
+    # load env vars from .config/env and .config/env_secret
+
+    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env"
+    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
+fi
+
+
 # check for update, at most once an hour
 
 if ! [ -e "$WLR_ENV_PATH/meta/.last-update-check" ] || [ -n "$(find "$WLR_ENV_PATH/meta/.last-update-check" -mmin +60 -print -quit)" ]; then
@@ -130,27 +155,6 @@ if [ -n "$wlr_interactive" ]; then
         fi
     else
         wlr_err 'tmux'
-    fi
-fi
-
-
-# early environment setup
-
-if [ -z "$WLR_ENV_BASH" ]; then
-    # remove caps on history size
-
-    export HISTSIZE=
-    export HISTFILESIZE=
-    export HISTCONTROL=ignoredups
-
-    # load env vars from .config/env and .config/env_secret
-
-    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env"
-    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
-
-    # on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
-    if [ "$(uname)" == Darwin ] && [ -n "$SSH_AUTH_SOCK_LOCAL" ]; then
-        export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
     fi
 fi
 
@@ -227,22 +231,20 @@ fi
 
 # initialize PATH for custom aliases, wrappers, and scripts
 
-if [ -z "$WLR_ENV_BASH" ]; then
+if [ -z "$WLR_UNALIASED_PATH" ]; then
     export PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
     export WLR_UNALIASED_PATH="$PATH"
 
-    wlr_env_dir="$HOME/.wlrenv"
-    [ -n "$BASH_SOURCE" ] && wlr_env_dir="$(realpath "${BASH_SOURCE%/*}")"
     while IFS=$'\n' read wlr_env_subdir; do
         export PATH="$PATH:$wlr_env_subdir"
-    done < <(find "$wlr_env_dir/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
-    export WLR_ENV_PATH="$wlr_env_dir"
-
-    export WLR_ENV_BASH=y
-
-    unset wlr_env_dir
+    done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
     unset wlr_env_subdir
 fi
+
+
+# prevent re-executing this setup
+
+export WLR_ENV_BASH=y
 
 
 # invoke xonsh, if applicable
