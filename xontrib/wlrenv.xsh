@@ -1,5 +1,6 @@
 #!/usr/bin/env xonsh
 
+import os
 import sys
 
 import xonsh
@@ -98,6 +99,15 @@ def _cd(args):
     else:
         xonsh.dirstack.popd(args)
 aliases['cd'] = _cd
+
+def _mkcd(args):
+    if len(args) != 1:
+        print('Usage: mkcd DIRECTORY', file=sys.stderr)
+        return 1
+    dir = args[0]
+    os.mkdir(dir)
+    xonsh.dirstack.pushd([dir])
+aliases['mkcd'] = _mkcd
 
 # temporary workaround for xonsh bug in 0.9.27
 # see https://github.com/xonsh/xonsh/issues/4243 and https://github.com/xonsh/xonsh/issues/2404

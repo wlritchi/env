@@ -316,6 +316,15 @@ wrappercd() {
     fi
 }
 
+mkcd() {
+    if [ $# -ne 1 ]; then
+        printf 'Usage: mkcd DIRECTORY\n' >&2
+        return 1
+    fi
+    mkdir "$1"
+    pushd "$1" >/dev/null
+}
+
 
 unset wlr_good
 unset wlr_working
