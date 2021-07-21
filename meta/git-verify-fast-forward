@@ -1,8 +1,24 @@
 #!/bin/bash
 set -euo pipefail
 
-git -C "$WLR_ENV_PATH" fetch --all
-commit="$(git -C "$WLR_ENV_PATH" rev-parse '@{u}')"
+UPDATE_URL="https://github.com/wlritchi/env"
+
+# find remote for non-interactive updates
+update_remote=
+while IFS= read remote; do
+    if [ "$(git -C "$WLR_ENV_PATH" remote get-url "$remote")" == "https://github.com/wlritchi/env" ]; then
+        update_remote="$remote"
+        break
+    fi
+done < <( git -C "$WLR_ENV_PATH" remote )
+
+if [ -z "$update_remote" ]; then
+    git -C "$WLR_ENV_PATH" remote add updates "$UPDATE_URL"
+    update_remote=updates
+fi
+
+git -C "$WLR_ENV_PATH" fetch "$update_remote"
+commit="$(git -C "$WLR_ENV_PATH" rev-parse "$update_remote/main")"
 if "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$commit"; then
     git -C "$WLR_ENV_PATH" merge --ff-only "$commit"
 else
