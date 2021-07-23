@@ -47,14 +47,22 @@ print_diff() {
     fi
 }
 
+get_permissions() {
+    if stat --version 2>/dev/null | grep -q GNU; then
+        stat -c '%a' "$1" # GNU coreutils
+    else
+        stat -f '%A' "$1" # macOS, BSD
+    fi
+}
+
 sync_dir() {
     local parent="${1%/*}"
     if [ "$parent" != "$1" ]; then
         sync_dir "$parent"
     fi
     if [ -d "$HOME/$1" ]; then
-        expected_permissions="$(stat -c '%a' "$WLR_ENV_PATH/dotfiles/$1")"
-        actual_permissions="$(stat -c '%a' "$HOME/$1")"
+        expected_permissions="$(get_permissions "$WLR_ENV_PATH/dotfiles/$1")"
+        actual_permissions="$(get_permissions "$HOME/$1")"
         if [ "$expected_permissions" != "$actual_permissions" ]; then
             if wlr-ask "Update permissions on $HOME/$1 to $expected_permissions (currently $actual_permissions)?"; then
                 chmod "$expected_permissions" "$HOME/$1"
