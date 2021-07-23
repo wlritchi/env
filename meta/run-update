@@ -30,7 +30,7 @@ if ! "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$
 fi
 
 # if nothing to do, exit early
-if [ "$local_commit" == "$remote_commit" ]; then
+if [ "$local_commit" == "$remote_commit" ] && [ "${1:-}" != '--force' ]; then
     wlr-good 'update check succeeded, no new changes'
     exit 0
 fi
