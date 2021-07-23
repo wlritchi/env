@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+tput setaf 3
+printf '⚠ '
+tput sgr0
+echo "$@"

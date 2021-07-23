@@ -1,0 +1,22 @@
+#!/bin/bash
+set -euo pipefail
+
+wlr_cancelled=
+trap 'wlr_cancelled=y' INT
+tput civis
+tput sc
+for i in 2 1; do
+    for char in ⠋ ⠙ ⠸ ⠴ ⠦ ⠇; do
+        tput rc
+        printf '%s %s %s' "$char" "${1:-}" "$i"
+        if ! sleep 0.1; then
+            wlr_cancelled=y
+            break 2
+        fi
+    done
+done
+tput rc
+tput el
+tput cnorm
+trap - INT
+[ -z "$wlr_cancelled" ]

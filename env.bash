@@ -32,65 +32,6 @@ case "$-" in
         ;;
 esac
 
-wlr_good() {
-    if [ -n "$wlr_interactive" ]; then
-        tput setaf 2
-        printf '✔ '
-        tput sgr0
-        echo "$@"
-    fi
-}
-
-wlr_working() {
-    if [ -n "$wlr_interactive" ]; then
-        tput setaf 4
-        printf '↻ '
-        tput sgr0
-        echo "$@"
-    fi
-}
-
-wlr_warn() {
-    if [ -n "$wlr_interactive" ]; then
-        tput setaf 3
-        printf '⚠ '
-        tput sgr0
-        echo "$@"
-    fi
-}
-
-wlr_err() {
-    if [ -n "$wlr_interactive" ]; then
-        tput setaf 1
-        printf '❌ '
-        tput sgr0
-        echo "$@"
-    fi
-}
-
-wlr_countdown() {
-    if [ -n "$wlr_interactive" ]; then
-        wlr_cancelled=
-        trap 'wlr_cancelled=y' INT
-        tput civis
-        tput sc
-        for i in 2 1; do
-            for char in ⠋ ⠙ ⠸ ⠴ ⠦ ⠇; do
-                tput rc
-                printf '%s %s %s' "$char" "${1:-}" "$i"
-                if ! sleep 0.1; then
-                    wlr_cancelled=y
-                    break 2
-                fi
-            done
-        done
-        tput rc
-        tput el
-        tput cnorm
-        trap - INT
-        [ -z "$wlr_cancelled" ]
-    fi
-}
 
 try_source() {
     if [ -r "$1" ]; then
@@ -148,15 +89,15 @@ ensurepath "$WLR_ENV_PATH/bin/early"
 
 if [ -n "$wlr_interactive" ]; then
     if [ -n "$TMUX" ]; then
-        wlr_good 'tmux'
+        wlr-good 'tmux'
     elif [ "$WLR_TMUX" == 'n' ]; then
-        wlr_warn 'tmux - skipping'
+        wlr-warn 'tmux - skipping'
     elif command -v tmux >/dev/null 2>&1; then
-        if [ -n "$DISPLAY" ] || wlr_countdown tmux; then
+        if [ -n "$DISPLAY" ] || wlr-countdown tmux; then
             exec tmux new
         fi
     else
-        wlr_err 'tmux'
+        wlr-err 'tmux'
     fi
 fi
 
@@ -187,16 +128,16 @@ fi
 
 if [ -n "$wlr_interactive" ]; then
     if ! [ -e "$WLR_ENV_PATH/meta/.last-update-check" ] || [ -n "$(find "$WLR_ENV_PATH/meta/.last-update-check" -mmin +60 -print -quit)" ]; then
-        wlr_working env update check
+        wlr-working env update check
         if "$WLR_ENV_PATH/meta/run-update"; then
             touch "$WLR_ENV_PATH/meta/.last-update-check"
             . "$WLR_ENV_PATH/env.bash"
             return
         else
-            wlr_err env update failed
+            wlr-err env update failed
         fi
     else
-        wlr_good env up to date
+        wlr-good env up to date
     fi
 fi
 
@@ -205,7 +146,7 @@ fi
 
 wlr_check_env_shim() {
     if ! [ -f "$HOME/.$1/shims/$2" ]; then
-        wlr_warn "$1 is installed, but $2 shim is missing ($1 install <version> and/or $1 rehash to fix)"
+        wlr-warn "$1 is installed, but $2 shim is missing ($1 install <version> and/or $1 rehash to fix)"
         return 1
     fi
 }
@@ -221,53 +162,53 @@ if command -v pyenv >/dev/null 2>&1; then
     if command -v pyenv-virtualenv >/dev/null 2>&1; then
         eval "$(pyenv virtualenv-init -)"
     else
-        wlr_warn 'pyenv is installed, but pyenv-virtualenv was not found'
+        wlr-warn 'pyenv is installed, but pyenv-virtualenv was not found'
     fi
     wlr_check_env_shim pyenv python && \
         wlr_check_env_shim pyenv pip && \
-        wlr_good 'pyenv'
+        wlr-good 'pyenv'
 elif command -v python >/dev/null 2>&1; then
-    wlr_warn 'python is installed, but pyenv was not found'
+    wlr-warn 'python is installed, but pyenv was not found'
 else
-    wlr_err 'python'
+    wlr-err 'python'
 fi
 
 if command -v nodenv >/dev/null 2>&1; then
     eval "$(nodenv init -)"
     if command -v nvm >/dev/null 2>&1; then
-        wlr_warn 'nodenv is installed, but nvm is also present (you should uninstall nvm)'
+        wlr-warn 'nodenv is installed, but nvm is also present (you should uninstall nvm)'
     fi
     if ! command -v node-build >/dev/null 2>&1; then
-        wlr_warn 'nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)'
+        wlr-warn 'nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)'
     fi
     wlr_check_env_shim nodenv node && \
         wlr_check_env_shim nodenv npm && \
         wlr_check_env_shim nodenv npx && \
-        wlr_good 'nodenv'
+        wlr-good 'nodenv'
 elif command -v node >/dev/null 2>&1; then
-    wlr_warn 'node is installed, but nodenv was not found'
+    wlr-warn 'node is installed, but nodenv was not found'
 else
-    wlr_err 'node'
+    wlr-err 'node'
 fi
 
 if command -v pipx >/dev/null 2>&1; then
-    wlr_good 'pipx'
+    wlr-good 'pipx'
 else
-    wlr_err 'pipx'
+    wlr-err 'pipx'
 fi
 
 if command -v conda >/dev/null 2>&1; then
     if [ -d "$HOME/.conda/envs/main" ]; then
         if eval "$(conda shell.posix activate main)"; then
-            wlr_good 'conda'
+            wlr-good 'conda'
         else
-            wlr_err 'conda'
+            wlr-err 'conda'
         fi
     else
-        wlr_warn 'conda is installed, but main env is missing (conda create -n main to fix)'
+        wlr-warn 'conda is installed, but main env is missing (conda create -n main to fix)'
     fi
 else
-    wlr_err 'conda'
+    wlr-err 'conda'
 fi
 
 
@@ -293,19 +234,19 @@ export WLR_ENV_BASH=y
 
 if [ -n "$wlr_interactive" ]; then
     if [ "$WLR_XONSH" == 'y' ]; then
-        wlr_err 'xonsh failed reentrancy check'
+        wlr-err 'xonsh failed reentrancy check'
     elif [ "$WLR_XONSH" == 'n' ]; then
-        wlr_warn 'xonsh - skipping'
+        wlr-warn 'xonsh - skipping'
     elif command -v xonsh >/dev/null 2>&1; then
-        if [ -n "$DISPLAY" ] || wlr_countdown 'xonsh'; then
-            wlr_working 'xonsh'
+        if [ -n "$DISPLAY" ] || wlr-countdown 'xonsh'; then
+            wlr-working 'xonsh'
             export WLR_XONSH=y
             exec xonsh
         fi
     elif command -v pipx >/dev/null 2>&1; then
-        wlr_err 'xonsh is not installed (but you can install it with `pipx install xonsh`'
+        wlr-err 'xonsh is not installed (but you can install it with `pipx install xonsh`'
     else
-        wlr_err 'xonsh'
+        wlr-err 'xonsh'
     fi
 fi
 
@@ -323,7 +264,7 @@ fi
 
 if command -v thefuck >/dev/null 2>&1; then
     eval "$(thefuck --alias)"
-    wlr_good 'thef***'
+    wlr-good 'thef***'
 fi
 
 
@@ -366,11 +307,6 @@ mkcd() {
 }
 
 
-unset wlr_good
-unset wlr_working
-unset wlr_warn
-unset wlr_err
-unset wlr_countdown
 unset try_source
 unset ensurepath
 unset wlr_check_env_shim
