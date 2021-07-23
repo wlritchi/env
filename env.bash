@@ -50,7 +50,7 @@ ensurepath() {
     fi
     for t in "$@"; do
         if ! [ -d "$t" ]; then
-            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to PATH, but it is not a directory\n' "$t"
+            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to PATH, but it is not a directory\n' "$t" >&2
             continue
         fi
         target="$(realpath "$t" 2>/dev/null)"
@@ -215,7 +215,7 @@ fi
 
 # initialize PATH for custom aliases, wrappers, and scripts
 
-ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin"
+ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin" 2>/dev/null # allow these to fail silently, they might not exist
 while IFS=$'\n' read wlr_env_subdir; do
     ensurepath "$wlr_env_subdir"
 done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
