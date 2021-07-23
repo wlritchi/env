@@ -49,7 +49,7 @@ print_diff() {
 
 sync_dir() {
     local parent="${1%/*}"
-    if [ "$parent" != "$relative" ]; then
+    if [ "$parent" != "$1" ]; then
         sync_dir "$parent"
     fi
     if [ -d "$HOME/$1" ]; then
