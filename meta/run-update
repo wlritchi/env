@@ -3,6 +3,8 @@ set -euo pipefail
 
 UPDATE_URL="https://github.com/wlritchi/env"
 
+wlr-working 'update check'
+
 # find remote for non-interactive updates
 update_remote=
 while IFS= read remote; do
@@ -23,13 +25,13 @@ remote_commit="$(git -C "$WLR_ENV_PATH" rev-parse "$update_remote/main")"
 
 # check signature
 if ! "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$remote_commit"; then
-    printf 'Error: rejected signature.
-' >&2
+    wlr-error 'update failed, bad signature'
     exit 1
 fi
 
 # if nothing to do, exit early
 if [ "$local_commit" == "$remote_commit" ]; then
+    wlr-good 'update check succeeded, no new changes'
     exit 0
 fi
 
@@ -88,3 +90,5 @@ while IFS= read filename; do
     fi
     link_file "$relative"
 done < <( find "$WLR_ENV_PATH/dotfiles/" -type f 2>/dev/null || true )
+
+wlr-good 'update succeeded'
