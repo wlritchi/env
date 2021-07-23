@@ -55,7 +55,7 @@ ensurepath() {
         fi
         target="$(realpath "$t" 2>/dev/null)"
         found=
-        while read pathdir; do
+        while read pathdir <&3; do
             if ! [ -d "$pathdir" ]; then
                 continue
             fi
@@ -63,7 +63,7 @@ ensurepath() {
                 found=y
                 break
             fi
-        done < <( echo "$PATH" | tr ':' '\n')
+        done 3< <( echo "$PATH" | tr ':' '\n')
         if [ -z "$found" ]; then
             if [ -n "$head" ]; then
                 export PATH="$t:$PATH"

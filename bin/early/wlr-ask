@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+
+default=
+prompt_str='[y/n]'
+case "$1" in
+    -y)
+        default=y
+        prompt_str='[Y/n]'
+        shift
+        ;;
+    -n)
+        default=n
+        prompt_str='[y/N]'
+        shift
+        ;;
+esac
+
+answer=WLR_ASK_INVALID
+
+valid_answer() {
+    [ "$answer" == '' ] && answer="$default"
+    [ "$answer" == y ] || [ "$answer" == Y ] || [ "$answer" == n ] || [ "$answer" == N ]
+}
+
+while ! valid_answer; do
+    tput setaf 4
+    printf '? '
+    tput sgr0
+    printf '%s ' "$@" "$prompt_str"
+    read -n1 answer
+    printf '\n'
+done
+
+[ "$answer" == y ] || [ "$answer" == Y ]
