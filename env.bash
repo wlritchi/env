@@ -148,7 +148,7 @@ fi
 if [ -n "$wlr_interactive" ]; then
     if ! [ -e "$WLR_ENV_PATH/meta/.last-update-check" ] || [ -n "$(find "$WLR_ENV_PATH/meta/.last-update-check" -mmin +60 -print -quit)" ]; then
         wlr_working env update check
-        if "$WLR_ENV_PATH/meta/git-verify-fast-forward"; then
+        if "$WLR_ENV_PATH/meta/run-update"; then
             touch "$WLR_ENV_PATH/meta/.last-update-check"
             . "$WLR_ENV_PATH/env.bash"
             return
