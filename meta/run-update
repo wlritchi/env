@@ -108,6 +108,6 @@ while IFS= read filename <&3; do
         sync_dir "$dir"
     fi
     link_file "$relative"
-done 3< <( find "$WLR_ENV_PATH/dotfiles/" -type f 2>/dev/null || true )
+done 3< <( find "$WLR_ENV_PATH/dotfiles" -type f 2>/dev/null || true )
 
 wlr-good 'update succeeded'
