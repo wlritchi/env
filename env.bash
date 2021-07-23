@@ -109,6 +109,10 @@ fi
 # early environment setup
 
 if [ -z "$WLR_ENV_BASH" ]; then
+    # enable checkwinsize (default on most systems, but not macOS)
+
+    shopt -s checkwinsize
+
     # remove caps on history size
 
     export HISTSIZE=
