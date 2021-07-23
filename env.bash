@@ -101,6 +101,49 @@ try_source() {
 }
 
 
+ensurepath() {
+    head=
+    if [ "$1" == "--head" ]; then
+        head=y
+        shift
+    fi
+    for t in "$@"; do
+        if ! [ -d "$t" ]; then
+            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to PATH, but it is not a directory\n' "$t"
+            continue
+        fi
+        target="$(realpath "$t" 2>/dev/null)"
+        found=
+        while read pathdir; do
+            if ! [ -d "$pathdir" ]; then
+                continue
+            fi
+            if [ "$(realpath "$pathdir")" == "$target" ]; then
+                found=y
+                break
+            fi
+        done < <( echo "$PATH" | tr ':' '\n')
+        if [ -z "$found" ]; then
+            if [ -n "$head" ]; then
+                export PATH="$t:$PATH"
+            else
+                export PATH="$PATH:$t"
+            fi
+        fi
+    done
+}
+
+
+# early environment setup
+
+if [ -z "$WLR_ENV_PATH" ]; then
+    export WLR_ENV_PATH="$HOME/.wlrenv"
+    [ -n "$BASH_SOURCE" ] && export WLR_ENV_PATH="$(realpath "${BASH_SOURCE%/*}")"
+fi
+
+ensurepath "$WLR_ENV_PATH/bin/early"
+
+
 # invoke tmux, if applicable
 
 if [ -n "$wlr_interactive" ]; then
@@ -121,9 +164,6 @@ fi
 # early environment setup
 
 if [ -z "$WLR_ENV_BASH" ]; then
-    export WLR_ENV_PATH="$HOME/.wlrenv"
-    [ -n "$BASH_SOURCE" ] && export WLR_ENV_PATH="$(realpath "${BASH_SOURCE%/*}")"
-
     # remove caps on history size
 
     export HISTSIZE=
@@ -332,4 +372,5 @@ unset wlr_warn
 unset wlr_err
 unset wlr_countdown
 unset try_source
+unset ensurepath
 unset wlr_check_env_shim
