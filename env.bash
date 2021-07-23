@@ -77,6 +77,10 @@ ensurepath() {
 
 # early environment setup
 
+if [ -z "$WLR_UNALIASED_PATH" ]; then
+    export WLR_UNALIASED_PATH="$PATH"
+fi
+
 if [ -z "$WLR_ENV_PATH" ]; then
     export WLR_ENV_PATH="$HOME/.wlrenv"
     [ -n "$BASH_SOURCE" ] && export WLR_ENV_PATH="$(realpath "${BASH_SOURCE%/*}")"
@@ -214,15 +218,11 @@ fi
 
 # initialize PATH for custom aliases, wrappers, and scripts
 
-if [ -z "$WLR_UNALIASED_PATH" ]; then
-    export PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
-    export WLR_UNALIASED_PATH="$PATH"
-
-    while IFS=$'\n' read wlr_env_subdir; do
-        export PATH="$PATH:$wlr_env_subdir"
-    done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
-    unset wlr_env_subdir
-fi
+ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin"
+while IFS=$'\n' read wlr_env_subdir; do
+    ensurepath "$wlr_env_subdir"
+done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+unset wlr_env_subdir
 
 
 # prevent re-executing this setup
