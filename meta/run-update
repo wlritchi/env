@@ -23,16 +23,16 @@ git -C "$WLR_ENV_PATH" fetch "$update_remote"
 local_commit="$(git -C "$WLR_ENV_PATH" rev-parse HEAD)"
 remote_commit="$(git -C "$WLR_ENV_PATH" rev-parse "$update_remote/main")"
 
-# check signature
-if ! "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$remote_commit"; then
-    wlr-error 'update failed, bad signature'
-    exit 1
-fi
-
 # if nothing to do, exit early
 if [ "$local_commit" == "$remote_commit" ] && [ "${1:-}" != '--force' ]; then
     wlr-good 'update check succeeded, no new changes'
     exit 0
+fi
+
+# check signature
+if ! "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$remote_commit"; then
+    wlr-error 'update failed, bad signature'
+    exit 1
 fi
 
 git -C "$WLR_ENV_PATH" merge --ff-only "$remote_commit"
