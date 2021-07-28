@@ -135,14 +135,8 @@ fi
 # check for update, at most once an hour
 
 if [ -n "$wlr_interactive" ]; then
-    if ! [ -e "$WLR_ENV_PATH/meta/.last-update-check" ] || [ -n "$(find "$WLR_ENV_PATH/meta/.last-update-check" -mmin +60 -print -quit)" ]; then
-        if "$WLR_ENV_PATH/meta/run-update"; then
-            touch "$WLR_ENV_PATH/meta/.last-update-check"
-            . "$WLR_ENV_PATH/env.bash"
-            return
-        fi
-    else
-        wlr-good update check skipped
+    if "$WLR_ENV_PATH/meta/run-update"; then
+        . "$WLR_ENV_PATH/env.bash"
     fi
 fi
 

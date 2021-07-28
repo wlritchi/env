@@ -1,7 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
+# exit code:
+#   zero for success requiring re-executing the environment
+#   nonzero for skipped/no-op update or error
+
 UPDATE_URL="https://github.com/wlritchi/env"
+
+force=
+[ "${1:-}" == '--force' ] && force=y
+
+if [ -z "$force" ]; then
+    if [ -e "$WLR_ENV_PATH/meta/.last-update-check" ] && [ -z "$(find "$WLR_ENV_PATH/meta/.last-update-check" -mmin +60 -print -quit)" ]; then
+        wlr-good 'update check skipped'
+        exit 1
+    fi
+fi
 
 wlr-working 'update check'
 
@@ -24,9 +38,11 @@ local_commit="$(git -C "$WLR_ENV_PATH" rev-parse HEAD)"
 remote_commit="$(git -C "$WLR_ENV_PATH" rev-parse "$update_remote/main")"
 
 # if nothing to do, exit early
-if [ "$local_commit" == "$remote_commit" ] && [ "${1:-}" != '--force' ]; then
-    wlr-good 'update check succeeded, no new changes'
-    exit 0
+if [ -z "$force" ]; then
+    if [ "$local_commit" == "$remote_commit" ]; then
+        wlr-good 'update check succeeded, no new changes'
+        exit 1
+    fi
 fi
 
 # check signature
@@ -110,4 +126,5 @@ while IFS= read filename <&3; do
     link_file "$relative"
 done 3< <( find "$WLR_ENV_PATH/dotfiles" -type f 2>/dev/null || true )
 
+touch "$WLR_ENV_PATH/meta/.last-update-check"
 wlr-good 'update succeeded'
