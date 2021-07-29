@@ -111,7 +111,7 @@ wlr_suspect_tty() {
             return 0
             ;;
     esac
-    [ -z "$DISPLAY" ] && ! wlr_detect_ssh
+    [ -z "$DISPLAY" ] && ! wlr_detect_ssh && [ "$(uname)" != 'Darwin' ]
 }
 
 
@@ -147,7 +147,7 @@ if [ -z "$WLR_ENV_BASH" ]; then
 
     # on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
 
-    if [ -n "$SSH_AUTH_SOCK_LOCAL" ] && [ "$(uname)" == Darwin ]; then
+    if [ -n "$SSH_AUTH_SOCK_LOCAL" ] && [ "$(uname)" == 'Darwin' ]; then
         export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
     fi
 
