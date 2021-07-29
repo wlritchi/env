@@ -25,6 +25,9 @@
 # Python from the venv, not Python from pyenv or the system.
 
 
+RECOMMENDED_XONSH_VERSION=xonsh/0.10.1
+
+
 wlr_interactive=
 case "$-" in
     *i*)
@@ -233,6 +236,10 @@ if [ -n "$wlr_interactive" ]; then
     elif [ "$WLR_XONSH" == 'n' ]; then
         wlr-warn 'xonsh - skipping'
     elif command -v xonsh >/dev/null 2>&1; then
+        xonsh_version="$(xonsh --version)"
+        if [ "$xonsh_version" != "$RECOMMENDED_XONSH_VERSION" ]; then
+            wlr-warn "xonsh version $xonsh_version is installed (recommended version is $RECOMMENDED_XONSH_VERSION)"
+        fi
         if [ -n "$DISPLAY" ] || wlr-countdown 'xonsh'; then
             wlr-working 'xonsh'
             export WLR_XONSH=y
