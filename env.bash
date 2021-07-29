@@ -91,6 +91,29 @@ fi
 
 ensurepath "$WLR_ENV_PATH/bin/early"
 
+# https://unix.stackexchange.com/a/9607
+wlr_detect_ssh() {
+    if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_TTY" ]; then
+        return 0
+    else
+        case $(ps -o comm= -p "$PPID") in
+            sshd|*/sshd)
+                return 0
+                ;;
+        esac
+    fi
+    return 1
+}
+
+wlr_suspect_tty() {
+    case "$(tty)" in
+        /dev/tty*)
+            return 0
+            ;;
+    esac
+    [ -z "$DISPLAY" ] && ! wlr_detect_ssh
+}
+
 
 # invoke tmux, if applicable
 
@@ -100,7 +123,7 @@ if [ -n "$wlr_interactive" ]; then
     elif [ "$WLR_TMUX" == 'n' ]; then
         wlr-warn 'tmux - skipping'
     elif command -v tmux >/dev/null 2>&1; then
-        if [ -n "$DISPLAY" ] || wlr-countdown tmux; then
+        if ! wlr_suspect_tty || wlr-countdown tmux; then
             exec tmux new
         fi
     else
@@ -124,7 +147,7 @@ if [ -z "$WLR_ENV_BASH" ]; then
 
     # on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
 
-    if [ "$(uname)" == Darwin ] && [ -n "$SSH_AUTH_SOCK_LOCAL" ]; then
+    if [ -n "$SSH_AUTH_SOCK_LOCAL" ] && [ "$(uname)" == Darwin ]; then
         export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
     fi
 
@@ -240,7 +263,7 @@ if [ -n "$wlr_interactive" ]; then
         if [ "$xonsh_version" != "$RECOMMENDED_XONSH_VERSION" ]; then
             wlr-warn "xonsh version $xonsh_version is installed (recommended version is $RECOMMENDED_XONSH_VERSION)"
         fi
-        if [ -n "$DISPLAY" ] || wlr-countdown 'xonsh'; then
+        if ! wlr_suspect_tty || wlr-countdown 'xonsh'; then
             wlr-working 'xonsh'
             export WLR_XONSH=y
             exec xonsh
@@ -311,4 +334,6 @@ mkcd() {
 
 unset try_source
 unset ensurepath
+unset wlr_detect_ssh
+unset wlr_suspect_tty
 unset wlr_check_env_shim
