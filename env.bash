@@ -166,6 +166,7 @@ fi
 if [ -n "$wlr_interactive" ]; then
     if "$WLR_ENV_PATH/meta/run-update"; then
         . "$WLR_ENV_PATH/env.bash"
+        return
     fi
 fi
 
