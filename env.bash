@@ -106,12 +106,15 @@ wlr_detect_ssh() {
 }
 
 wlr_suspect_tty() {
+    if [ -n "$DISPLAY" ] || wlr_detect_ssh || [ "$(uname)" == 'Darwin' ]; then
+        return 1
+    fi
     case "$(tty)" in
         /dev/tty*)
             return 0
             ;;
     esac
-    [ -z "$DISPLAY" ] && ! wlr_detect_ssh && [ "$(uname)" != 'Darwin' ]
+    return 1
 }
 
 
