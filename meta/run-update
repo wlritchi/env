@@ -41,6 +41,7 @@ remote_commit="$(git -C "$WLR_ENV_PATH" rev-parse "$update_remote/main")"
 if [ -z "$force" ]; then
     if [ "$local_commit" == "$remote_commit" ]; then
         wlr-good 'update check succeeded, no new changes'
+        touch "$WLR_ENV_PATH/meta/.last-update-check"
         exit 1
     fi
 fi
