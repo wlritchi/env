@@ -84,10 +84,10 @@ aliases['gap'] = 'git add -p' # some algebra package
 aliases['gm'] = 'git merge' # graphicsmagick
 aliases['gs'] = 'git status' # ghostscript
 
-if $(which exa):
+if $(which exa 2>/dev/null):
     aliases['ls'] = 'exa'
 
-if $(which gradle-shim):
+if $(which gradle-shim 2>/dev/null):
     aliases['gradle'] = 'gradle-shim'
 
 def _cd(args):
