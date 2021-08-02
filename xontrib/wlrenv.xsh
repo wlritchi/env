@@ -14,6 +14,15 @@ $XONSH_HISTORY_SIZE = '2 years'
 all_missing_packages = set()
 
 
+def can_autoinstall():
+    return '.local/pipx/venvs/xonsh' in $(which xpip)
+
+
+def autoinstall(pkgname):
+    wlr-working 'xonsh - installing' @(pkgname)
+    return ![xpip install @(pkgname)]
+
+
 def ensure_packages(*packages):
     missing_packages = set()
     for pkg in packages:
@@ -23,6 +32,9 @@ def ensure_packages(*packages):
         try:
             import_module(pkg)
         except:
+            if can_autoinstall():
+                if autoinstall(pkgname):
+                    continue
             missing_packages.add(pkgname)
             all_missing_packages.add(pkgname)
     if missing_packages:
