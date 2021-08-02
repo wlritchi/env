@@ -8,6 +8,8 @@ import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
 from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
 
+$XONSH_HISTORY_SIZE = '2 years'
+
 
 all_missing_packages = set()
 

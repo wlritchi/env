@@ -4,3 +4,7 @@ import sys
 
 sys.path.insert(0, f'{$HOME}/.wlrenv')
 xontrib load wlrenv
+
+# things I always want to have in scope
+import random
+from random import randint
