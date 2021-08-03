@@ -29,11 +29,13 @@ RECOMMENDED_XONSH_VERSION=xonsh/0.10.1
 
 
 wlr_interactive=
-case "$-" in
-    *i*)
-        wlr_interactive=y
-        ;;
-esac
+if [ -n "$TERM" ]; then
+    case "$-" in
+        *i*)
+            wlr_interactive=y
+            ;;
+    esac
+fi
 
 
 try_source() {
