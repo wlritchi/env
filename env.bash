@@ -182,65 +182,88 @@ wlr_check_env_shim() {
     fi
 }
 
-if command -v pyenv >/dev/null 2>&1; then
-    if ! pyenv --version | grep -q 'pyenv 1'; then
-        # pyenv 2+ splits init into two parts
-        # "pyenv init --path" updates PATH (intended for .bash_profile)
-        # "pyenv init -" sets functions, completions, etc (also curiously PYENV_SHELL env var still lives here)
-        [ -z "$WLR_ENV_BASH" ] && eval "$(pyenv init --path)"
-    fi
-    eval "$(pyenv init -)"
-    if command -v pyenv-virtualenv >/dev/null 2>&1; then
-        eval "$(pyenv virtualenv-init -)"
-    else
-        wlr-warn 'pyenv is installed, but pyenv-virtualenv was not found'
-    fi
-    wlr_check_env_shim pyenv python && \
-        wlr_check_env_shim pyenv pip && \
-        wlr-good 'pyenv'
-elif command -v python >/dev/null 2>&1; then
-    wlr-warn 'python is installed, but pyenv was not found'
-else
-    wlr-err 'python'
-fi
-
-if command -v nodenv >/dev/null 2>&1; then
-    eval "$(nodenv init -)"
-    if command -v nvm >/dev/null 2>&1; then
-        wlr-warn 'nodenv is installed, but nvm is also present (you should uninstall nvm)'
-    fi
-    if ! command -v node-build >/dev/null 2>&1; then
-        wlr-warn 'nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)'
-    fi
-    wlr_check_env_shim nodenv node && \
-        wlr_check_env_shim nodenv npm && \
-        wlr_check_env_shim nodenv npx && \
-        wlr-good 'nodenv'
-elif command -v node >/dev/null 2>&1; then
-    wlr-warn 'node is installed, but nodenv was not found'
-else
-    wlr-err 'node'
-fi
-
-if command -v pipx >/dev/null 2>&1; then
-    wlr-good 'pipx'
-else
-    wlr-err 'pipx'
-fi
-
-if command -v conda >/dev/null 2>&1; then
-    if [ -d "$HOME/.conda/envs/main" ]; then
-        if eval "$(conda shell.posix activate main)"; then
-            wlr-good 'conda'
-        else
-            wlr-err 'conda'
+wlr_setup_pyenv() {
+    if command -v pyenv >/dev/null 2>&1; then
+        if ! pyenv --version | grep -q 'pyenv 1'; then
+            # pyenv 2+ splits init into two parts
+            # "pyenv init --path" updates PATH (intended for .bash_profile)
+            # "pyenv init -" sets functions, completions, etc (also curiously PYENV_SHELL env var still lives here)
+            [ -z "$WLR_ENV_BASH" ] && eval "$(pyenv init --path)"
         fi
+        eval "$(pyenv init -)"
+        if ! command -v pyenv-virtualenv >/dev/null 2>&1; then
+            [ -n "$wlr_interactive" ] && wlr-warn 'pyenv is installed, but pyenv-virtualenv was not found'
+            return
+        fi
+        eval "$(pyenv virtualenv-init -)"
+        [ -z "$wlr_interactive" ] && return
+        wlr_check_env_shim pyenv python && \
+            wlr_check_env_shim pyenv pip && \
+            wlr-good 'pyenv'
+    elif [ -z "$wlr_interactive" ]; then
+        return
+    elif command -v python >/dev/null 2>&1; then
+        wlr-warn 'python is installed, but pyenv was not found'
     else
-        wlr-warn 'conda is installed, but main env is missing (conda create -n main to fix)'
+        wlr-err 'python'
     fi
-else
-    wlr-err 'conda'
-fi
+}
+wlr_setup_pyenv
+unset wlr_setup_pyenv
+
+wlr_setup_nodenv() {
+    if command -v nodenv >/dev/null 2>&1; then
+        eval "$(nodenv init -)"
+        [ -z "$wlr_interactive" ] && return
+        if command -v nvm >/dev/null 2>&1; then
+            wlr-warn 'nodenv is installed, but nvm is also present (you should uninstall nvm)'
+        fi
+        if ! command -v node-build >/dev/null 2>&1; then
+            wlr-warn 'nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)'
+        fi
+        wlr_check_env_shim nodenv node && \
+            wlr_check_env_shim nodenv npm && \
+            wlr_check_env_shim nodenv npx && \
+            wlr-good 'nodenv'
+    elif [ -z "$wlr_interactive" ]; then
+        return
+    elif command -v node >/dev/null 2>&1; then
+        wlr-warn 'node is installed, but nodenv was not found'
+    else
+        wlr-err 'node'
+    fi
+}
+wlr_setup_nodenv
+unset wlr_setup_nodenv
+
+wlr_check_pipx() {
+    [ -z "$wlr_interactive" ] && return
+    if command -v pipx >/dev/null 2>&1; then
+        wlr-good 'pipx'
+    else
+        wlr-err 'pipx'
+    fi
+}
+wlr_check_pipx
+unset wlr_check_pipx
+
+wlr_setup_conda() {
+    if ! command -v conda >/dev/null 2>&1; then
+        [ -n "$wlr_interactive" ] && wlr-err 'conda'
+        return
+    fi
+    if ! [ -d "$HOME/.conda/envs/main" ]; then
+        [ -n "$wlr_interactive" ] && wlr-warn 'conda is installed, but main env is missing (conda create -n main to fix)'
+        return
+    fi
+    if eval "$(conda shell.posix activate main)"; then
+        [ -n "$wlr_interactive" ] && wlr-good 'conda'
+        return
+    fi
+    [ -n "$wlr_interactive" ] && wlr-err 'conda'
+}
+wlr_setup_conda
+unset wlr_setup_conda
 
 
 # initialize PATH for custom aliases, wrappers, and scripts
