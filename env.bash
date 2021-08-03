@@ -137,30 +137,23 @@ if [ -n "$wlr_interactive" ]; then
 fi
 
 
-# early environment setup
+# enable checkwinsize (default on most systems, but not macOS)
 
-if [ -z "$WLR_ENV_BASH" ]; then
-    # enable checkwinsize (default on most systems, but not macOS)
+shopt -s checkwinsize
 
-    shopt -s checkwinsize
 
-    # remove caps on history size
+# on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
 
-    export HISTSIZE=
-    export HISTFILESIZE=
-    export HISTCONTROL=ignoredups
-
-    # on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
-
-    if [ -n "$SSH_AUTH_SOCK_LOCAL" ] && [ "$(uname)" == 'Darwin' ]; then
-        export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
-    fi
-
-    # load env vars from .config/env and .config/env_secret
-
-    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env"
-    try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
+if [ -n "$SSH_AUTH_SOCK_LOCAL" ] && [ "$(uname)" == 'Darwin' ]; then
+    export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
 fi
+
+
+# load env vars from .wlrenv/env, .config/env, and .config/env_secret
+
+try_source "$WLR_ENV_PATH/env"
+try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env"
+try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
 
 
 # check for update, at most once an hour
@@ -275,11 +268,6 @@ done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .gi
 unset wlr_env_subdir
 
 
-# prevent re-executing this setup
-
-export WLR_ENV_BASH=y
-
-
 # invoke xonsh, if applicable
 
 if [ -n "$wlr_interactive" ]; then
@@ -318,7 +306,7 @@ fi
 
 if command -v thefuck >/dev/null 2>&1; then
     eval "$(thefuck --alias)"
-    wlr-good 'thef***'
+    [ -n "$wlr_interactive" ] && wlr-good 'thef***'
 fi
 
 
