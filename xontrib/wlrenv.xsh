@@ -16,7 +16,7 @@ from datetime import date
 if date.today() >= date(2021, 9, 1):
     if ![find ~/.local/share/xonsh -name '*.json' | grep -q .]:
         print('You have some JSON history files you should migrate')
-        print("Once you're sure you have no more xonsh processes running from before August 5th, run import_json_history()")
+        print("Once you're sure you have no more xonsh processes running from before August 5th, run import_json_history")
 
 
 # derived from https://gist.github.com/mitnk/d9385c60e113eef14e41d42509846a5c
@@ -38,6 +38,7 @@ def import_json_history():
         if 'rtn' not in item:
             item['rtn'] = 0
         hist_db.append(item)
+aliases['import_json_history'] = import_json_history
 
 
 all_missing_packages = set()
