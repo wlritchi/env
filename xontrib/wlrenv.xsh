@@ -11,6 +11,13 @@ from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
 $XONSH_HISTORY_BACKEND = 'sqlite'
 $XONSH_HISTORY_SIZE = '1000000 commands'
 
+# temporary hacky reminder
+from datetime import date
+if date.today() >= date(2021, 9, 1):
+    if ![find ~/.local/share/xonsh -name '*.json' | grep -q .]:
+        print('You have some JSON history files you should migrate')
+        print("Once you're sure you have no more xonsh processes running from before August 5th, follow https://gist.github.com/mitnk/d9385c60e113eef14e41d42509846a5c")
+
 
 all_missing_packages = set()
 
