@@ -8,7 +8,8 @@ import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
 from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
 
-$XONSH_HISTORY_SIZE = '2 years'
+$XONSH_HISTORY_BACKEND = 'sqlite'
+$XONSH_HISTORY_SIZE = '1000000 commands'
 
 
 all_missing_packages = set()
