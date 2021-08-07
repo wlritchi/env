@@ -1,0 +1,14 @@
+# keep in sync with yt-dlp/config please
+
+-f bestvideo+bestaudio/best
+-o '%(uploader_id)s/%(uploader)s - %(title)s (%(id)s).%(ext)s'
+--all-subs
+--write-all-thumbnails
+--write-annotations
+--write-auto-sub
+--write-description
+--write-info-json
+--write-sub
+--playlist-random
+--download-archive ytdl_best_db.txt
+--netrc
