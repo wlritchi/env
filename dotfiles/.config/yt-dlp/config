@@ -15,4 +15,4 @@
 
 # options specific to yt-dlp
 
---throttle-rate 100k
+--throttled-rate 100k
