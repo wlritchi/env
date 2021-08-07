@@ -75,20 +75,24 @@ get_permissions() {
 sync_dir() {
     local parent="${1%/*}"
     if [ "$parent" != "$1" ]; then
-        sync_dir "$parent"
+        sync_dir "$parent" || return 1
     fi
     if [ -d "$HOME/$1" ]; then
-        expected_permissions="$(get_permissions "$WLR_ENV_PATH/dotfiles/$1")"
-        actual_permissions="$(get_permissions "$HOME/$1")"
-        if [ "$expected_permissions" != "$actual_permissions" ]; then
-            if wlr-ask "Update permissions on $HOME/$1 to $expected_permissions (currently $actual_permissions)?"; then
-                chmod "$expected_permissions" "$HOME/$1"
+        if [ -L "$HOME/$1" ]; then
+            target="$(realpath "$HOME/$1")"
+            wlr-warn "update: $HOME/$1 is a directory symlink to $target"
+            if wlr-ask "Replace with directory and copy contents of original target?"; then
+                rm "$HOME/$1"
+                cp -rp "$target" "$HOME/$1"
+                return
             fi
+            return 1
         fi
     elif [ -e "$HOME/$1" ]; then
         wlr-warn "update: $HOME/$1 exists, but is not a directory"
+        return 1
     else
-        cp -r "$WLR_ENV_PATH/dotfiles/$1" "$HOME/$1"
+        mkdir -p "$HOME/$1"
     fi
 }
 
@@ -109,6 +113,7 @@ link_file() {
         fi
     elif [ -e "$HOME/$1" ]; then
         wlr-warn "update: $HOME/$1 exists, but is not a regular file or symlink"
+        return 1
     else
         ln -s "$(realpath "$WLR_ENV_PATH/dotfiles/$1")" "$HOME/$1"
     fi
@@ -122,10 +127,10 @@ while IFS= read filename <&3; do
     fi
     dir="${relative%/*}"
     if [ "$dir" != "$relative" ]; then
-        sync_dir "$dir"
+        sync_dir "$dir" || continue
     fi
     link_file "$relative"
-done 3< <( find "$WLR_ENV_PATH/dotfiles" -type f 2>/dev/null || true )
+done 3< <( find -L "$WLR_ENV_PATH/dotfiles" -type f 2>/dev/null || true )
 
 touch "$WLR_ENV_PATH/meta/.last-update-check"
 wlr-good 'update succeeded'
