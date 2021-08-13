@@ -159,7 +159,7 @@ try_source "${XDG_CONFIG_HOME:-$HOME/.config}/env_secret"
 # check for update, at most once an hour
 
 if [ -n "$wlr_interactive" ]; then
-    if "$WLR_ENV_PATH/meta/run-update"; then
+    if "$WLR_ENV_PATH/bin/meta/wlr-check-update"; then
         . "$WLR_ENV_PATH/env.bash"
         return
     fi
