@@ -54,7 +54,7 @@ fi
 
 git -C "$WLR_ENV_PATH" merge --ff-only "$remote_commit"
 
-wlr-sync-dotfiles
+"$WLR_ENV_PATH/bin/meta/wlr-sync-dotfiles"
 
 touch "$WLR_ENV_PATH/meta/.last-update-check"
 wlr-good 'update succeeded'
