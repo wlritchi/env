@@ -58,5 +58,5 @@ git -C "$WLR_ENV_PATH" merge --ff-only "$remote_commit"
 
 "$WLR_ENV_PATH/hooks/post-upgrade"
 
-touch "$WLR_ENV_PATH/meta/.last-update-check"
+touch "$WLR_ENV_PATH/.last-update-check"
 wlr-good 'update succeeded'
