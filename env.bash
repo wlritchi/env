@@ -125,12 +125,10 @@ wlr_suspect_tty() {
 if [ -n "$wlr_interactive" ]; then
     if [ -n "$TMUX" ]; then
         wlr-good 'tmux'
-    elif [ "$WLR_TMUX" == 'n' ]; then
+    elif [ "$WLR_TMUX" == 'n' ] || wlr_suspect_tty; then
         wlr-warn 'tmux - skipping'
     elif command -v tmux >/dev/null 2>&1; then
-        if ! wlr_suspect_tty || wlr-countdown tmux; then
-            exec tmux new
-        fi
+        exec tmux new
     else
         wlr-err 'tmux'
     fi
