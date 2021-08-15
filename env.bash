@@ -125,10 +125,16 @@ wlr_suspect_tty() {
 if [ -n "$wlr_interactive" ]; then
     if [ -n "$TMUX" ]; then
         wlr-good 'tmux'
+        # TODO warm up hot spares
     elif [ "$WLR_TMUX" == 'n' ] || wlr_suspect_tty; then
         wlr-warn 'tmux - skipping'
     elif command -v tmux >/dev/null 2>&1; then
-        exec tmux new
+        # make sure hot spares session exists
+        tmux new-session -d -s hot-spares 2>/dev/null || true
+        # tmux will be executing its own commands in a temporary window
+        # move that to window 1, then move a hot spare into the current window (0)
+        # this preserves default new-session behaviour that the shell starts at window 0
+        exec tmux new-session 'tmux move-window \; move-window -s hot-spares'
     else
         wlr-err 'tmux'
     fi

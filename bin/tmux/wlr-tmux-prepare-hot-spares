@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+MIN_HOT_SPARES=3
+SLEEP_SECONDS=5
+
+# this is allowed to fail if the hot-spares session already exists
+tmux new-session -d -s hot-spares 2>/dev/null || true
+
+while [ "$(tmux list-windows -t hot-spares | wc -l)" -lt "$MIN_HOT_SPARES" ]; do
+    tmux new-window -t hot-spares:
+    sleep "$SLEEP_SECONDS"
+done
