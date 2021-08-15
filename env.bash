@@ -271,20 +271,15 @@ unset wlr_env_subdir
 # invoke xonsh, if applicable
 
 if [ -n "$wlr_interactive" ]; then
-    if [ "$WLR_XONSH" == 'y' ]; then
-        wlr-err 'xonsh failed reentrancy check'
-    elif [ "$WLR_XONSH" == 'n' ]; then
+    if [ "$WLR_XONSH" == 'n' ]; then
         wlr-warn 'xonsh - skipping'
     elif command -v xonsh >/dev/null 2>&1; then
+        wlr-working 'xonsh'
         xonsh_version="$(xonsh --version)"
         if [ "$xonsh_version" != "$RECOMMENDED_XONSH_VERSION" ]; then
             wlr-warn "xonsh version $xonsh_version is installed (recommended version is $RECOMMENDED_XONSH_VERSION)"
         fi
-        if ! wlr_suspect_tty || wlr-countdown 'xonsh'; then
-            wlr-working 'xonsh'
-            export WLR_XONSH=y
-            exec xonsh
-        fi
+        exec xonsh
     elif command -v pipx >/dev/null 2>&1; then
         wlr-err 'xonsh is not installed (but you can install it with `pipx install xonsh`'
     else
