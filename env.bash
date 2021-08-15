@@ -238,23 +238,25 @@ wlr_check_pipx() {
 wlr_check_pipx
 unset wlr_check_pipx
 
-wlr_setup_conda() {
-    if ! command -v conda >/dev/null 2>&1; then
-        [ -n "$wlr_interactive" ] && wlr-err 'conda'
-        return
-    fi
-    if ! [ -d "$HOME/.conda/envs/main" ]; then
-        [ -n "$wlr_interactive" ] && wlr-warn 'conda is installed, but main env is missing (conda create -n main to fix)'
-        return
-    fi
-    if eval "$(conda shell.posix activate main)"; then
-        [ -n "$wlr_interactive" ] && wlr-good 'conda'
-        return
-    fi
-    [ -n "$wlr_interactive" ] && wlr-err 'conda'
-}
-wlr_setup_conda
-unset wlr_setup_conda
+# disabled while I figure out the correct way to approach conda envs
+# looks like some pyenv-related tools might be able to handle it?
+# wlr_setup_conda() {
+#     if ! command -v conda >/dev/null 2>&1; then
+#         [ -n "$wlr_interactive" ] && wlr-err 'conda'
+#         return
+#     fi
+#     if ! [ -d "$HOME/.conda/envs/main" ]; then
+#         [ -n "$wlr_interactive" ] && wlr-warn 'conda is installed, but main env is missing (conda create -n main to fix)'
+#         return
+#     fi
+#     if eval "$(conda shell.posix activate main)"; then
+#         [ -n "$wlr_interactive" ] && wlr-good 'conda'
+#         return
+#     fi
+#     [ -n "$wlr_interactive" ] && wlr-err 'conda'
+# }
+# wlr_setup_conda
+# unset wlr_setup_conda
 
 
 # initialize PATH for custom aliases, wrappers, and scripts
