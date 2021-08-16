@@ -1,0 +1,51 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    printf 'Usage: %s NAMESPACE CLUSTER [DATABASE]
+' "$0" >&2
+    exit 1
+fi
+
+namespace="$1"
+cluster="$2"
+db="${3:-}"
+
+creds="$(kubectl get secret -n "$namespace" "postgres.$cluster.credentials.postgresql.acid.zalan.do" -o 'jsonpath={.data}')"
+username="$(echo "$creds" | jq -r '.username' | base64 -d)"
+password="$(echo "$creds" | jq -r '.password' | base64 -d)"
+
+# this is the ugly port-forward way to do it
+hostname=localhost
+port=5432
+master_node="$(kubectl get pods -n "$namespace" -l "cluster-name=$cluster,spilo-role=master" -o 'jsonpath={.items..metadata.name}')"
+kubectl port-forward -n "$namespace" "$master_node" 5432:5432 &
+pid="$!"
+
+cleanup() {
+    kill "$pid"
+}
+trap cleanup EXIT
+
+while ! nc -z localhost 5432; do
+    sleep 0.1
+done
+
+export PGSSLMODE=require
+export PGPASSWORD="$password"
+if [ -n "$db" ]; then
+    psql -h "$hostname" -p "$port" -d "$db" -U "$username"
+else
+    psql -h "$hostname" -p "$port" -U "$username"
+fi
+
+kill "$pid"
+
+
+# this was the old way I used to be able to do it? don't remember how it worked
+# clusterjson="$(kubectl get service "$servicename" -o json)"
+# hostname="$(echo "$clusterjson" | jq -r '.status.loadBalancer.ingress[0].ip')"
+# port="$(echo "$clusterjson" | jq -r '.spec.ports[0].port')"
+# export PGSSLMODE=require
+# export PGPASSWORD="$password"
+# exec psql -h "$hostname" -p "$port" -d "$db" -U "$username"
