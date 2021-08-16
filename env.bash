@@ -116,6 +116,10 @@ wlr_suspect_tty() {
             return 0
             ;;
     esac
+    # usually this is from IDEs' integrated terminals
+    if [ "$(realpath "$(pwd)")" != "$(realpath "$HOME")" ]; then
+        return 0
+    fi
     return 1
 }
 
