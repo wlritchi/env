@@ -108,6 +108,10 @@ wlr_detect_ssh() {
 }
 
 wlr_suspect_tty() {
+    # usually this is from IDEs' integrated terminals
+    if [ "$(realpath "$(pwd)")" != "$(realpath "$HOME")" ]; then
+        return 0
+    fi
     if [ -n "$DISPLAY" ] || wlr_detect_ssh || [ "$(uname)" == 'Darwin' ]; then
         return 1
     fi
@@ -116,10 +120,6 @@ wlr_suspect_tty() {
             return 0
             ;;
     esac
-    # usually this is from IDEs' integrated terminals
-    if [ "$(realpath "$(pwd)")" != "$(realpath "$HOME")" ]; then
-        return 0
-    fi
     return 1
 }
 
