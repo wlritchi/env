@@ -161,6 +161,8 @@ aliases['gap'] = 'git add -p' # some algebra package
 aliases['gm'] = 'git merge' # graphicsmagick
 aliases['gs'] = 'git status' # ghostscript
 
+if $(which bat 2>/dev/null):
+    aliases['cat'] = 'bat'
 if $(which exa 2>/dev/null):
     aliases['ls'] = 'exa'
 
