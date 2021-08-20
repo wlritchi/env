@@ -209,7 +209,7 @@ wlr_setup_pyenv() {
         wlr-err 'python'
     fi
 }
-wlr_setup_pyenv
+[ "$WLR_PYENV" != 'n' ] && wlr_setup_pyenv
 unset wlr_setup_pyenv
 
 wlr_setup_nodenv() {
@@ -234,7 +234,7 @@ wlr_setup_nodenv() {
         wlr-err 'node'
     fi
 }
-wlr_setup_nodenv
+[ "$WLR_NODENV" != 'n' ] && wlr_setup_nodenv
 unset wlr_setup_nodenv
 
 wlr_check_pipx() {
