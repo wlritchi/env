@@ -2,15 +2,15 @@
 set -euo pipefail
 
 b="$(git rev-parse --abbrev-ref HEAD)"
-git fetch --tags --all || return $?
+git fetch --tags --all
 if git-isclean; then
-    gco "$1" || return $?
-    gplr || return $?
-    gco "$b"
+    git checkout "$1"
+    git pull --rebase
+    git checkout "$b"
 else
-    git stash push || return $?
-    gco "$1" || return $?
-    gplr || return $?
-    gco "$b" || return $?
+    git stash push
+    git checkout "$1"
+    git pull --rebase
+    git checkout "$b"
     git stash pop
 fi

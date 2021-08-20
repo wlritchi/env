@@ -3,5 +3,5 @@ set -euo pipefail
 
 if ! git-isclean; then
     printf 'The working tree must be clean!\n'
-    return 1
+    exit 1
 fi

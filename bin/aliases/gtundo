@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [ "$(git tag -l --points-at HEAD | wc -l)" -ne 1 ]; then
     echo "You can only use gtundo when exactly one tag points at the current commit." 1>&2
-    return 1
+    exit 1
 fi
 git tag -d "$(git tag -l --points-at HEAD)"
 gundo
