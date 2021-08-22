@@ -3,6 +3,7 @@ bat                     # cat replacement (auto-pager, line numbers)
 colordiff               # diff with coloured output (though latest GNU diff supports --color=auto which is probably equivalent)
 exa                     # ls replacement (fast, git status integration)
 fzf                     # interactive selection utility, seems to be the new hotness
+nnn                     # terminal file manager
 nodenv                  # node environment manager
 pipx                    # python cli tool manager
 pyenv                   # python environment manager
