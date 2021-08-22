@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+while IFS= read line <&3; do
+    binary="${line% *}"
+    package="${line#* }"
+    if command -v "$binary" >/dev/null 2>&1; then
+        wlr-good "$package"
+    else
+        wlr-err "$package"
+    fi
+done 3< <( sed -re 's/#.*//;s/\s+/ /g;s/ $//;/^$/d' "$WLR_ENV_PATH/recommended-binaries.list" )

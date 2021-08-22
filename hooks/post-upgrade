@@ -3,3 +3,5 @@ set -euo pipefail
 
 # tmux is long-running, make it reload its config
 command -v tmux >/dev/null 2>&1 && tmux source-file "$HOME/.tmux.conf"
+
+wlr-check-env
