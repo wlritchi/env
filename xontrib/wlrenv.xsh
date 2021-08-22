@@ -78,6 +78,9 @@ if ensure_packages(['xontrib.pipeliner', 'xontrib-pipeliner']):
     xontrib load pipeliner
 if ensure_packages(['prompt_toolkit', 'prompt-toolkit']):
     xontrib load whole_word_jumping
+if ![which zoxide >/dev/null 2>&1]:
+    if ensure_packages(['xontrib.zoxide', 'xontrib-zoxide']):
+        xontrib load zoxide
 
 
 def setup_colors():
