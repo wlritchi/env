@@ -76,6 +76,9 @@ if ensure_packages(['xontrib.argcomplete', 'xontrib-argcomplete']):
     xontrib load argcomplete
 if ensure_packages(['xontrib.pipeliner', 'xontrib-pipeliner']):
     xontrib load pipeliner
+if ![which tcg >/dev/null 2>&1]:
+    if ensure_packages(['xontrib.tcg', 'xonsh-tcg']):
+        xontrib load tcg
 if ensure_packages(['prompt_toolkit', 'prompt-toolkit']):
     xontrib load whole_word_jumping
 if ![which zoxide >/dev/null 2>&1]:

@@ -278,6 +278,21 @@ done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .gi
 unset wlr_env_subdir
 
 
+# create terminal cgroup, if applicable
+
+if [ -n "$wlr_interactive" ]; then
+    if command -v tcg >/dev/null 2>&1; then
+        cgroup="$(tcg create)"
+        wlr-good tcg - "$cgroup"
+        if [ -n "$TMUX" ] && command -v tmux >/dev/null 2>&1; then
+            tmux rename-window "$cgroup"
+        fi
+    else
+        wlr-err 'tcg'
+    fi
+fi
+
+
 # invoke xonsh, if applicable
 
 if [ -n "$wlr_interactive" ]; then

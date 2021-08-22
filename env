@@ -1,3 +1,4 @@
 export HISTSIZE=
 export HISTFILESIZE=
 export HISTCONTROL=ignoredups
+export AUTO_INIT_TCG=
