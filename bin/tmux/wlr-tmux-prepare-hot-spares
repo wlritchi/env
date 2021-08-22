@@ -4,6 +4,8 @@ set -euo pipefail
 MIN_HOT_SPARES=3
 SLEEP_SECONDS=5
 
+cd ~
+
 # this is allowed to fail if the hot-spares session already exists
 tmux new-session -d -s hot-spares 2>/dev/null || true
 

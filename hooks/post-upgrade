@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-# tmux is long-running, make it reload its config
-command -v tmux >/dev/null 2>&1 && tmux source-file "$HOME/.tmux.conf"
+if command -v tmux >/dev/null 2>&1; then
+    # reload tmux config
+    tmux source-file "$HOME/.tmux.conf"
+    # restart hot spare shells so they see whatever was changed by the update
+    wlr-tmux-refresh-hot-spares
+fi
 
 wlr-check-env
