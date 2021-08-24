@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+wlr-err '"dd" stands for "don'\''t do".' >&2
+printf 'Use "head -c[BYTES]" to limit bytes read.
+Use "pv" to monitor progress.
+Use pipes to write to disks.
+Use "sudo tee [FILE] >/dev/null" to write to disks from a non-root shell (but prefer writing a script and running the script with sudo).
+' >&2
+exit 1

@@ -349,6 +349,7 @@ alias gs='git status' # ghostscript
 command -v bat >/dev/null 2>&1 && alias cat='bat'
 command -v exa >/dev/null 2>&1 && alias ls='exa'
 
+command -v dd-shim >/dev/null 2>&1 && alias dd='dd-shim'
 command -v gradle-shim >/dev/null 2>&1 && alias gradle='gradle-shim'
 
 alias cd='wrappercd'

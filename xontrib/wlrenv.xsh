@@ -172,6 +172,8 @@ if $(which bat 2>/dev/null):
 if $(which exa 2>/dev/null):
     aliases['ls'] = 'exa'
 
+if $(which dd-shim 2>/dev/null):
+    aliases['dd'] = 'dd-shim'
 if $(which gradle-shim 2>/dev/null):
     aliases['gradle'] = 'gradle-shim'
 
