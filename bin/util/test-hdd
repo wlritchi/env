@@ -1,0 +1,69 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ] || [ "$1" == '-h' ] || [ "$1" == '--help' ]; then
+    printf 'Usage: %s DISK_PATH
+' "$0" >&2
+    exit 1
+fi
+
+disk="$1"
+
+if ! [ -b "$disk" ]; then
+    printf 'Error: %s is not a block device\n' "$disk" >&2
+    exit 1
+fi
+
+serial_number="$(smartctl -i "$disk" | grep Serial | sed -re 's/.*: *//')"
+hash_file="${disk##*/}.${serial_number}.hash.txt"
+
+if [ -e "$hash_file" ]; then
+    printf 'Error: %s already exists\n' "$hash_file" >&2
+    exit 1
+fi
+
+smartctl -i "$disk"
+
+lsblk "$disk"
+
+printf '\nWARNING: This will erase all data on %s!\n' "$disk"
+read -p 'If you are sure this is what you want, retype the disk path: ' confirm_path
+
+if [ "$disk" != "$confirm_path" ]; then
+    exit 1
+fi
+
+printf '\n'
+
+size="$(blockdev --getsize64 "$disk")"
+dd_block_size=4096
+
+while [ "$dd_block_size" -lt 1048576 ]; do
+    if [ "$((size % (dd_block_size*2) ))" -eq 0 ]; then
+        ((dd_block_size *= 2))
+    else
+        break
+    fi
+done
+
+((dd_count = size / dd_block_size))
+
+printf 'Writing random data to disk...\n'
+# dd if=/dev/urandom iflag=fullblock bs="$dd_block_size" count="$dd_count" status=none | pee cat "sha256sum | cut -c1-64 > ${hash_file@Q}" | dd iflag=fullblock of="$disk" bs="$dd_block_size" count="$dd_count" status=progress
+head -c"$size" /dev/urandom | pee cat "sha256sum | head -c64 > ${hash_file@Q}" | pv -s "$size" > "$disk"
+
+expected_hash="$(cat "$hash_file")"
+printf '\nExpected hash: %s\n\n' "$expected_hash"
+
+printf 'Reading and verifying data from disk...\n'
+# actual_hash="$(dd if="$disk" bs="$dd_block_size" count="$dd_count" status=progress | sha256sum | cut -c1-64)"
+actual_hash="$(pv "$disk" | sha256sum | head -c64)"
+
+printf '\nActual hash: %s\n\n' "$actual_hash"
+
+if [ "$expected_hash" == "$actual_hash" ]; then
+    printf 'All good! %s looks okay.\n' "$disk"
+    rm "$hash_file"
+else
+    printf 'ERROR: Checksum mismatch! %s may be faulty.\n' "$disk"
+fi
