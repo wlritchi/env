@@ -4,6 +4,7 @@ shopt -s dotglob
 
 if [ "$#" -gt 0 ]; then
     for arg in "$@"; do
+        arg="${arg%/}"
         du -hs -- "$arg/"* | sort -h
     done
 else
