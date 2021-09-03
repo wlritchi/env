@@ -2,11 +2,26 @@
 set -euo pipefail
 shopt -s dotglob
 
+cmd='du -hs'
+postcmd='sort -h'
+if command -v dua >/dev/null 2>&1; then
+    cmd='dua'
+    postcmd=''
+fi
+
+runcmd() {
+    if [ -n "$postcmd" ]; then
+        $cmd -- "$@" | $postcmd
+    else
+        $cmd -- "$@"
+    fi
+}
+
 if [ "$#" -gt 0 ]; then
     for arg in "$@"; do
         arg="${arg%/}"
-        du -hs -- "$arg/"* | sort -h
+        runcmd "${arg%/}"/*
     done
 else
-    du -hs -- * | sort -h
+    runcmd *
 fi
