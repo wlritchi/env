@@ -8,5 +8,6 @@ xontrib load wlrenv
 xontrib load wlrutils
 
 # things I always want to have in scope
+from datetime import datetime, timedelta, timezone
 import random
 from random import randint
