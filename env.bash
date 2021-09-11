@@ -310,7 +310,7 @@ fi
 # invoke xonsh, if applicable
 
 if [ -n "$wlr_interactive" ]; then
-    if [ "$WLR_XONSH" == 'n' ]; then
+    if [ "$WLR_XONSH" == 'n' ] || [ "$POETRY_ACTIVE" == '1' ]; then
         wlr-warn 'xonsh - skipping'
     elif command -v xonsh >/dev/null 2>&1; then
         wlr-working 'xonsh'
