@@ -282,6 +282,16 @@ done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .gi
 unset wlr_env_subdir
 
 
+# push env into dbus and systemd
+if [ -n "$wlr_interactive" ]; then
+    if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+        dbus-update-activation-environment --systemd --all
+    elif command -v systemctl >/dev/null 2>&1; then
+        systemctl --user import-environment
+    fi
+fi
+
+
 # create terminal cgroup, if applicable
 
 if [ -n "$wlr_interactive" ]; then

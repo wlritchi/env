@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+
+promptpid=
+prompt() {
+    [ -n "$promptpid" ] && return
+    i3lock -Cnu -B0 --no-verify -i "$WLR_ENV_PATH/assets/yubikey.png" --greeter-color 859900 --greeter-text 'Please touch your Yubikey to continue' &
+    promptpid="$!"
+}
+
+unprompt() {
+    [ -z "$promptpid" ] && return
+    kill "$promptpid"
+    promptpid=
+}
+
+while read -N5 cmd <&3; do
+    if [ "${cmd:4:1}" == '1' ]; then
+        prompt
+    else
+        unprompt
+    fi
+done 3< <(socat "unix-connect:$XDG_RUNTIME_DIR/yubikey-touch-detector.socket" stdout)
