@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+
+$1 &
+waitpid="$!"
+whilepids=()
+for cmd in "${@:2}"; do
+    $cmd &
+    whilepids+=("$!")
+done
+wait "$waitpid"
+for whilepid in "${whilepids[@]}"; do
+    kill "$whilepid"
+done
