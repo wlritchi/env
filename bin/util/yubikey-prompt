@@ -4,7 +4,7 @@ set -euo pipefail
 promptpid=
 prompt() {
     [ -n "$promptpid" ] && return
-    i3lock -Cnu -B0 --no-verify -i "$WLR_ENV_PATH/assets/yubikey.png" --greeter-color 859900 --greeter-text 'Please touch your Yubikey to continue' &
+    i3lock -fCnu -B0 -c002b3601 --no-verify -i "$WLR_ENV_PATH/assets/yubikey.png" --greeter-color 859900 --greeter-text 'Please touch your Yubikey to continue' &
     promptpid="$!"
 }
 
