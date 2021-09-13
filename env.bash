@@ -273,6 +273,20 @@ wlr_setup_conda() {
 unset wlr_setup_conda
 
 
+# BSD coreutils suck, add gnubin to path
+# https://apple.stackexchange.com/a/371984
+
+if command -v brew >/dev/null 2>&1; then
+    HOMEBREW_PREFIX="$(brew --prefix)"
+    for gnubin_dir in "$HOMEBREW_PREFIX"/opt/*/libexec/gnubin; do
+        if [ "$gnubin_dir" == "$HOMEBREW_PREFIX"'/opt/*/libexec/gnubin' ]; then
+            continue # glob failed to expand
+        fi
+        ensurepath --head "$gnubin_dir"
+    done
+fi
+
+
 # initialize PATH for custom aliases, wrappers, and scripts
 
 ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin" 2>/dev/null # allow these to fail silently, they might not exist
