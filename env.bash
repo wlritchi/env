@@ -58,18 +58,7 @@ ensurepath() {
             [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to PATH, but it is not a directory\n' "$t" >&2
             continue
         fi
-        target="$(realpath "$t" 2>/dev/null)"
-        found=
-        while read pathdir <&3; do
-            if ! [ -d "$pathdir" ]; then
-                continue
-            fi
-            if [ "$(realpath "$pathdir")" == "$target" ]; then
-                found=y
-                break
-            fi
-        done 3< <( echo "$PATH" | tr ':' '\n')
-        if [ -z "$found" ]; then
+        if ! echo "$PATH" | grep -Eq "(^|:)$t($|:)"; then
             if [ -n "$head" ]; then
                 export PATH="$t:$PATH"
             else
