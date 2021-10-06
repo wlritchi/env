@@ -117,6 +117,11 @@ wlr_suspect_tty() {
 
 if [ -n "$wlr_interactive" ]; then
     if [ -n "$TMUX" ]; then
+        # make sure hot-spares exists and top it up to 3 windows
+        tmux new-session -d -s hot-spares >/dev/null 2>&1 || true
+        for i in {1..3}; do
+            [ "$(tmux list-windows -t hot-spares | wc -l)" -lt 3 ] && tmux new-window -t hot-spares: || break
+        done
         wlr-good 'tmux'
     elif [ "$WLR_TMUX" == 'n' ] || wlr_suspect_tty; then
         wlr-warn 'tmux - skipping'
