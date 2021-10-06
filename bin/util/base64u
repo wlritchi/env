@@ -4,7 +4,7 @@ set -euo pipefail
 case "${1:-}" in
     -d)
         # decode
-        tr '-_' '+/' | base64 "$@"
+        tr -- '-_' '+/' | base64 "$@"
         ;;
     -n)
         # base64url with no padding or wrapping
