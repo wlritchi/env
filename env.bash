@@ -266,6 +266,24 @@ wlr_setup_conda() {
 [ -n "$WLR_CONDA" ] && wlr_setup_conda
 unset wlr_setup_conda
 
+wlr_setup_krew() {
+    if ! command -v kubectl >/dev/null 2>&1; then
+        [ -n "$wlr_interactive" ] && wlr-err 'kubectl'
+        return
+    elif ! command -v kubectl-krew >/dev/null 2>&1; then
+        [ -n "$wlr_interactive" ] && wlr-err 'kubectl-krew'
+        return
+    elif ! [ -d "$HOME/.krew/bin" ]; then
+        [ -n "$wlr_interactive" ] && wlr-warn 'kubectl-krew is installed, but bin dir is missing'
+        return
+    else
+        ensurepath "$HOME/.krew/bin"
+        [ -n "$wlr_interactive" ] && wlr-good 'kubectl-krew'
+    fi
+}
+wlr_setup_krew
+unset wlr_setup_krew
+
 
 # BSD coreutils suck, add gnubin to path
 # https://apple.stackexchange.com/a/371984
