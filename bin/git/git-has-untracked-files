@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+! git ls-files --other --directory --exclude-standard 2>/dev/null | sed q1 >/dev/null

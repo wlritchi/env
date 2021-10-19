@@ -2,3 +2,6 @@
 set -euo pipefail
 
 git stash push -p "$@"
+if git-has-untracked-files; then
+    wlr-warn unstaged changes not stashed
+fi

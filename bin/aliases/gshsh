@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-git stash show -p "$@"
+exec git stash show -pu "$@"
