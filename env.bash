@@ -36,6 +36,7 @@ if [ -n "$TERM" ]; then
             ;;
     esac
 fi
+[ -n "$INTELLIJ_ENVIRONMENT_READER" ] && wlr_interactive=
 
 
 try_source() {
