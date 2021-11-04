@@ -79,11 +79,37 @@ if ensure_packages(['xontrib.pipeliner', 'xontrib-pipeliner']):
 if ![which tcg >/dev/null 2>&1]:
     if ensure_packages(['xontrib.tcg', 'xonsh-tcg']):
         xontrib load tcg
+xontrib load vox # shipped with xonsh
 if ensure_packages(['prompt_toolkit', 'prompt-toolkit']):
     xontrib load whole_word_jumping
 if ![which zoxide >/dev/null 2>&1]:
     if ensure_packages(['xontrib.zoxide', 'xontrib-zoxide']):
         xontrib load zoxide
+
+
+def _wrap_source(source_fn):
+    """Wrap the source alias to handle attempts to activate a venv.
+
+    Some tools, such as VS Code, run a shell and type
+        source <path>/bin/activate
+    into that shell, in order for the shell to run in the venv.
+    Unfortunately, xonsh does not play well with standard venv activation
+    scripts. Instead, xonsh provides the vox xontrib, loaded above, which
+    offers similar functionality. This wrapper catches attepts to source venv
+    activation scripts (which wouldn't work anyway, as xonsh's source expects
+    only xonsh-flavoured inputs), and converts them into calls to vox."""
+
+    def wrapper(args):
+        if len(args) == 1 and args[0].endswith('/bin/activate'):
+            virtualenv_name = args[0][:-13]
+            vox activate @(virtualenv_name)
+        else:
+            source_fn(args)
+
+    return wrapper
+
+
+aliases['source'] = _wrap_source(aliases['source'])
 
 
 def setup_colors():

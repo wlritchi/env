@@ -28,6 +28,9 @@
 RECOMMENDED_XONSH_VERSION=xonsh/0.10.1
 
 
+[ -n "$__ALIAS_STACK" ] && exit # xonsh source-bash or similar
+
+
 wlr_interactive=
 if [ -n "$TERM" ]; then
     case "$-" in
