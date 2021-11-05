@@ -1,7 +1,7 @@
 # keep in sync with yt-dlp/config please
 
 -f bestvideo+bestaudio/best
--o '%(uploader_id)s/%(uploader)s - %(title)s (%(id)s).%(ext)s'
+-o '%(uploader_id)s/%(uploader)s - %(title).60s (%(id)s).%(ext)s'
 --all-subs
 --write-all-thumbnails
 --write-annotations
