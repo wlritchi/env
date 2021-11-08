@@ -11,36 +11,6 @@ from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
 $XONSH_HISTORY_BACKEND = 'sqlite'
 $XONSH_HISTORY_SIZE = '1000000 commands'
 
-# temporary hacky reminder
-from datetime import date
-if date.today() >= date(2021, 9, 1):
-    if ![find ~/.local/share/xonsh -name '*.json' | grep -q .]:
-        print('You have some JSON history files you should migrate')
-        print("Once you're sure you have no more xonsh processes running from before August 5th, run import_json_history")
-
-
-# derived from https://gist.github.com/mitnk/d9385c60e113eef14e41d42509846a5c
-def import_json_history():
-    from xonsh.history.json import JsonHistory
-    from xonsh.history.sqlite import SqliteHistory
-
-    hist_json = JsonHistory(gc=False)
-    hist_db = SqliteHistory(gc=False)
-    for item in hist_json.all_items():
-        if 'inp' not in item:
-            continue
-        if 'ts' not in item:
-            inp = item['inp']
-            print(f'Skipping history item "{inp}" with no timestamp')
-            continue
-        ts = item['ts']
-        item['ts'] = [ts, ts] # hack for how the sqlite append method works
-        if 'rtn' not in item:
-            item['rtn'] = 0
-        hist_db.append(item)
-aliases['import_json_history'] = import_json_history
-
-
 all_missing_packages = set()
 
 
