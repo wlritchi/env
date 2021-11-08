@@ -57,6 +57,9 @@ if ![which zoxide >/dev/null 2>&1]:
         xontrib load zoxide
 
 
+ensure_packages('pytimeparse')
+
+
 def _wrap_source(source_fn):
     """Wrap the source alias to handle attempts to activate a venv.
 
