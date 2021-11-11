@@ -2,6 +2,11 @@
 set -euo pipefail
 
 if command -v tmux >/dev/null 2>&1; then
+    if ! [ -e "$HOME/.tmux/plugins/tpm" ]; then
+        mkdir -p ~/.tmux/plugins/
+        git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+    fi
+
     # reload tmux config
     tmux source-file "$HOME/.tmux.conf"
     # restart hot spare shells so they see whatever was changed by the update
