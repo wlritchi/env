@@ -8,6 +8,26 @@ def coin():
     return 'heads' if random.randint(0, 1) else 'tails'
 
 
+def ndm(n=1, m=6):
+    return sum(random.randint(1, m) for _ in range(n))
+
+
+def d4(n=1):
+    return ndm(n, 4)
+
+
+def d6(n=1):
+    return ndm(n, 6)
+
+
+def d8(n=1):
+    return ndm(n, 8)
+
+
+def d20(n=1):
+    return ndm(n, 20)
+
+
 def parsetimedelta(x):
     if isinstance(x, str):
         from pytimeparse.timeparse import timeparse
