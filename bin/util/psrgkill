@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+ps aux | rg "$@" | awk '{ print $2 }' | xargs -n1 kill
