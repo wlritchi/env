@@ -28,6 +28,12 @@ def d20(n=1):
     return ndm(n, 20)
 
 
+def shuffle(items):
+    l = list(items)
+    random.shuffle(l)
+    return l
+
+
 def parsetimedelta(x):
     if isinstance(x, str):
         from pytimeparse.timeparse import timeparse
