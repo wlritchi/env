@@ -25,7 +25,7 @@
 # Python from the venv, not Python from pyenv or the system.
 
 
-RECOMMENDED_XONSH_VERSION=xonsh/0.10.1
+RECOMMENDED_XONSH_VERSION=xonsh/0.11.0
 
 
 [ -n "$__ALIAS_STACK" ] && exit # xonsh source-bash or similar
