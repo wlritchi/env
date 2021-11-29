@@ -51,6 +51,45 @@ try_source() {
 }
 
 
+ensurevar() {
+    var=
+    require_dir=
+    require_file=
+    require_exists=
+    head=
+    while [ "$#" -gt 0 ]; do
+        shift
+        if [ "$1" == '--head' ]; then
+            head=y
+        elif [ "$1" == '--require-dir' ]; then
+            require_dir=y
+        elif [ "$1" == '--require-file' ]; then
+            require_file=y
+        elif [ "$1" == '--require-exists' ]; then
+            require_exists=y
+        elif [ "$1" == '' ]; then
+            continue
+        elif [ -z "$var" ]; then
+            var="$1"
+        elif [ -n "$require_exists" ] && ! [ -e "$1" ]; then
+            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to %s, but it does not exist\n' "$1" "$var" >&2
+        elif [ -n "$require_dir" ] && ! [ -d "$1" ]; then
+            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to %s, but it is not a directory\n' "$1" "$var" >&2
+        elif [ -n "$require_file" ] && ! [ -f "$1" ]; then
+            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to %s, but it is not a file\n' "$1" "$var" >&2
+        elif ! echo "${!var}" | grep -Eq "(^|:)$1($|:)"; then
+            if [ -n "$head" ]; then
+                printf -v "$var" '%s' "$1:${!var}"
+            else
+                printf -v "$var" '%s' "${!var}:$1"
+            fi
+            export "$var"
+        fi
+    done
+}
+
+
+# TODO when confident in ensurevar, rewrite this as ensurevar PATH "$@"
 ensurepath() {
     head=
     if [ "$1" == "--head" ]; then
@@ -285,6 +324,22 @@ wlr_setup_krew() {
 }
 wlr_setup_krew
 unset wlr_setup_krew
+
+wlr_setup_kubeconfig() {
+    if [ -d "$HOME/.kube/config.d" ]; then
+        [ -z "$KUBECONFIG" ] && export KUBECONFIG="$HOME/.kube/config"
+        unset_nullglob=
+        if ! shopt -q nullglob; then
+            shopt -s nullglob
+            unset_nullglob=y
+        fi
+        ensurevar --require-file KUBECONFIG "$HOME/.kube/config.d/"*
+        [ -n "$unset_nullglob" ] && shopt -u nullglob
+        unset unset_nullglob
+    fi
+}
+wlr_setup_kubeconfig
+unset wlr_setup_kubeconfig
 
 
 # BSD coreutils suck, add gnubin to path
