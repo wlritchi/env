@@ -1,0 +1,27 @@
+{
+    "extractor": {
+        "archive": "gallery-dl.sqlite3",
+        "base-directory": ".",
+        "filename": "{id}_{num}.{extension}",
+        "patreon": {
+            "directory": ["{creator[id]}"]
+        }
+    },
+    "output": {
+        "unsupportedfile": {
+            "path": "gallery-dl.unsupported.txt",
+            "mode": "a",
+            "format": "{asctime} {message}",
+            "format-date": "%Y-%m-%dT%H-%M-%S"
+        }
+    },
+    "postprocessors": [
+        {
+            "name": "metadata",
+            "filename": "{id}.data.json"
+        },
+        {
+            "name": "mtime"
+        }
+    ]
+}
