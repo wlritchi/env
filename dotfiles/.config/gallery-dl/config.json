@@ -4,7 +4,8 @@
         "base-directory": ".",
         "filename": "{id}_{num}.{extension}",
         "patreon": {
-            "directory": ["{creator[id]}"]
+            "directory": ["{creator[id]}"],
+            "filename": "{id}_{num}.{filename}.{extension}"
         }
     },
     "output": {
