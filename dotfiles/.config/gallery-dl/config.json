@@ -2,10 +2,10 @@
     "extractor": {
         "archive": "gallery-dl.sqlite3",
         "base-directory": ".",
-        "filename": "{id}_{num}.{extension}",
+        "directory": ["{id}"],
+        "filename": "{num}.{filename}.{extension}",
         "patreon": {
-            "directory": ["{creator[id]}", "{id}"],
-            "filename": "{num}.{filename}.{extension}"
+            "directory": ["{creator[id]}", "{id}"]
         }
     },
     "output": {
@@ -19,7 +19,12 @@
     "postprocessors": [
         {
             "name": "metadata",
-            "filename": "{id}.data.json"
+            "filename": "{num}.{filename}.data.json"
+        },
+        {
+            "name": "metadata",
+            "event": "post",
+            "filename": "post_data.json"
         },
         {
             "name": "mtime"
