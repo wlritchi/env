@@ -6,7 +6,6 @@ import sys
 
 import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
-from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
 
 $XONSH_HISTORY_BACKEND = 'sqlite'
 $XONSH_HISTORY_SIZE = '1000000 commands'
@@ -57,7 +56,10 @@ if ![which zoxide >/dev/null 2>&1]:
         xontrib load zoxide
 
 
-ensure_packages('pytimeparse')
+ensure_packages('pygments', 'pytimeparse')
+
+
+from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
 
 
 def _wrap_source(source_fn):
