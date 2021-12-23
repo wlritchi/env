@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-sudo journalctl -u "$@"
+exec sudo journalctl -u "$@"

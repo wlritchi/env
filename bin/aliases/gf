@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-git fetch --tags "$@"
+exec git fetch --tags "$@"

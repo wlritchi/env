@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-git log --graph --oneline --decorate --submodule --date-order --date=format:'%F %T' --pretty=tformat:'%C(yellow)%h%Creset - %C(bold cyan)%d%Creset %s %Cgreen(%cd)%Creset %C(bold blue)<%an>%Creset %C(cyan)%G?% GS% GK%Creset' "$@"
+exec git log --graph --oneline --decorate --submodule --date-order --date=format:'%F %T' --pretty=tformat:'%C(yellow)%h%Creset - %C(bold cyan)%d%Creset %s %Cgreen(%cd)%Creset %C(bold blue)<%an>%Creset %C(cyan)%G?% GS% GK%Creset' "$@"

@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-gr --soft "$@"
+exec git reset --soft "$@"

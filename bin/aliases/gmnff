@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-gm --no-ff "$@"
+exec gm --no-ff "$@"

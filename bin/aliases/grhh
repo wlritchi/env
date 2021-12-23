@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-gr --hard HEAD "$@"
+exec gr --hard HEAD "$@"

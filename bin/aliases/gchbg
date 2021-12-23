@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-git-cherry-branch-get "$@"
+exec git-cherry-branch-get "$@"

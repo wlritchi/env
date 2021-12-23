@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-git-branch-get "$@"
+exec git-branch-get "$@"

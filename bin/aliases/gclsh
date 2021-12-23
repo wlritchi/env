@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-git clone --depth 1 "$@"
+exec git clone --depth 1 "$@"

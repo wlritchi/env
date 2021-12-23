@@ -1,5 +1,5 @@
 #!/bin/bash
 set -euo pipefail
 
-git revert -n "$@"
+exec git revert -n "$@"
 git reset --soft

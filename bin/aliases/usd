@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-systemctl --user disable "$@"
+exec systemctl --user disable "$@"

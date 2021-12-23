@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-git rm "$@"
+exec git rm "$@"

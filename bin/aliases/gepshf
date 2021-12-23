@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-gerrit-push-force "$@"
+exec gerrit-push-force "$@"

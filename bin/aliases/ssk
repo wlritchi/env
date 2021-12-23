@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-sudo systemctl stop "$@"
+exec sudo systemctl stop "$@"
