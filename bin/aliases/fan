@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-exec flux "$1" --all-namespaces "${@:2}"
+exec fluxx "$1" --all-namespaces "${@:2}"
