@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+# kubectl, but with support for ~/.kube/config.d/
+# still salty about .kube/ vs .config/kubernetes/, but that's for another day
+
+if [ -d "$HOME/.kube/config.d" ]; then
+    if ! command -v wlr-helper-source >/dev/null 2>&1; then
+        printf 'Warning: unable to locate wlr helpers!\n' >&2
+    else
+        . "$(wlr-helper-source)"
+        ensurevar --require-file KUBECONFIG "$HOME/.kube/config.d/"*
+    fi
+fi
+
+exec kubectl "$@"

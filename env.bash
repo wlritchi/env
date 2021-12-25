@@ -325,23 +325,6 @@ wlr_setup_krew() {
 wlr_setup_krew
 unset wlr_setup_krew
 
-wlr_setup_kubeconfig() {
-    if [ -d "$HOME/.kube/config.d" ]; then
-        [ -z "$KUBECONFIG" ] && export KUBECONFIG="$HOME/.kube/config"
-        unset_nullglob=
-        if ! shopt -q nullglob; then
-            shopt -s nullglob
-            unset_nullglob=y
-        fi
-        ensurevar --require-file KUBECONFIG "$HOME/.kube/config.d/"*
-        [ -n "$unset_nullglob" ] && shopt -u nullglob
-        unset unset_nullglob
-    fi
-}
-wlr_setup_kubeconfig
-unset wlr_setup_kubeconfig
-
-
 # BSD coreutils suck, add gnubin to path
 # https://apple.stackexchange.com/a/371984
 
