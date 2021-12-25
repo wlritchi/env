@@ -178,6 +178,13 @@ if $(which dd-shim 2>/dev/null):
 if $(which gradle-shim 2>/dev/null):
     aliases['gradle'] = 'gradle-shim'
 
+if $(which fluxx 2>/dev/null):
+    aliases['flux'] = 'fluxx'
+if $(which helmx 2>/dev/null):
+    aliases['helm'] = 'helmx'
+if $(which fluxx 2>/dev/null):
+    aliases['kubectl'] = 'kubectlx'
+
 def _cd(args):
     if len(args) > 0:
         _r = xonsh.dirstack.pushd(args)

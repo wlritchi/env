@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-exec helm "$@"
+exec helmx "$@"
