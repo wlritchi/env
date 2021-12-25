@@ -156,16 +156,20 @@ wlr_suspect_tty() {
 }
 
 
-# invoke tmux, if applicable
+# invoke zellij/tmux, if applicable
 
 if [ -n "$wlr_interactive" ]; then
-    if [ -n "$TMUX" ]; then
+    if [ -n "$ZELLIJ" ]; then
+        wlr-good 'zellij'
+    elif [ -n "$TMUX" ]; then
         # make sure hot-spares exists and top it up to 3 windows
         tmux new-session -d -s hot-spares >/dev/null 2>&1 || true
         [ "$(tmux list-windows -t hot-spares | wc -l)" -lt 3 ] && tmux new-window -t hot-spares:
         wlr-good 'tmux'
     elif [ "$WLR_TMUX" == 'n' ] || wlr_suspect_tty; then
         wlr-warn 'tmux - skipping'
+    elif command -v zellij >/dev/null 2>&1 && false; then # TODO reenable
+        exec zellij options --disable-mouse-mode
     elif command -v tmux >/dev/null 2>&1; then
         # make sure hot spares session exists
         tmux new-session -d -s hot-spares 2>/dev/null || true
