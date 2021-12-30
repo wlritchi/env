@@ -1,0 +1,64 @@
+#!/bin/sh
+set -x
+
+# derived from https://github.com/alexei-led/nsenter
+# licensed under GPLv2
+
+node="${1}"
+nodeName="$(kubectl get node "${node}" -o template --template='{{index .metadata.labels "kubernetes.io/hostname"}}')"
+nodeSelector='"nodeSelector": { "kubernetes.io/hostname": "'${nodeName:?}'" },'
+podName="${USER}-nsenter-${node}"
+# convert @ to -
+podName="${podName//@/-}"
+# convert . to -
+podName="${podName//./-}"
+# truncate podName to 63 characters which is the kubernetes max length for it
+podName="${podName:0:63}"
+
+if [ "$#" -gt 1 ]; then
+    interactiveFlag=""
+    # use jq to quote the arguments in a single json-compatible string
+    # prefix "root" to fill su's positional username argument
+    args="\"root\", \"-\", \"-c\", $(echo -n "${@:2}" | jq -aRs .)"
+else
+    interactiveFlag="-it"
+    # we don't prefix "root" here because otherwise the prompt won't appear until the user presses enter
+    # (I have no idea why this is the case)
+    args="\"-\""
+fi
+
+kubectlx run "${podName:?}" --restart=Never ${interactiveFlag} --quiet --rm --image overriden --overrides '
+{
+  "spec": {
+    "hostPID": true,
+    "hostNetwork": true,
+    '"${nodeSelector?}"'
+    "tolerations": [{
+        "operator": "Exists"
+    }],
+    "containers": [
+      {
+        "name": "nsenter",
+        "image": "alexeiled/nsenter",
+        "command": [
+          "/nsenter",
+          "--all",
+          "--target=1",
+          "--",
+          "su",
+          '"${args}"'
+        ],
+        "stdin": true,
+        "tty": true,
+        "securityContext": {
+          "privileged": true
+        },
+        "resources": {
+          "requests": {
+            "cpu": "10m"
+          }
+        }
+      }
+    ]
+  }
+}' --attach "${1}"
