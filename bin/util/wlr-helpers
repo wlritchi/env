@@ -26,6 +26,9 @@ ensurevar() {
             printf 'Warning: tried to add %s to %s, but it is not a directory\n' "$1" "$var" >&2
         elif [ -n "$require_file" ] && ! [ -f "$1" ]; then
             printf 'Warning: tried to add %s to %s, but it is not a file\n' "$1" "$var" >&2
+        elif ! declare -p "$var" >/dev/null 2>&1 || [ -z "$var" ]; then
+            printf -v "$var" "$1"
+            export "$var"
         elif ! echo "${!var}" | grep -Eq "(^|:)$1($|:)"; then
             if [ -n "$head" ]; then
                 printf -v "$var" '%s' "$1:${!var}"
