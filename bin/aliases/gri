@@ -3,10 +3,10 @@ set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
     if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u})"; then
-        git rebase -i --rebase-merges "$upstream"
+        exec git rebase -i --rebase-merges "$upstream"
     else
         exit 1
     fi
 else
-    git rebase -i --rebase-merges "$@"
+    exec git rebase -i --rebase-merges "$@"
 fi
