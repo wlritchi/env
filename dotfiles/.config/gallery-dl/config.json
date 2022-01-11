@@ -1,4 +1,5 @@
 {
+    "netrc": true,
     "extractor": {
         "archive": "gallery-dl.sqlite3",
         "base-directory": ".",
