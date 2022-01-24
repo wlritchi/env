@@ -15,4 +15,5 @@
 
 # options specific to yt-dlp
 
+--concat-playlist never
 --throttled-rate 100k
