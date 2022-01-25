@@ -185,6 +185,10 @@ if $(which helmx 2>/dev/null):
 if $(which fluxx 2>/dev/null):
     aliases['kubectl'] = 'kubectlx'
 
+# xonsh-only, workaround for lack of ergonomic "time" builtin
+if $(which timex 2>/dev/null):
+    aliases['time'] = 'timex'
+
 def _cd(args):
     if len(args) > 0:
         _r = xonsh.dirstack.pushd(args)

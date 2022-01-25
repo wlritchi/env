@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+# xonsh has no ergonomic equivalent of bash's time built-in
+# so we'll just steal from bash and alias to this one in xonshrc
+
+args=("$@")
+acc=''
+for arg in "${args[@]}"; do
+    acc="$acc ${arg@Q}"
+done
+
+/bin/bash -c "time $acc"
