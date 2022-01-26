@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+    printf 'Usage: %s FILE1 FILE2
+
+Prints lines from FILE1 that do not appear in FILE2.
+Both input files must be sorted.
+' "$0" >&2
+    exit 1
+fi
+
+exec comm -23 "$1" "$2"
