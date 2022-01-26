@@ -1,0 +1,66 @@
+#!/bin/bash
+set -euo pipefail
+
+err=
+create_parents=
+
+while [ "$#" -gt 0 ] && [ "${1:0:1}" == '-' ]; do
+    arg="$1"
+    shift
+    if [ "$arg" == '--' ]; then
+        break
+    elif [ "$arg" == '-p' ] || [ "$arg" == '--parents' ]; then
+        create_parents=y
+    else
+        printf 'Error: Unrecognized argument %s\n' "$arg" >&2
+        err=y
+    fi
+done
+
+if [ -n "$err" ] || [ "$#" -lt 2 ]; then
+    printf 'Usage: %s [-p] SOURCE... DEST
+
+Moves each SOURCE file to DEST.
+If any SOURCE already exists in DEST, verifies that the two have the same contents, and removes SOURCE.
+If the contents do not match, emits an error and does not remove SOURCE.
+
+If more than one SOURCE is provided, DEST must be a directory.
+If exactly one SOURCE is provided, DEST does not end with /, and DEST is not a directory, DEST will be treated as a target filename.
+In any case, the parent directory of DEST must exist.
+' "$0" >&2
+    exit 1
+fi
+
+# TODO support -r/--recursive
+
+dest="${@:$#}"
+
+for src in "${@:1:$(($#-1))}"; do
+    if [ "$#" -eq 2 ] && [ "$dest" == "${dest%/}" ] && ! [ -d "$dest" ]; then
+        destfile="$dest"
+    else
+        filename="${src##*/}"
+        destfile="$dest/$filename"
+    fi
+    if [ -f "$destfile" ]; then
+        if [ "$(realpath "$src")" == "$(realpath "$destfile")" ]; then
+            printf 'Warning: %s and %s point to the same file! (skipping)\n' "$src" "$destfile" >&2
+            continue
+        fi
+        srchash="$(sha256sum "$src" | cut -c1-64)"
+        desthash="$(sha256sum "$destfile" | cut -c1-64)"
+        if [ "$srchash" != "$desthash" ]; then
+            printf 'Error: %s is different from %s\n' "$src" "$destfile" >&2
+        else
+            rm "$src"
+        fi
+    elif [ -n "$create_parents" ] && ! [ -e "$(dirname "$destfile")" ]; then
+        mkdir -p "$(dirname "$destfile")"
+        rsync -a --remove-source-files "$src" "$destfile"
+    elif [ -d "$(dirname "$destfile")" ]; then
+        rsync -a --remove-source-files "$src" "$destfile"
+    else
+        printf 'Error: %s is not a directory!\n' "$(dirname "$destfile")" >&2
+        exit 1
+    fi
+done
