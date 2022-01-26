@@ -112,9 +112,9 @@ for src in "${@:1:$(($#-1))}"; do
         [ -f "$destfile" ] && continue
         if [ -n "$create_parents" ] && ! [ -e "$(dirname "$destfile")" ]; then
             mkdir -p "$(dirname "$destfile")"
-            rsync -a --remove-source-files "$src" "$destfile"
+            rsync -a --ignore-existing --remove-source-files "$src" "$destfile"
         elif [ -d "$(dirname "$destfile")" ]; then
-            rsync -a --remove-source-files "$src" "$destfile"
+            rsync -a --ignore-existing --remove-source-files "$src" "$destfile"
         else
             printf 'Error: %s is not a directory!\n' "$(dirname "$destfile")" >&2
             exit 1
