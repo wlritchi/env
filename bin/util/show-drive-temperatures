@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+
+for drive in /dev/sd*; do
+    if echo "$drive" | rg -q '[0-9]$'; then
+        continue
+    fi
+    if ! temp="$(( sudo smartctl -a "$drive" || true) | rg Temperature | sed -re 's/ \(Min.*//;s/.* //')"; then
+        printf '%s: unable to read temperature (maybe not SMART-capable?)\n' "$drive"
+    else
+        serial_no="$(( sudo smartctl -i "$drive" || true) | rg Serial | sed -re 's/.* //')"
+        printf '%s (%s): %s\n' "$drive" "$serial_no" "$temp"
+    fi
+done
