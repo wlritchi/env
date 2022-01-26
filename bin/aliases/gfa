@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-exec git fetch --all
+exec git fetch --all "$@"
