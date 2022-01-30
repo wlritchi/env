@@ -6,10 +6,16 @@
         "directory": ["{id}"],
         "filename": "{num}.{filename}.{extension}",
         "instagram": {
-            "directory": ["{username}", "{post_shortcode}"]
+            "directory": ["{username}", "{post_shortcode}"],
+            "stories": {
+                "directory": ["{username}", "story"]
+            }
         },
         "patreon": {
             "directory": ["{creator[id]}", "{id}"]
+        },
+        "twitter": {
+            "directory": ["{user[id]}", "{tweet_id}"]
         }
     },
     "output": {
