@@ -8,7 +8,8 @@
         "instagram": {
             "directory": ["{username}", "{post_shortcode}"],
             "stories": {
-                "directory": ["{username}", "story"]
+                "directory": ["{username}", "story"],
+                "filename": "{filename}.{extension}"
             }
         },
         "patreon": {
