@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: %s (TARGET | TARGET... LINK_LOCATION)
+
+Create symbolic link(s) to TARGET.
+The resulting link will be absolute if TARGET is on a different filesystem from
+LINK_LOCATION, and relative otherwise.
+The relative link logic is similar to "ln -sr", except that TARGET is *not*
+recursively resolved.
+
+If LINK_LOCATION is provided, it must be a directory if more than one TARGET is provided.
+' "$0" >&2
+    exit 2
+}
+
+[ "$#" -eq 0 ] && usage
+
+[ "$#" -eq 1 ] && exec "$0" "$@" .
+
+link_location="${@:$#}"
+location_is_directory=
+[ -d "$link_location" ] && location_is_directory=y
+if [ "$#" -gt 1 ] && [ -z "$location_is_directory" ]; then
+    printf 'Error: %s is not a directory\n' "$link_location" >&2
+    exit 1
+fi
+link_fs="$(stat -c '%d' "$link_location")"
+for target in "${@:1:$(($#-1))}"; do
+    target_fs="$(stat -c '%d' "$target")"
+    if [ "$link_fs" == "$target_fs" ]; then
+        if [ -n "$location_is_directory" ]; then
+            relative="$(realpath -s "$target" --relative-to="$link_location")"
+        else
+            relative="$(realpath -s "$target" --relative-to="$(dirname "$link_location")")"
+        fi
+        ln -s "$relative" "$link_location"
+    else
+        ln -s "$(realpath -s "$target")" "$link_location"
+    fi
+done
