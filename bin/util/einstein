@@ -29,5 +29,5 @@ for link in "$@"; do
         continue
     fi
     relative="$(realpath -s "$target" --relative-to="$(dirname "$link")")"
-    ln -sf "$relative" "$link"
+    ln -snf "$relative" "$link"
 done
