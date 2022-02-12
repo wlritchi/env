@@ -1,0 +1,33 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+    printf 'Usage: %s LINK...
+
+If LINK is an absolute symbolic link whose immediate target is on the same
+filesystem, LINK will be replaced with a relative symbolic link.
+' "$0" >&2
+    exit 2
+}
+
+[ "$#" -lt 1 ] && usage
+
+for link in "$@"; do
+    if ! [ -L "$link" ]; then
+        printf 'Error: %s is not a symbolic link\n' "$link" >&2
+        exit 1
+    fi
+    target="$(readlink "$link")"
+    if [ "${target:0:1}" != '/' ]; then
+        printf 'Warning: %s is already a relative symbolic link, skipping\n' "$link" >&2
+        continue
+    fi
+    link_fs="$(stat -c '%d' "$link")"
+    target_fs="$(stat -c '%d' "$target")"
+    if [ "$link_fs" != "$target_fs" ]; then
+        printf '%s points across filesystems to %s\n' "$link" "$target"
+        continue
+    fi
+    relative="$(realpath -s "$target" --relative-to="$(dirname "$link")")"
+    ln -sf "$relative" "$link"
+done
