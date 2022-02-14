@@ -139,6 +139,17 @@ wlr_detect_ssh() {
     return 1
 }
 
+wlr_detect_named_term() {
+    if [ -n "$__INTELLIJ_COMMAND_HISTFILE__" ]; then
+        {
+            pwd
+            echo "$_INTELLIJ_COMMAND_HISTFILE__"
+        } | sha256sum | cut -c1-7
+        return 0
+    fi
+    return 1
+}
+
 wlr_suspect_tty() {
     # usually this is from IDEs' integrated terminals
     if [ "$(realpath "$(pwd)")" != "$(realpath "$HOME")" ]; then
@@ -166,7 +177,11 @@ if [ -n "$wlr_interactive" ]; then
         tmux new-session -d -s hot-spares >/dev/null 2>&1 || true
         [ "$(tmux list-windows -t hot-spares | wc -l)" -lt 3 ] && tmux new-window -t hot-spares:
         wlr-good 'tmux'
-    elif [ "$WLR_TMUX" == 'n' ] || wlr_suspect_tty; then
+    elif [ "$WLR_TMUX" == 'n' ]; then
+        wlr-warn 'tmux - skipping'
+    elif term="$(wlr_detect_named_term)"; then
+        exec tmux new-session -A -s "$term" -c "$(pwd)"
+    elif wlr_suspect_tty; then
         wlr-warn 'tmux - skipping'
     elif command -v zellij >/dev/null 2>&1 && false; then # TODO reenable
         exec zellij options --disable-mouse-mode
