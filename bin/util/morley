@@ -23,6 +23,7 @@ for link in "$@"; do
         printf 'Warning: %s is already an absolute symbolic link, skipping\n' "$link" >&2
         continue
     fi
-    absolute="$(realpath -s "$target")"
+    resolved="$(dirname "$link")/$target"
+    absolute="$(realpath -s "$resolved")"
     ln -snf "$absolute" "$link"
 done
