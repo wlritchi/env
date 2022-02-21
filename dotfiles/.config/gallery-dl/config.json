@@ -15,6 +15,9 @@
         "patreon": {
             "directory": ["{creator[id]}", "{id}"]
         },
+        "pixiv": {
+            "directory": ["{user[id]}", "{id}"]
+        },
         "twitter": {
             "directory": ["{user[id]}", "{tweet_id}"]
         }
