@@ -143,7 +143,7 @@ wlr_detect_named_term() {
     if [ -n "$__INTELLIJ_COMMAND_HISTFILE__" ]; then
         {
             pwd
-            echo "$_INTELLIJ_COMMAND_HISTFILE__"
+            echo "$__INTELLIJ_COMMAND_HISTFILE__"
         } | sha256sum | cut -c1-7
         return 0
     fi
