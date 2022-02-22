@@ -2,4 +2,4 @@
 set -euo pipefail
 
 ptpython_config="$(cat "$HOME/.config/ptpython/config.py" | base64)"
-kubectlx exec --stdin --tty "$@" -- /bin/sh -c 'mkdir -p "$HOME/.config/ptpython"; echo '"${ptpython_config@Q}"' | base64 -d > "$HOME/.config/ptpython/config.py"; pip install ptpython django-extensions; exec ./manage.py shell_plus --ptpython'
+kubectlx exec --stdin --tty "$@" -- /bin/sh -c 'mkdir -p "$HOME/.config/ptpython"; echo "'"$ptpython_config"'" | base64 -d > "$HOME/.config/ptpython/config.py"; pip install ptpython django-extensions; exec ./manage.py shell_plus --ptpython'
