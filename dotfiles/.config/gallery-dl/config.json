@@ -6,10 +6,10 @@
         "directory": ["{id}"],
         "filename": "{num}.{filename}.{extension}",
         "imgur": {
-            "directory": ["media"],
+            "directory": ["media", "{id[0]}", "{id[1]}"],
             "filename": "{filename}.{extension}",
             "album": {
-                "directory": ["album", "{album[id]}"],
+                "directory": ["album", "{album[id][0]}", "{album[id][1]}", "{album[id]}"],
                 "filename": "{num}.{filename}.{extension}"
             }
         },
