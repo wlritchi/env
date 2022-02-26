@@ -5,6 +5,14 @@
         "base-directory": ".",
         "directory": ["{id}"],
         "filename": "{num}.{filename}.{extension}",
+        "imgur": {
+            "directory": ["media"],
+            "filename": "{filename}.{extension}",
+            "album": {
+                "directory": ["album", "{album[id]}"],
+                "filename": "{num}.{filename}.{extension}"
+            }
+        },
         "instagram": {
             "directory": ["{username}", "{post_shortcode}"],
             "stories": {
