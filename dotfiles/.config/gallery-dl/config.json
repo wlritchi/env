@@ -27,7 +27,11 @@
             "directory": ["{user[id]}", "{id}"]
         },
         "twitter": {
-            "directory": ["{user[id]}", "{tweet_id}"]
+            "directory": ["{user[id]}", "{tweet_id}"],
+            "quoted": true,
+            "replies": true,
+            "retweets": true,
+            "text-tweets": true
         }
     },
     "output": {
