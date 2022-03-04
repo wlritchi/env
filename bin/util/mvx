@@ -1,0 +1,219 @@
+#!/bin/bash
+set -euo pipefail
+
+dir="$(dirname "$(realpath "$0")")"
+
+usage() {
+    printf 'Usage: %s [OPTIONS] SOURCE... DESTINATION
+
+Move each SOURCE to DESTINATION.
+If more than one SOURCE is provided, or if DESTINATION ends with /, then DESTINATION must be a directory into which each SOURCE will be moved.
+Otherwise, if DESTINATION is not an existing directory, DESTINATION is treated as a target name for SOURCE.
+
+OPTIONS:
+    -p  Create parents of DESTINATION if they do not exist.
+
+    -n  If a file already exists at DESTINATION, verify that its hash matches and remove SOURCE.
+        In this mode, every SOURCE must be a file.
+
+    -a  If a conflicting file exists at DESTINATION, search for alternate filenames instead of raising an error.
+        Requires -n.
+
+    -l  Replace each SOURCE with a symlink to its new location.
+
+    -R  Force the use of relative symlinks.
+        Requires -l, incompatible with -A.
+
+    -A  Force the use of absolute symlinks.
+        Requires -l, incompatible with -R.
+
+When creating symlinks, by default symlinks will be created as relative if they do not cross filesystem boundaries.
+' "$0" >&2
+    exit 2
+}
+
+create_parents=
+verify_hash=
+alt_rename=
+link=
+relative=
+absolute=
+while getopts ":pnalRA" o; do
+    case "$o" in
+        p)
+            create_parents=y
+            ;;
+        n)
+            verify_hash=y
+            ;;
+        a)
+            alt_rename=y
+            ;;
+        l)
+            link=y
+            ;;
+        R)
+            [ -n "$absolute" ] && usage
+            relative=y
+            ;;
+        A)
+            [ -n "$relative" ] && usage
+            absolute=y
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
+shift "$((OPTIND-1))"
+[ "$#" -lt 2 ] && usage
+if [ -n "$alt_rename" ]; then
+    [ -n "$verify_hash" ] || usage
+fi
+if [ -n "$relative" ] || [ -n "$absolute" ]; then
+    [ -n "$link" ] || usage
+fi
+
+dest="${@:$#}"
+
+generate_names_for_search() {
+    local file="$1"
+    local stub="${file%.*}"
+    local ext="${file##*.}"
+    if [ "$ext" == "$file" ]; then
+        ext=
+    else
+        ext=".$ext"
+    fi
+    echo "$file"
+    [ -z "$alt_rename" ] && return
+    echo "$stub.alt$ext"
+    [ -n "$ext" ] && echo "$stub$ext.alt"
+    for i in $(seq 0 50); do
+        echo "$stub.alt.$i$ext"
+        echo "$stub.$i.alt$ext"
+        if [ -n "$ext" ]; then
+            echo "$stub$ext.alt.$i"
+            echo "$stub$ext.$i.alt"
+        fi
+    done
+}
+
+get_existing_path() {
+    local src="$1"
+    local dest="$2"
+
+    while IFS=$'\n' read candidate; do
+        if [ -f "$candidate" ]; then
+            if [ "$(realpath "$src")" == "$(realpath "$candidate")" ]; then
+                echo "$candidate"
+                return 0
+            fi
+            src_hash="$(sha256sum "$src" | head -c64)"
+            candidate_hash="$(sha256sum "$candidate" | head -c64)"
+            if [ "$src_hash" == "$candidate_hash" ]; then
+                echo "$candidate"
+                return 0
+            fi
+        fi
+    done < <( generate_names_for_search "$dest" )
+    return 1
+}
+
+generate_names_for_move() {
+    local file="$1"
+    local stub="${file%.*}"
+    local ext="${file##*.}"
+    if [ "$ext" == "$file" ]; then
+        ext=
+    else
+        ext=".$ext"
+    fi
+    echo "$file"
+    [ -z "$alt_rename" ] && return
+    for i in $(seq 0 50); do
+        echo "$stub.alt.$i$ext"
+    done
+}
+
+get_final_path() {
+    local dest="$1"
+    while IFS=$'\n' read candidate; do
+        if ! [ -e "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done < <( generate_names_for_move "$dest" )
+    return 1
+}
+
+make_link() {
+    local src="$1"
+    local dest="$2"
+    local rel=
+    if [ -n "$absolute" ]; then
+        true
+    elif [ -n "$relative" ]; then
+        rel=y
+    else
+        local src_fs="$(stat -c '%d' "$src")"
+        local dst_fs="$(stat -c '%d' "$dest")"
+        if [ "$src_fs" == "$dst_fs" ]; then
+            rel=y
+        fi
+    fi
+    if [ -n "$rel" ]; then
+        ln -srf "$dest" "$src"
+    else
+        ln -sf "$(realpath -s "$dest")" "$src"
+    fi
+}
+
+move_to() {
+    local src="$1"
+    local dest="$2"
+    local final
+
+    if [ -n "$verify_hash" ]; then
+        if ! [ -f "$src" ]; then
+            printf 'Error: %s is not a file\n' "$src" >&2
+            return 1
+        fi
+        if ! final="$(get_existing_path "$src" "$dest")"; then
+            if ! final="$(get_final_path "$dest")"; then
+                printf 'Error: %s does not match %s and no alternate filename is available\n' "$src" "$dest" >&2
+                return 1
+            fi
+            rsync -a "$src" "$final"
+        fi
+    else
+        final="$dest"
+        rsync -a "$src" "$final"
+    fi
+    if [ -n "$link" ]; then
+        make_link "$src" "$final"
+    else
+        rm "$src"
+    fi
+}
+
+dest_is_dir=y
+if [ "$#" -eq 2 ] && [ "$dest" == "${dest%/}" ] && ! [ -d "$dest" ]; then
+    dest_is_dir=
+fi
+if [ -n "$create_parents" ]; then
+    if [ -n "$dest_is_dir" ]; then
+        mkdir -p "$dest"
+    else
+        mkdir -p "$(dirname "$dest")"
+    fi
+fi
+
+for src in "${@:1:$(($#-1))}"; do
+    if [ -n "$dest_is_dir" ]; then
+        move_to "$src" "${dest%/}/$(basename "$src")"
+    else
+        move_to "$src" "$dest"
+    fi
+done
+
