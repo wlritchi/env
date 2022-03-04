@@ -195,19 +195,26 @@ move_to() {
     else
         final="$dest"
     fi
+    if [ -n "$verbose" ]; then
+        if [ -n "$needs_move" ]; then
+            if [ -n "$link" ]; then
+                printf '%s --(mvln)--> %s\n' "$src" "$final" >&2
+            else
+                printf '%s --(mv)--> %s\n' "$src" "$final" >&2
+            fi
+        elif [ -n "$link" ]; then
+            printf '%s --(ln)--> %s\n' "$src" "$final" >&2
+        else
+            printf '%s -X(rm)    %s\n' "$src" "$final" >&2
+        fi
+    fi
     if [ -n "$needs_move" ]; then
         if [ -n "$create_parents" ]; then
             mkdir -p "$(dirname "$final")"
         fi
-        if [ -n "$verbose" ]; then
-            printf '%s --(mv)--> %s\n' "$src" "$final" >&2
-        fi
-        rsync -a "$src" "$final"
+        rsync -a "$src" "$final"  # don't --remove-source-files, need old copy for fs-equals in make_link
     fi
     if [ -n "$link" ]; then
-        if [ -n "$verbose" ]; then
-            printf '%s --(ln)--> %s\n' "$src" "$final" >&2
-        fi
         make_link "$src" "$final"
     else
         rm "$src"
