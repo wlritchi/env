@@ -173,21 +173,26 @@ move_to() {
     local src="$1"
     local dest="$2"
     local final
+    local needs_move=y
 
     if [ -n "$verify_hash" ]; then
         if ! [ -f "$src" ]; then
             printf 'Error: %s is not a file\n' "$src" >&2
             return 1
         fi
-        if ! final="$(get_existing_path "$src" "$dest")"; then
-            if ! final="$(get_final_path "$dest")"; then
-                printf 'Error: %s does not match %s and no alternate filename is available\n' "$src" "$dest" >&2
-                return 1
-            fi
-            rsync -a "$src" "$final"
+        if final="$(get_existing_path "$src" "$dest")"; then
+            needs_move=
+        elif ! final="$(get_final_path "$dest")"; then
+            printf 'Error: %s does not match %s and no alternate filename is available\n' "$src" "$dest" >&2
+            return 1
         fi
     else
         final="$dest"
+    fi
+    if [ -n "$needs_move" ]; then
+        if [ -n "$create_parents" ]; then
+            mkdir -p "$(dirname "$final")"
+        fi
         rsync -a "$src" "$final"
     fi
     if [ -n "$link" ]; then
