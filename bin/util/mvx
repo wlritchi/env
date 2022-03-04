@@ -27,6 +27,8 @@ OPTIONS:
     -A  Force the use of absolute symlinks.
         Requires -l, incompatible with -R.
 
+    -v  Print to stderr a record of the changes made. The output is not guaranteed to be stable; do not use it in scripts.
+
 When creating symlinks, by default symlinks will be created as relative if they do not cross filesystem boundaries.
 ' "$0" >&2
     exit 2
@@ -38,7 +40,8 @@ alt_rename=
 link=
 relative=
 absolute=
-while getopts ":pnalRA" o; do
+verbose=
+while getopts ":pnalRAv" o; do
     case "$o" in
         p)
             create_parents=y
@@ -59,6 +62,9 @@ while getopts ":pnalRA" o; do
         A)
             [ -n "$relative" ] && usage
             absolute=y
+            ;;
+        v)
+            verbose=y
             ;;
         *)
             usage
@@ -193,9 +199,15 @@ move_to() {
         if [ -n "$create_parents" ]; then
             mkdir -p "$(dirname "$final")"
         fi
+        if [ -n "$verbose" ]; then
+            printf '%s --(mv)--> %s\n' "$src" "$final" >&2
+        fi
         rsync -a "$src" "$final"
     fi
     if [ -n "$link" ]; then
+        if [ -n "$verbose" ]; then
+            printf '%s --(ln)--> %s\n' "$src" "$final" >&2
+        fi
         make_link "$src" "$final"
     else
         rm "$src"
