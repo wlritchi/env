@@ -186,6 +186,18 @@ move_to() {
             printf 'Error: %s is not a file\n' "$src" >&2
             return 1
         fi
+        if [ -L "$src" ]; then
+            printf 'Error: %s is a symlink\n' "$src" >&2
+            return 1
+        fi
+        if [ -L "$dest" ]; then
+            src_real="$(realpath "$src")"
+            dest_real="$(realpath "$dest")"
+            if [ "$src_real" == "$dest_real" ]; then
+                printf 'Error: destination %s points back to source %s\n' "$dest" "$src" >&2
+                return 1
+            fi
+        fi
         if final="$(get_existing_path "$src" "$dest")"; then
             needs_move=
         elif ! final="$(get_final_path "$dest")"; then
