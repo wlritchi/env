@@ -187,6 +187,8 @@ if $(which fluxx 2>/dev/null):
 
 if $(which sshfsx 2>/dev/null):
     aliases['sshfs'] = 'sshfsx'
+if $(which sshx 2>/dev/null):
+    aliases['ssh'] = 'sshx'
 
 # xonsh-only, workaround for lack of ergonomic "time" builtin
 if $(which timex 2>/dev/null):

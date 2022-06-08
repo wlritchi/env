@@ -456,6 +456,7 @@ command -v fluxx >/dev/null 2>&1 && alias flux='fluxx'
 command -v helmx > /dev/null 2>&1 && alias helm='helmx'
 command -v kubectlx > /dev/null 2>&1 && alias kubectl='kubectlx'
 
+command -v sshx > /dev/null 2>&1 && alias ssh='sshx'
 command -v sshfsx > /dev/null 2>&1 && alias sshfs='sshfsx'
 
 alias cd='wrappercd'
