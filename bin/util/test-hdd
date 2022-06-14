@@ -55,6 +55,22 @@ head -c"$size" /dev/urandom | pee cat "sha256sum | head -c64 > ${hash_file@Q}" |
 expected_hash="$(cat "$hash_file")"
 printf '\nExpected hash: %s\n\n' "$expected_hash"
 
+printf 'Starting extended self-test...\n'
+smartctl -t long "$disk"
+sleep 10
+
+printf 'Waiting for self-test to complete..'
+while smartctl -c "$disk" | grep -q "Self-test routine in progress"; do
+    printf '.'
+    sleep 600
+done
+printf '\n'
+
+printf 'Verifying self-test result...\n'
+if ! smartctl -c "$disk" | grep -q "without error"; then
+    printf 'WARNING: Unable to verify self-test results! (this may be a false positive)\n'
+fi
+
 printf 'Reading and verifying data from disk...\n'
 # actual_hash="$(dd if="$disk" bs="$dd_block_size" count="$dd_count" status=progress | sha256sum | cut -c1-64)"
 actual_hash="$(pv "$disk" | sha256sum | head -c64)"
