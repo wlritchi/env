@@ -17,16 +17,16 @@ fi
 serial_number="$(smartctl -i "$disk" | grep Serial | sed -re 's/.*: *//')"
 hash_file="${disk##*/}.${serial_number}.hash.txt"
 
-if [ -e "$hash_file" ]; then
-    printf 'Error: %s already exists\n' "$hash_file" >&2
-    exit 1
-fi
-
 smartctl -i "$disk"
 
 lsblk "$disk"
 
-printf '\nWARNING: This will erase all data on %s!\n' "$disk"
+
+if [ -e "$hash_file" ]; then
+    printf '\nWARNING: %s already exists! You can continue where this run left off (read-only)\n' "$hash_file"
+else
+    printf '\nWARNING: This will erase all data on %s!\n' "$disk"
+fi
 read -p 'If you are sure this is what you want, retype the disk path: ' confirm_path
 
 if [ "$disk" != "$confirm_path" ]; then
@@ -48,12 +48,22 @@ done
 
 ((dd_count = size / dd_block_size))
 
-printf 'Writing random data to disk...\n'
-# dd if=/dev/urandom iflag=fullblock bs="$dd_block_size" count="$dd_count" status=none | pee cat "sha256sum | cut -c1-64 > ${hash_file@Q}" | dd iflag=fullblock of="$disk" bs="$dd_block_size" count="$dd_count" status=progress
-head -c"$size" /dev/urandom | pee cat "sha256sum | head -c64 > ${hash_file@Q}" | pv -s "$size" > "$disk"
+if ! [ -e "$hash_file" ]; then
+    printf 'Writing random data to disk...\n'
+    head -c"$size" /dev/urandom | pee cat "sha256sum | head -c64 > ${hash_file@Q}" | pv -s "$size" > "$disk"
+fi
 
 expected_hash="$(cat "$hash_file")"
 printf '\nExpected hash: %s\n\n' "$expected_hash"
+
+if smartctl -c "$disk" | grep -q "Self-test routine in progress"; then
+    printf 'Waiting for existing self-test to complete..'
+    while smartctl -c "$disk" | grep -q "Self-test routine in progress"; do
+        printf '.'
+        sleep 600
+    done
+    printf '\n'
+fi
 
 printf 'Starting extended self-test...\n'
 smartctl -t long "$disk"
