@@ -19,6 +19,10 @@ OPTIONS:
     -a  If a conflicting file exists at DESTINATION, search for alternate filenames instead of raising an error.
         Requires -n.
 
+    -t  If a conflicting file exists at DESTINATION, check if one of the two files is a truncated copy of the other.
+        If so, keep the longer file.
+        Requires -n.
+
     -l  Replace each SOURCE with a symlink to its new location.
 
     -R  Force the use of relative symlinks.
@@ -37,11 +41,12 @@ When creating symlinks, by default symlinks will be created as relative if they 
 create_parents=
 verify_hash=
 alt_rename=
+check_truncated=
 link=
 relative=
 absolute=
 verbose=
-while getopts ":pnalRAv" o; do
+while getopts ":pnatlRAv" o; do
     case "$o" in
         p)
             create_parents=y
@@ -51,6 +56,9 @@ while getopts ":pnalRAv" o; do
             ;;
         a)
             alt_rename=y
+            ;;
+        t)
+            check_truncated=y
             ;;
         l)
             link=y
@@ -73,7 +81,7 @@ while getopts ":pnalRAv" o; do
 done
 shift "$((OPTIND-1))"
 [ "$#" -lt 2 ] && usage
-if [ -n "$alt_rename" ]; then
+if [ -n "$alt_rename" ] || [ -n "$check_truncated" ]; then
     [ -n "$verify_hash" ] || usage
 fi
 if [ -n "$relative" ] || [ -n "$absolute" ]; then
@@ -115,11 +123,33 @@ get_existing_path() {
                 echo "$candidate"
                 return 0
             fi
-            src_hash="$(sha256sum "$src" | head -c64)"
-            candidate_hash="$(sha256sum "$candidate" | head -c64)"
-            if [ "$src_hash" == "$candidate_hash" ]; then
-                echo "$candidate"
-                return 0
+            src_size="$(stat -c%s "$src")"
+            candidate_size="$(stat -c%s "$candidate")"
+            if [ "$src_size" == "$candidate_size" ]; then
+                src_hash="$(sha256sum "$src" | head -c64)"
+                candidate_hash="$(sha256sum "$candidate" | head -c64)"
+                if [ "$src_hash" == "$candidate_hash" ]; then
+                    echo "$candidate"
+                    return 0
+                fi
+            elif [ -n "$check_truncated" ]; then
+                if [ "$src_size" -lt "$candidate_size" ]; then
+                    src_hash="$(sha256sum "$src" | head -c64)"
+                    candidate_trunc_hash="$(head -c"$src_size" "$candidate" | sha256sum | head -c64)"
+                    if [ "$src_hash" == "$candidate_trunc_hash" ]; then
+                        printf '# %s -X(trunc)    %s\n' "$src" "$candidate" >&2
+                        echo "$candidate"
+                        return 0  # no move required
+                    fi
+                else
+                    src_trunc_hash="$(head -c"$candidate_size" "$src" | sha256sum | head -c64)"
+                    candidate_hash="$(sha256sum "$candidate" | head -c64)"
+                    if [ "$src_trunc_hash" == "$candidate_hash" ]; then
+                        printf '# %s --(extend)--> %s\n' "$src" "$candidate" >&2
+                        echo "$candidate"
+                        return 1  # move required
+                    fi
+                fi
             fi
         fi
     done < <( generate_names_for_search "$dest" )
@@ -204,7 +234,7 @@ move_to() {
         fi
         if final="$(get_existing_path "$src" "$dest")"; then
             needs_move=
-        elif ! final="$(get_final_path "$dest")"; then
+        elif [ -z "$final" ] && ! final="$(get_final_path "$dest")"; then
             printf 'Error: %s does not match %s and no alternate filename is available\n' "$src" "$dest" >&2
             return 1
         fi
