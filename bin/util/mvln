@@ -21,10 +21,4 @@ if [ -d "$destination" ]; then
     destination="${destination%/}/$filename"
 fi
 
-if [ -e "$destination" ]; then
-    printf 'Error: %s already exists\n' "$destination" >&2
-    exit 1
-fi
-
-mv "$source" "$destination"
-ln -s "$destination" "$source"
+mvx -vpnlR "$source" "$destination"
