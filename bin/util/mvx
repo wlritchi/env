@@ -123,8 +123,8 @@ get_existing_path() {
                 echo "$candidate"
                 return 0
             fi
-            src_size="$(stat -c%s "$src")"
-            candidate_size="$(stat -c%s "$candidate")"
+            src_size="$(stat -c%s "$(realpath "$src")")"
+            candidate_size="$(stat -c%s "$(realpath "$candidate")")"
             if [ "$src_size" == "$candidate_size" ]; then
                 src_hash="$(sha256sum "$src" | head -c64)"
                 candidate_hash="$(sha256sum "$candidate" | head -c64)"
