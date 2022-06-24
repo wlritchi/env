@@ -18,3 +18,4 @@
 --concat-playlist never
 --throttled-rate 100k
 --no-overwrites  # don't redownload thumbnails, subs, etc
+--sleep-subtitles 8
