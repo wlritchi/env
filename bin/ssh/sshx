@@ -3,7 +3,7 @@ set -euo pipefail
 
 # wrapper for ssh to explicitly deactivate my usual tmux-ification if already running in tmux
 
-if [ -z "$TMUX" ]; then
+if [ -z "${TMUX:-}" ]; then
     # we're not running in tmux, nothing to de-weird
     exec ssh "$@"
 fi
