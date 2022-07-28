@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+
+import sys
+from urllib.parse import quote
+
+# TODO don't buffer all of input in memory
+
+print(quote(sys.stdin.read()))
