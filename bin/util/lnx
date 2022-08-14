@@ -22,11 +22,15 @@ If LINK_LOCATION is provided, it must be a directory if more than one TARGET is 
 link_location="${@:$#}"
 location_is_directory=
 [ -d "$link_location" ] && location_is_directory=y
-if [ "$#" -gt 1 ] && [ -z "$location_is_directory" ]; then
+if [ "$#" -gt 2 ] && [ -z "$location_is_directory" ]; then
     printf 'Error: %s is not a directory\n' "$link_location" >&2
     exit 1
 fi
-link_fs="$(stat -c '%d' "$link_location")"
+if [ -e "$link_location" ]; then
+    link_fs="$(stat -c '%d' "$link_location")"
+else
+    link_fs="$(stat -c '%d' "$(dirname "$link_location")")"
+fi
 for target in "${@:1:$(($#-1))}"; do
     target_fs="$(stat -c '%d' "$target")"
     if [ "$link_fs" == "$target_fs" ]; then
