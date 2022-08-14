@@ -2,4 +2,4 @@
 set -euo pipefail
 
 # https://serverfault.com/a/639735
-exec sshfs -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 "$@"
+exec sshfs -o transform_symlinks,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 "$@"
