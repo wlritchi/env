@@ -458,6 +458,7 @@ command -v kubectlx > /dev/null 2>&1 && alias kubectl='kubectlx'
 
 command -v sshx > /dev/null 2>&1 && alias ssh='sshx'
 command -v sshfsx > /dev/null 2>&1 && alias sshfs='sshfsx'
+command -v moshx > /dev/null 2>&1 && alias mosh='moshx'
 
 alias cd='wrappercd'
 wrappercd() {

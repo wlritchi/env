@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+# wrapper for mosh to explicitly deactivate my usual tmux-ification if already running in tmux
+
+if [ -z "${TMUX:-}" ]; then
+    # we're not running in tmux, nothing to de-weird
+    exec mosh "$@"
+fi
+
+while getopts ":ano46p:" o; do
+    true
+done
+
+if [ "$#" -gt "$OPTIND" ]; then
+    # command was provided, just run that
+    exec mosh "$@"
+fi
+
+args=()
+for arg in "${@:1:$OPTIND}"; do
+    args+=("$arg")
+done
+args+=('--' 'sh' '-c' 'WLR_TMUX=n bash')
+
+exec mosh "${args[@]}"

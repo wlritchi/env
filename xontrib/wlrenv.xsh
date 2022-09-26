@@ -185,10 +185,12 @@ if $(which helmx 2>/dev/null):
 if $(which fluxx 2>/dev/null):
     aliases['kubectl'] = 'kubectlx'
 
-if $(which sshfsx 2>/dev/null):
-    aliases['sshfs'] = 'sshfsx'
 if $(which sshx 2>/dev/null):
     aliases['ssh'] = 'sshx'
+if $(which sshfsx 2>/dev/null):
+    aliases['sshfs'] = 'sshfsx'
+if $(which moshx 2>/dev/null):
+    aliases['mosh'] = 'moshx'
 
 # xonsh-only, workaround for lack of ergonomic "time" builtin
 if $(which timex 2>/dev/null):
