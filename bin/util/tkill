@@ -1,0 +1,44 @@
+#!/bin/bash
+set -euo pipefail
+
+# Adapted from https://superuser.com/a/1307950/172230
+
+usage() {
+    printf 'Usage: %s TIMEOUT COMMAND [...ARGS]
+
+Run COMMAND with ARGS. If, at any point during its execution, it does not produce any output for
+TIMEOUT seconds, kill it.
+
+This wrapper exits with code 143 if it killed COMMAND, and with COMMAND'\''s exit code otherwise.
+' "$0" >&2
+    exit 1
+}
+
+if [ "$#" -lt 2 ]; then
+    usage
+fi
+
+_terminate_children() {
+    trap "exit 143" SIGTERM
+    kill -- "-$$"
+}
+
+trap _terminate_children SIGINT SIGTERM
+
+tout="$1"
+shift
+eval "$@" | tee >(while true; do
+    read -t "$tout"
+    case "$?" in
+    0)
+        true
+        ;;
+    1)
+        break
+        ;;
+    *)
+        _terminate_children
+        ;;
+    esac
+done)
+exit "${PIPESTATUS[0]}"
