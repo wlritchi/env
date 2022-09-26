@@ -7,7 +7,7 @@ SLEEP_SECONDS=5
 cd ~
 
 # this is allowed to fail if the hot-spares session already exists
-tmux new-session -d -s hot-spares 2>/dev/null || true
+TMUX= tmux new-session -d -s hot-spares 2>/dev/null || true
 
 while [ "$(tmux list-windows -t hot-spares | wc -l)" -lt "$MIN_HOT_SPARES" ]; do
     tmux new-window -t hot-spares:
