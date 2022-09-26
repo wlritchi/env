@@ -1,15 +1,17 @@
 #!/usr/bin/env xonsh
 
-from datetime import datetime, timedelta, timezone
 import random
+from datetime import datetime, timedelta, timezone
+from itertools import product
+from random import randint
 
 
 def coin():
-    return 'heads' if random.randint(0, 1) else 'tails'
+    return 'heads' if randint(0, 1) else 'tails'
 
 
 def ndm(n=1, m=6):
-    return sum(random.randint(1, m) for _ in range(n))
+    return sum(randint(1, m) for _ in range(n))
 
 
 def d4(n=1):
@@ -34,6 +36,11 @@ def shuffle(items):
     return l
 
 
+def choose(items):
+    l = list(items)
+    return l[randint(0, len(l) - 1)]
+
+
 def parsetimedelta(x):
     if isinstance(x, str):
         from pytimeparse.timeparse import timeparse
@@ -50,7 +57,7 @@ def randtimedelta(a, b=None):
         a, b = (timedelta(0), a)
     a = parsetimedelta(a)
     b = parsetimedelta(b)
-    seconds = random.randint(int(a.total_seconds()), int(b.total_seconds()))
+    seconds = randint(int(a.total_seconds()), int(b.total_seconds()))
     return str(timedelta(seconds=seconds))
 
 
