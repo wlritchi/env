@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+# wrap ffmpeg to die if it produces no output for 60 seconds
+
+MAX_IDLE_SECONDS=60
+
+dir="$(dirname "$(realpath "$0")")"
+tkill_bin="$dir/../../bin/util/tkill"
+
+exec "$tkill_bin" "$MAX_IDLE_SECONDS" ffmpeg "$@"
