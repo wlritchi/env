@@ -1,4 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-jq -C . | less -R
+if [ "$#" -gt 0 ]; then
+    for file in "$@"; do
+        jq -C . "$file" | less -R
+    done
+else
+    jq -C . | less -R
+fi
