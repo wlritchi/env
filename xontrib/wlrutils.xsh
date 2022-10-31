@@ -1,8 +1,11 @@
 #!/usr/bin/env xonsh
 
+import base64
+import json
 import random
 from datetime import datetime, timedelta, timezone
 from itertools import product
+from os.path import basename, dirname, exists, lexists, isabs, isfile, isdir, islink, ismount, realpath, relpath, samefile
 from random import randint
 
 
