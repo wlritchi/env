@@ -12,7 +12,8 @@ set hidden
 set expandtab
 set tabstop=4
 set shiftwidth=4
-colorscheme flattened_dark
+set termguicolors
+colorscheme solarized8
 
 " Activate bracketed paste in tmux
 " https://vi.stackexchange.com/a/25346
