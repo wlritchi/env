@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+exec git fetch --prune origin "$(git infer-main-branch)" "$@"

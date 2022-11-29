@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+if ref="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)"; then
+    echo "$ref" | sed -re 's@^refs/remotes/origin/@@'
+elif git rev-parse --verify main >/dev/null 2>&1; then
+    if git rev-parse --verify master >/dev/null 2>&1; then
+        remote_newest="$(git for-each-ref --sort=-committerdate --format='%(refname)' refs/remotes/origin/heads/main refs/remotes/origin/heads/master | head -n1)"
+        if [ -n "$remote_newest" ]; then
+            echo "$remote_newest" | sed -re 's@^refs/remotes/origin/@@'
+        else
+            local_newest="$(git for-each-ref --sort=-committerdate --format='%(refname)' refs/heads/main refs/heads/master | head -n1)"
+            if [ -n "$local_newest" ]; then
+                echo "$local_newest" | sed -re 's@^refs/heads/@@'
+            else
+                echo "Unable to find newest commit to branch (checked main and master on origin and local)" >&2
+                exit 1
+            fi
+        fi
+    else
+        echo "main"
+    fi
+elif git rev-parse --verify master >/dev/null 2>&1; then
+    echo "master"
+else
+    echo "No main branch identified (checked for origin/HEAD, main, and master)" >&2
+    exit 1
+fi
