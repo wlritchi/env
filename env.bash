@@ -31,6 +31,26 @@ RECOMMENDED_XONSH_VERSION=xonsh/0.13.3
 [ -n "$__ALIAS_STACK" ] && exit # xonsh source-bash or similar
 
 
+good_steps=()
+warnings=()
+err_steps=()
+
+print_status() {
+    if [ "${#good_steps[@]}" -gt 0 ]; then
+        wlr-good "${good_steps[@]}"
+    fi
+    for warning in "${warnings[@]}"; do
+        wlr-warn "$warning"
+    done
+    if [ "${#err_steps[@]}" -gt 0 ]; then
+        wlr-err "${err_steps[@]}"
+    fi
+    good_steps=()
+    warnings=()
+    err_steps=()
+}
+
+
 wlr_interactive=
 if [ -n "$TERM" ]; then
     case "$-" in
@@ -98,7 +118,7 @@ ensurepath() {
     fi
     for t in "$@"; do
         if ! [ -d "$t" ]; then
-            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to PATH, but it is not a directory\n' "$t" >&2
+            warnings+=("Warning: tried to add $t to PATH, but it is not a directory")
             continue
         fi
         if ! echo "$PATH" | grep -Eq "(^|:)$t($|:)"; then
@@ -166,26 +186,28 @@ wlr_suspect_tty() {
     return 1
 }
 
-
 # invoke zellij/tmux, if applicable
 
 if [ -n "$wlr_interactive" ]; then
     if [ -n "$ZELLIJ" ]; then
-        wlr-good 'zellij'
+        good_steps+=('zellij')
     elif [ -n "$TMUX" ]; then
         # make sure hot-spares exists and top it up to 3 windows
         tmux new-session -d -s hot-spares >/dev/null 2>&1 || true
         [ "$(tmux list-windows -t hot-spares | wc -l)" -lt 3 ] && tmux new-window -t hot-spares:
-        wlr-good 'tmux'
+        good_steps+=('tmux')
     elif [ "$WLR_TMUX" == 'n' ]; then
         wlr-warn 'tmux - skipping'
     elif term="$(wlr_detect_named_term)"; then
+        print_status
         exec tmux new-session -A -s "$term" -c "$(pwd)"
     elif wlr_suspect_tty; then
-        wlr-warn 'tmux - skipping'
+        warnings+=('tmux - skipping')
     elif command -v zellij >/dev/null 2>&1 && false; then # TODO reenable
+        print_status
         exec zellij options --disable-mouse-mode
     elif command -v tmux >/dev/null 2>&1; then
+        print_status
         # make sure hot spares session exists
         tmux new-session -d -s hot-spares 2>/dev/null || true
         # tmux will be executing its own commands in a temporary window
@@ -194,7 +216,7 @@ if [ -n "$wlr_interactive" ]; then
         # finally, we recreate hot-spares (if we destroyed it), and add a window to it to replace the one we took
         exec tmux new-session 'tmux move-window \; move-window -s hot-spares \; if-shell "tmux new-session -d -s hot-spares" "run-shell true" \; new-window -t hot-spares:'
     else
-        wlr-err 'tmux'
+        err_steps+=('tmux/zellij')
     fi
 fi
 
@@ -232,7 +254,7 @@ fi
 
 wlr_check_env_shim() {
     if ! [ -f "$HOME/.$1/shims/$2" ]; then
-        wlr-warn "$1 is installed, but $2 shim is missing ($1 install <version> and/or $1 rehash to fix)"
+        warnings+=("$1 is installed, but $2 shim is missing ($1 install <version> and/or $1 rehash to fix)")
         return 1
     fi
 }
@@ -247,20 +269,20 @@ wlr_setup_pyenv() {
         fi
         eval "$(pyenv init -)"
         if ! command -v pyenv-virtualenv >/dev/null 2>&1; then
-            [ -n "$wlr_interactive" ] && wlr-warn 'pyenv is installed, but pyenv-virtualenv was not found'
+            warnings+=('pyenv is installed, but pyenv-virtualenv was not found')
             return
         fi
         eval "$(pyenv virtualenv-init -)"
         [ -z "$wlr_interactive" ] && return
         wlr_check_env_shim pyenv python && \
             wlr_check_env_shim pyenv pip && \
-            wlr-good 'pyenv'
+            good_steps+=('pyenv')
     elif [ -z "$wlr_interactive" ]; then
         return
     elif command -v python >/dev/null 2>&1; then
-        wlr-warn 'python is installed, but pyenv was not found'
+        warnings+=('python is installed, but pyenv was not found')
     else
-        wlr-err 'python'
+        err_steps+=('python')
     fi
 }
 [ "$WLR_PYENV" != 'n' ] && wlr_setup_pyenv
@@ -271,21 +293,21 @@ wlr_setup_nodenv() {
         eval "$(nodenv init -)"
         [ -z "$wlr_interactive" ] && return
         if command -v nvm >/dev/null 2>&1; then
-            wlr-warn 'nodenv is installed, but nvm is also present (you should uninstall nvm)'
+            warnings+=('nodenv is installed, but nvm is also present (you should uninstall nvm)')
         fi
         if ! command -v node-build >/dev/null 2>&1; then
-            wlr-warn 'nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)'
+            warnings+=('nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)')
         fi
         wlr_check_env_shim nodenv node && \
             wlr_check_env_shim nodenv npm && \
             wlr_check_env_shim nodenv npx && \
-            wlr-good 'nodenv'
+            good_steps+=('nodenv')
     elif [ -z "$wlr_interactive" ]; then
         return
     elif command -v node >/dev/null 2>&1; then
-        wlr-warn 'node is installed, but nodenv was not found'
+        warnings+=('node is installed, but nodenv was not found')
     else
-        wlr-err 'node'
+        err_steps+=('node')
     fi
 }
 [ "$WLR_NODENV" != 'n' ] && wlr_setup_nodenv
@@ -294,9 +316,9 @@ unset wlr_setup_nodenv
 wlr_check_pipx() {
     [ -z "$wlr_interactive" ] && return
     if command -v pipx >/dev/null 2>&1; then
-        wlr-good 'pipx'
+        good_steps+=('pipx')
     else
-        wlr-err 'pipx'
+        err_steps+=('pipx')
     fi
 }
 wlr_check_pipx
@@ -306,18 +328,18 @@ unset wlr_check_pipx
 # looks like some pyenv-related tools might be able to handle it?
 wlr_setup_conda() {
     if ! command -v conda >/dev/null 2>&1; then
-        [ -n "$wlr_interactive" ] && wlr-err 'conda'
+        err_steps+=('conda')
         return
     fi
     if ! [ -d "$HOME/.conda/envs/main" ]; then
-        [ -n "$wlr_interactive" ] && wlr-warn 'conda is installed, but main env is missing (conda create -n main to fix)'
+        warnings+=('conda is installed, but main env is missing (conda create -n main to fix)')
         return
     fi
     if eval "$(conda shell.posix activate main)"; then
-        [ -n "$wlr_interactive" ] && wlr-good 'conda'
+        good_steps+=('conda')
         return
     fi
-    [ -n "$wlr_interactive" ] && wlr-err 'conda'
+    err_steps+=('conda')
 }
 # disabled by default while I figure out the correct way to approach conda envs
 # maybe some pyenv-related tools can handle it?
@@ -328,17 +350,17 @@ unset wlr_setup_conda
 
 wlr_setup_krew() {
     if ! command -v kubectl >/dev/null 2>&1; then
-        [ -n "$wlr_interactive" ] && wlr-err 'kubectl'
+        err_steps+=('kubectl')
         return
     elif ! command -v kubectl-krew >/dev/null 2>&1; then
-        [ -n "$wlr_interactive" ] && wlr-err 'kubectl-krew'
+        err_steps+=('kubectl-krew')
         return
     elif ! [ -d "$HOME/.krew/bin" ]; then
-        [ -n "$wlr_interactive" ] && wlr-warn 'kubectl-krew is installed, but bin dir is missing'
+        warnings+=('kubectl-krew is installed, but bin dir is missing')
         return
     else
         ensurepath "$HOME/.krew/bin"
-        [ -n "$wlr_interactive" ] && wlr-good 'kubectl-krew'
+        good_steps+=('kubectl-krew')
     fi
 }
 wlr_setup_krew
@@ -387,7 +409,7 @@ if [ -n "$wlr_interactive" ]; then
             tmux rename-window "$cgroup"
         fi
     else
-        wlr-err 'tcg'
+        err_steps+=('tcg')
     fi
 fi
 
@@ -396,8 +418,9 @@ fi
 
 if [ -n "$wlr_interactive" ]; then
     if [ "$WLR_XONSH" == 'n' ] || [ "$POETRY_ACTIVE" == '1' ]; then
-        wlr-warn 'xonsh - skipping'
+        warnings+=('xonsh - skipping')
     elif command -v xonsh >/dev/null 2>&1; then
+        print_status
         wlr-working 'xonsh'
         xonsh_version="$(xonsh --version)"
         if [ "$xonsh_version" != "$RECOMMENDED_XONSH_VERSION" ]; then
@@ -406,9 +429,9 @@ if [ -n "$wlr_interactive" ]; then
         export WLR_BASH_BIN="$(which bash)"
         exec xonsh
     elif command -v pipx >/dev/null 2>&1; then
-        wlr-err 'xonsh is not installed (but you can install it with `pipx install xonsh`'
+        warnings+=('xonsh is not installed (but you can install it with `pipx install xonsh`')
     else
-        wlr-err 'xonsh'
+        err_steps+=('xonsh')
     fi
 fi
 
@@ -426,7 +449,9 @@ fi
 
 if command -v thefuck >/dev/null 2>&1; then
     eval "$(thefuck --alias)"
-    [ -n "$wlr_interactive" ] && wlr-good 'thef***'
+    good_steps+=('thef***')
+else
+    err_steps+=('thef****')
 fi
 
 
@@ -479,6 +504,13 @@ mkcd() {
 }
 
 
+print_status
+
+
+unset good_steps
+unset warnings
+unset err_steps
+unset print_status
 unset try_source
 unset ensurepath
 unset wlr_detect_ssh
