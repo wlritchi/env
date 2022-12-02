@@ -12,6 +12,11 @@ set hidden
 set expandtab
 set tabstop=4
 set shiftwidth=4
+
+" allow backspace always (default is certifiably insane)
+set backspace=indent,eol,start
+
+" true color
 let &t_8f="\<Esc>[38;2;%lu;%lu;%lum"
 let &t_8b="\<Esc>[48;2;%lu;%lu;%lum"
 set termguicolors
