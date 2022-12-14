@@ -1,4 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-exec git fetch --prune origin "$(git infer-main-branch)" "$@"
+main_branch="$(git infer-main-branch)"
+if [ -n "$main_branch" ]; then
+    exec git fetch --prune origin "$main_branch:$main_branch" "$@"
+else
+    exec git fetch --prune origin "$@"
+fi
