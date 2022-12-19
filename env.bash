@@ -254,35 +254,22 @@ fi
 
 wlr_check_env_shim() {
     if ! [ -f "$HOME/.$1/shims/$2" ]; then
-        warnings+=("$1 is installed, but $2 shim is missing ($1 install <version> and/or $1 rehash to fix)")
+        warnings+=("$1: $2 shim is missing ($1 install <version> and/or $1 rehash to fix)")
         return 1
     fi
 }
 
 wlr_setup_pyenv() {
-    if command -v pyenv >/dev/null 2>&1; then
-        if ! pyenv --version | grep -q 'pyenv 1'; then
-            # pyenv 2+ splits init into two parts
-            # "pyenv init --path" updates PATH (intended for .bash_profile)
-            # "pyenv init -" sets functions, completions, etc (also curiously PYENV_SHELL env var still lives here)
-            [ -z "$WLR_ENV_BASH" ] && eval "$(pyenv init --path)"
-        fi
-        eval "$(pyenv init -)"
+    if wlr_check_env_shim pyenv python && wlr_check_env_shim pyenv pip; then
+        ensurepath "$HOME/.pyenv/shims"
+        pyenv rehash >/dev/null 2>&1 &
         if ! command -v pyenv-virtualenv >/dev/null 2>&1; then
             warnings+=('pyenv is installed, but pyenv-virtualenv was not found')
-            return
-        fi
-        eval "$(pyenv virtualenv-init -)"
-        [ -z "$wlr_interactive" ] && return
-        wlr_check_env_shim pyenv python && \
-            wlr_check_env_shim pyenv pip && \
+        else
             good_steps+=('pyenv')
-    elif [ -z "$wlr_interactive" ]; then
-        return
-    elif command -v python >/dev/null 2>&1; then
-        warnings+=('python is installed, but pyenv was not found')
-    else
-        err_steps+=('python')
+        fi
+    elif command -v pyenv >/dev/null 2>&1; then
+        warnings+=('pyenv is not installed')
     fi
 }
 [ "$WLR_PYENV" != 'n' ] && wlr_setup_pyenv
