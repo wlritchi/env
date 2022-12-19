@@ -268,33 +268,29 @@ wlr_setup_pyenv() {
         else
             good_steps+=('pyenv')
         fi
-    elif command -v pyenv >/dev/null 2>&1; then
-        warnings+=('pyenv is not installed')
+    elif ! command -v pyenv >/dev/null 2>&1; then
+        err_steps+=('pyenv')
     fi
 }
 [ "$WLR_PYENV" != 'n' ] && wlr_setup_pyenv
 unset wlr_setup_pyenv
 
 wlr_setup_nodenv() {
-    if command -v nodenv >/dev/null 2>&1; then
-        eval "$(nodenv init -)"
-        [ -z "$wlr_interactive" ] && return
+    local good=y
+    if wlr_check_env_shim nodenv node && wlr_check_env_shim nodenv npm && wlr_check_env_shim nodenv npx; then
+        ensurepath "$HOME/.nodenv/shims"
+        nodenv rehash >/dev/null 2>&1 &
         if command -v nvm >/dev/null 2>&1; then
             warnings+=('nodenv is installed, but nvm is also present (you should uninstall nvm)')
+            good=
         fi
         if ! command -v node-build >/dev/null 2>&1; then
             warnings+=('nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)')
+            good=
         fi
-        wlr_check_env_shim nodenv node && \
-            wlr_check_env_shim nodenv npm && \
-            wlr_check_env_shim nodenv npx && \
-            good_steps+=('nodenv')
-    elif [ -z "$wlr_interactive" ]; then
-        return
-    elif command -v node >/dev/null 2>&1; then
-        warnings+=('node is installed, but nodenv was not found')
-    else
-        err_steps+=('node')
+        [ -n "$good" ] && good_steps+=('nodenv')
+    elif ! command -v nodenv >/dev/null 2>&1; then
+        err_steps+=('nodenv')
     fi
 }
 [ "$WLR_NODENV" != 'n' ] && wlr_setup_nodenv
