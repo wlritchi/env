@@ -221,14 +221,6 @@ def _setup():
             xonsh.dirstack.pushd([dir])
         XSH.aliases['mkcd'] = _mkcd
 
-        # # wrapper for bash that sets WLR_XONSH=n to avoid re-executing xonsh from .bashrc
-        # # implemented as an alias in case we want to switch back to bash for some reason
-        # def _bash(args):
-        #     bash_bin = XSH.env.get('WLR_BASH_BIN', '/usr/bin/bash')
-        #     with XSH.env.swap(WLR_XONSH='n'):
-        #         @(bash_bin) @(args)
-        # XSH.aliases['bash'] = _bash
-
         # # temporary workaround for xonsh bug in 0.9.27
         # # see https://github.com/xonsh/xonsh/issues/4243 and https://github.com/xonsh/xonsh/issues/2404
         # XSH.aliases['gs'] = '$[git status]'
