@@ -410,6 +410,7 @@ if [ -n "$wlr_interactive" ]; then
             wlr-warn "xonsh version $xonsh_version is installed (recommended version is $RECOMMENDED_XONSH_VERSION)"
         fi
         export WLR_BASH_BIN="$(which bash)"
+        export XONSHRC="$WLR_ENV_PATH/xonsh.py"
         exec xonsh
     elif command -v pipx >/dev/null 2>&1; then
         warnings+=('xonsh is not installed (but you can install it with `pipx install xonsh`')
