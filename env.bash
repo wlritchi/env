@@ -25,9 +25,6 @@
 # Python from the venv, not Python from pyenv or the system.
 
 
-RECOMMENDED_XONSH_VERSION=xonsh/0.13.3
-
-
 [ -n "$__ALIAS_STACK" ] && exit # xonsh source-bash or similar
 
 
@@ -405,10 +402,6 @@ if [ -n "$wlr_interactive" ]; then
     elif command -v xonsh >/dev/null 2>&1; then
         print_status
         wlr-working 'xonsh'
-        xonsh_version="$(xonsh --version)"
-        if [ "$xonsh_version" != "$RECOMMENDED_XONSH_VERSION" ]; then
-            wlr-warn "xonsh version $xonsh_version is installed (recommended version is $RECOMMENDED_XONSH_VERSION)"
-        fi
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
         export XONSHRC="$WLR_ENV_PATH/xonsh.py"
         exec xonsh
