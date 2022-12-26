@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+echo "This command seems to lose the index, or unstaged files, or something? Use something else"
+exit 1
+
 m="${1:-1}"
 if git-isclean; then
     git reset --hard "HEAD~$m"
