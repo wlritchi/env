@@ -89,6 +89,7 @@ def _setup():
 
     def setup_colors():
         if not ensure_packages(
+            set(),
             'pygments',
             ['prompt_toolkit', 'prompt-toolkit'],
         ):
