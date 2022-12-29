@@ -18,6 +18,11 @@ from xonsh.built_ins import XSH
 from xonsh.xontribs import xontribs_load
 from xonsh.xoreutils import _which
 
+try:
+    import numpy as np
+except Exception:
+    pass
+
 XSH.env['XONSH_HISTORY_BACKEND'] = 'sqlite'
 XSH.env['XONSH_HISTORY_SIZE'] = '1000000 commands'
 
@@ -65,6 +70,13 @@ def _setup():
         return not missing_packages
 
 
+    CONVENIENCE_PACKAGES = (
+        'numpy',  # imported as np if available
+        ['skimage', 'scikit-image'],
+        'pytimeparse',  # used by randtimedelta
+    )
+
+
     def prepare_packages():
         missing_packages = set()
         if ensure_packages(missing_packages, ['xontrib.argcomplete', 'xontrib-argcomplete']):
@@ -80,7 +92,7 @@ def _setup():
         if which('zoxide'):
             if ensure_packages(missing_packages, ['xontrib.zoxide', 'xontrib-zoxide']):
                 xontribs_load(['zoxide'])
-        ensure_packages(missing_packages, 'pygments', 'pytimeparse')
+        ensure_packages(missing_packages, *CONVENIENCE_PACKAGES)
 
         if missing_packages:
             # TODO color ⚠ yellow
