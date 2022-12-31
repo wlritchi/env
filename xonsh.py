@@ -72,7 +72,6 @@ def _setup():
 
     CONVENIENCE_PACKAGES = (
         'numpy',  # imported as np if available
-        ['skimage', 'scikit-image'],
         'pytimeparse',  # used by randtimedelta
     )
 
