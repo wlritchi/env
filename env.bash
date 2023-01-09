@@ -258,7 +258,7 @@ wlr_check_env_shim() {
 
 wlr_setup_pyenv() {
     if wlr_check_env_shim pyenv python && wlr_check_env_shim pyenv pip; then
-        ensurepath "$HOME/.pyenv/shims"
+        ensurepath --head "$HOME/.pyenv/shims"
         pyenv rehash >/dev/null 2>&1 &
         if ! command -v pyenv-virtualenv >/dev/null 2>&1; then
             warnings+=('pyenv is installed, but pyenv-virtualenv was not found')
@@ -275,7 +275,7 @@ unset wlr_setup_pyenv
 wlr_setup_nodenv() {
     local good=y
     if wlr_check_env_shim nodenv node && wlr_check_env_shim nodenv npm && wlr_check_env_shim nodenv npx; then
-        ensurepath "$HOME/.nodenv/shims"
+        ensurepath --head "$HOME/.nodenv/shims"
         nodenv rehash >/dev/null 2>&1 &
         if command -v nvm >/dev/null 2>&1; then
             warnings+=('nodenv is installed, but nvm is also present (you should uninstall nvm)')
