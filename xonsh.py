@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from itertools import product
 from os.path import basename, dirname, exists, lexists, isabs, isfile, isdir, islink, ismount, realpath, relpath, samefile
 from random import randint
+from typing import Any, Callable, Dict, List, Optional, ParamSpec, TypeVar
 
 import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
@@ -20,6 +21,7 @@ from xonsh.xoreutils import _which
 
 try:
     import numpy as np
+    from numpy.typing import NDArray
 except Exception:
     pass
 
