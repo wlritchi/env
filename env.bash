@@ -127,6 +127,22 @@ ensurepath() {
 }
 
 
+# BSD coreutils suck, add gnubin to path
+# https://apple.stackexchange.com/a/371984
+# must be run early because new macOS doesn't even have realpath (!)
+
+if command -v brew >/dev/null 2>&1; then
+    HOMEBREW_PREFIX="$(brew --prefix)"
+    for gnubin_dir in "$HOMEBREW_PREFIX"/opt/*/libexec/gnubin; do
+        if [ "$gnubin_dir" == "$HOMEBREW_PREFIX"'/opt/*/libexec/gnubin' ]; then
+            continue # glob failed to expand
+        fi
+        ensurepath --head "$gnubin_dir"
+    done
+fi
+
+
+
 # early environment setup
 
 if [ -z "$WLR_UNALIASED_PATH" ]; then
@@ -344,19 +360,6 @@ wlr_setup_krew() {
 }
 wlr_setup_krew
 unset wlr_setup_krew
-
-# BSD coreutils suck, add gnubin to path
-# https://apple.stackexchange.com/a/371984
-
-if command -v brew >/dev/null 2>&1; then
-    HOMEBREW_PREFIX="$(brew --prefix)"
-    for gnubin_dir in "$HOMEBREW_PREFIX"/opt/*/libexec/gnubin; do
-        if [ "$gnubin_dir" == "$HOMEBREW_PREFIX"'/opt/*/libexec/gnubin' ]; then
-            continue # glob failed to expand
-        fi
-        ensurepath --head "$gnubin_dir"
-    done
-fi
 
 
 # initialize PATH for custom aliases, wrappers, and scripts
