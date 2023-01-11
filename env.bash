@@ -47,7 +47,6 @@ print_status() {
     err_steps=()
 }
 
-
 wlr_interactive=
 if [ -n "$TERM" ]; then
     case "$-" in
@@ -57,7 +56,6 @@ if [ -n "$TERM" ]; then
     esac
 fi
 [ -n "$INTELLIJ_ENVIRONMENT_READER" ] && wlr_interactive=
-
 
 try_source() {
     if [ -r "$1" ]; then
@@ -190,8 +188,8 @@ if [ -n "$wlr_interactive" ]; then
         good_steps+=('zellij')
     elif [ -n "$TMUX" ]; then
         # make sure hot-spares exists and top it up to 3 windows
-        tmux new-session -d -s hot-spares >/dev/null 2>&1 || true
-        [ "$(tmux list-windows -t hot-spares | wc -l)" -lt 3 ] && tmux new-window -t hot-spares:
+#        tmux new-session -d -s hot-spares >/dev/null 2>&1 || true
+#        [ "$(tmux list-windows -t hot-spares | wc -l)" -lt 3 ] && tmux new-window -t hot-spares:
         good_steps+=('tmux')
     elif [ "$WLR_TMUX" == 'n' ]; then
         wlr-warn 'tmux - skipping'
@@ -206,12 +204,13 @@ if [ -n "$wlr_interactive" ]; then
     elif command -v tmux >/dev/null 2>&1; then
         print_status
         # make sure hot spares session exists
-        tmux new-session -d -s hot-spares 2>/dev/null || true
+#        tmux new-session -d -s hot-spares 2>/dev/null || true
         # tmux will be executing its own commands in a temporary window
         # move that to window 1, then move a hot spare into the current window (0)
         # this preserves default new-session behaviour that the shell starts at window 0
         # finally, we recreate hot-spares (if we destroyed it), and add a window to it to replace the one we took
-        exec tmux new-session 'tmux move-window \; move-window -s hot-spares \; if-shell "tmux new-session -d -s hot-spares" "run-shell true" \; new-window -t hot-spares:'
+#        exec tmux new-session 'tmux move-window \; move-window -s hot-spares \; if-shell "tmux new-session -d -s hot-spares" "run-shell true" \; new-window -t hot-spares:'
+        exec tmux new-session
     else
         err_steps+=('tmux/zellij')
     fi
