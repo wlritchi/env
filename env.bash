@@ -205,12 +205,12 @@ if [ -n "$wlr_interactive" ]; then
     elif [ -n "$TMUX" ]; then
         good_steps+=('tmux')
     elif [ "$WLR_TMUX" == 'n' ]; then
-        wlr-warn 'tmux - skipping'
+        warnings+=('tmux - skipping (disabled)')
     elif term="$(wlr_detect_named_term)"; then
         print_status
         exec tmux new-session -A -s "$term" -c "$(pwd)"
     elif wlr_suspect_tty; then
-        warnings+=('tmux - skipping')
+        warnings+=('tmux - skipping (suspect tty)')
     elif command -v zellij >/dev/null 2>&1 && false; then # TODO reenable
         print_status
         exec zellij options --disable-mouse-mode
