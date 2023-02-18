@@ -9,8 +9,6 @@ if command -v tmux >/dev/null 2>&1; then
 
     # reload tmux config
     tmux source-file "$HOME/.tmux.conf"
-    # restart hot spare shells so they see whatever was changed by the update
-    "$WLR_ENV_PATH/bin/tmux/wlr-tmux-refresh-hot-spares"
 fi
 
 "$WLR_ENV_PATH/bin/meta/wlr-check-env"

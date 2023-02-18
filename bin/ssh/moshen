@@ -1,5 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# mosh "$@" -- tmux new -As main
-mosh "$@" -- sh -c 'command -v tmux >/dev/null 2>&1 || exec bash; tmux new-session -d -s hot-spares 2>/dev/null || true; tmux attach-session -t main 2>/dev/null || tmux new-session -s main "tmux move-window \; move-window -s hot-spares \; if-shell \"tmux new-session -d -s hot-spares\" \"run-shell true\" \; new-window -t hot-spares:"'
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    printf 'Usage: %s HOST [SESSION_NAME]
+' "$0" >&2
+    exit 1
+fi
+
+host="$1"
+session_name="${2:-main}"
+
+mosh "$host" -- sh -c 'command -v tmux >/dev/null 2>&1 || exec bash; tmux new -As '"${session_name@Q}"

@@ -1,9 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-cd ~
-
-tmux kill-session -t hot-spares
-tmux new-session -d -s hot-spares
-tmux new-window -t hot-spares:
-tmux new-window -t hot-spares:
