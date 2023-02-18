@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+
+term="${TERMINAL:-alacritty}"
+readarray -t detached_sessions < <( tmux list-sessions -F '#{session_name}' -f '#{?#{session_attached},0,1}' )
+
+if ! command -v "$term" >/dev/null 2>&1; then
+    echo "Terminal not found: $term" >&2
+    exit 1
+fi
+
+for session in "${detached_sessions[@]}"; do
+    "$term" -e tmux attach-session -t "$session" &
+done

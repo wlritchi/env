@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+tmux new-session -d
+
+echo "Waiting 30 seconds for tmux to finish restoring (there must be a better way)"
+sleep 30

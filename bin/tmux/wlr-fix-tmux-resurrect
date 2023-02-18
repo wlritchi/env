@@ -1,0 +1,22 @@
+#!/bin/bash
+set -euo pipefail
+
+if ! [ -d "$HOME/.tmux/resurrect" ]; then
+    echo "No tmux-resurrect directory, nothing to fix"
+    exit
+fi
+
+if [ -f "$HOME/.tmux/resurrect/last" ]; then
+    echo "tmux-resurrect 'last' symlink is not broken, nothing to fix"
+    exit
+fi
+
+real_last="$(ls "$HOME/.tmux/resurrect/"tmux*txt | sort | tail -n1)"
+
+if ! [ -n "$real_last" ]; then
+    echo "tmux-resurrect has no snapshots"
+    exit
+fi
+
+ln -sf "$real_last" "$HOME/.tmux/resurrect/last"
+
