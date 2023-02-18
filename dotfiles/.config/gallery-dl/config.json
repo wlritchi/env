@@ -5,6 +5,7 @@
         "base-directory": ".",
         "directory": ["{id}"],
         "filename": "{num}.{filename}.{extension}",
+        "text-posts": true,
         "imgur": {
             "directory": ["media", "{id[0]}", "{id[1]}"],
             "filename": "{filename}.{extension}",

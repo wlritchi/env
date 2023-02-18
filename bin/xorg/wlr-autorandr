@@ -1,0 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+if ! command -v autorandr >/dev/null 2>&1; then
+    exit
+fi
+
+target="$(autorandr --detected)"
+override_script="$HOME/.screenlayout/autorandr-$target.sh"
+
+if [ -x "$override_script" ]; then
+    "$override_script"
+else
+    autorandr --change
+fi
