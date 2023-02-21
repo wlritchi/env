@@ -3,25 +3,38 @@
 import argparse
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Tuple
 
 
 def _info(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
+def _remove_leading_updirs(file: Path) -> Tuple[Path, int]:
+    parts = file.parts
+    leading_updirs = 0
+    while parts and parts[0] == '..':
+        parts = parts[1:]
+        leading_updirs += 1
+    return Path(*parts), leading_updirs
+
+
 def _morley(file: Path, *, dry_run: bool) -> None:
     if not file.is_symlink():
         return
     target = file.readlink()
-    resolved = file.parent.joinpath(target)
-    absolute = resolved.absolute()
-    if target != absolute:
-        assert file.resolve() == absolute.resolve()
-        _info(f"Converting {file} from relative symlink ({target}) to absolute ({absolute})")
+    relative_part, updirs = _remove_leading_updirs(target)
+    base = file.parent.resolve()
+    while updirs > 0:
+        base = base.parent
+        updirs -= 1
+    new_target = base.joinpath(relative_part)
+    if target != new_target:
+        assert file.resolve() == new_target.resolve()
+        _info(f"Converting {file} from relative symlink ({target}) to absolute ({new_target})")
         if not dry_run:
             file.unlink()
-            file.symlink_to(absolute)
+            file.symlink_to(new_target)
 
 
 def _parse_args() -> Any:
