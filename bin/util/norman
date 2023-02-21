@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+
+import argparse
+from pathlib import Path
+import sys
+from typing import Any, Tuple
+
+
+def _info(msg: str) -> None:
+    print(msg, file=sys.stderr)
+
+
+def _warning(msg: str) -> None:
+    print(msg, file=sys.stderr)
+
+
+def _remove_leading_updirs(file: Path) -> Tuple[Path, int]:
+    parts = file.parts
+    leading_updirs = 0
+    while parts and parts[0] == '..':
+        parts = parts[1:]
+        leading_updirs += 1
+    return Path(*parts), leading_updirs
+
+
+def _norman(file: Path, *, dry_run: bool) -> None:
+    if not file.is_symlink():
+        return
+    target = file.readlink()
+    parts = list(target.parts)
+    while '..' in parts:
+        index = parts.index('..')
+        parts = parts[:index-1] + parts[index + 1:]
+    new_target = Path(*parts)
+    if target != new_target:
+        if file.resolve() != new_target.resolve():
+            _warning(
+                f"Non-normal symlink {file} points to {target}, which does not resolve to"
+                f" {new_target}"
+            )
+            return
+        _info(f"Normalizing symlink {file} target from {target} to {new_target}")
+        if not dry_run:
+            file.unlink()
+            file.symlink_to(new_target)
+
+
+def _parse_args() -> Any:
+    parser = argparse.ArgumentParser(
+        description=(
+            "If FILE is a symbolic link, normalize its target to remove all occurrences of .., so"
+            " long as this does not change the actual target. Symbolic links are NOT recursively"
+            " evaluated."
+        ),
+    )
+    parser.add_argument('file', nargs='+')
+    parser.add_argument('--dry-run', action='store_true', default=False)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    dry_run = args.dry_run
+    for file in args.file:
+        _norman(Path(file), dry_run=dry_run)
+
+
+if __name__ == '__main__':
+    main()
