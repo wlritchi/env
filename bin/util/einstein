@@ -1,33 +1,102 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env python3
 
-usage() {
-    printf 'Usage: %s LINK...
+import argparse
+from pathlib import Path
+import sys
+from typing import Any
 
-If LINK is an absolute symbolic link whose immediate target is on the same
-filesystem, LINK will be replaced with a relative symbolic link.
-' "$0" >&2
-    exit 2
-}
 
-[ "$#" -lt 1 ] && usage
+def _debug(msg: str) -> None:
+    pass
 
-for link in "$@"; do
-    if ! [ -L "$link" ]; then
-        printf 'Error: %s is not a symbolic link\n' "$link" >&2
-        exit 1
-    fi
-    target="$(readlink "$link")"
-    if [ "${target:0:1}" != '/' ]; then
-        printf 'Warning: %s is already a relative symbolic link, skipping\n' "$link" >&2
-        continue
-    fi
-    link_fs="$(stat -c '%d' "$link")"
-    target_fs="$(stat -c '%d' "$target")"
-    if [ "$link_fs" != "$target_fs" ]; then
-        printf '%s points across filesystems to %s\n' "$link" "$target"
-        continue
-    fi
-    relative="$(realpath -s "$target" --relative-to="$(dirname "$link")")"
-    ln -snf "$relative" "$link"
-done
+
+def _info(msg: str) -> None:
+    print(msg, file=sys.stderr)
+
+
+def _einstein(file: Path, *, dry_run: bool) -> None:
+    if not file.is_symlink():
+        return
+    target = file.readlink()
+    if not target.is_absolute():
+        _debug(f"{file} is already a relative symlink to {target}")
+        return
+    if not target.exists():
+        _debug(f"{file} points to nonexistent target {target}")
+        return
+    if file.stat().st_dev != target.stat().st_dev:
+        _debug(f"{file} is on a different filesystem than {target}")
+        return
+    file_parent = file.parent.absolute()
+    relative_base = Path()
+    while (base := file_parent.joinpath(relative_base)) != '/':
+        try:
+            relative = target.relative_to(base)
+        except ValueError:
+            relative_base = relative_base.joinpath('..')
+            continue
+        new_target = relative_base.joinpath(relative)
+        assert file.resolve() == new_target.resolve()
+        _info(f"Converting {file} from absolute symlink ({target}) to relative ({new_target})")
+        if not dry_run:
+            file.unlink()
+            file.symlink_to(new_target)
+        break
+    else:
+        raise ValueError(f"Failed to find relative path from {file} to {target}")
+
+
+def _parse_args() -> Any:
+    parser = argparse.ArgumentParser(
+        description=(
+            "If FILE is an absolute symbolic link whose immediate target is on the same filesystem,"
+            " it will be replaced with a relative symbolic link to the same target. Symbolic links"
+            " are NOT recursively evaluated."
+        ),
+    )
+    parser.add_argument('file', nargs='+')
+    parser.add_argument('--dry-run', action='store_true', default=False)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    dry_run = args.dry_run
+    for file in args.file:
+        _einstein(Path(file), dry_run=dry_run)
+
+
+if __name__ == '__main__':
+    main()
+
+
+# usage() {
+#     printf 'Usage: %s LINK...
+
+# If LINK is an absolute symbolic link whose immediate target is on the same
+# filesystem, LINK will be replaced with a relative symbolic link.
+# ' "$0" >&2
+#     exit 2
+# }
+
+# [ "$#" -lt 1 ] && usage
+
+# for link in "$@"; do
+#     if ! [ -L "$link" ]; then
+#         printf 'Error: %s is not a symbolic link\n' "$link" >&2
+#         exit 1
+#     fi
+#     target="$(readlink "$link")"
+#     if [ "${target:0:1}" != '/' ]; then
+#         printf 'Warning: %s is already a relative symbolic link, skipping\n' "$link" >&2
+#         continue
+#     fi
+#     link_fs="$(stat -c '%d' "$link")"
+#     target_fs="$(stat -c '%d' "$target")"
+#     if [ "$link_fs" != "$target_fs" ]; then
+#         printf '%s points across filesystems to %s\n' "$link" "$target"
+#         continue
+#     fi
+#     relative="$(realpath -s "$target" --relative-to="$(dirname "$link")")"
+#     ln -snf "$relative" "$link"
+# done

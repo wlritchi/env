@@ -1,29 +1,47 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env python3
 
-usage() {
-    printf 'Usage: %s LINK...
+import argparse
+from pathlib import Path
+import sys
+from typing import Any
 
 
-If LINK is an absolute symbolic link whose immediate target is on the same
-filesystem, LINK will be replaced with a relative symbolic link.
-' "$0" >&2
-    exit 2
-}
+def _info(msg: str) -> None:
+    print(msg, file=sys.stderr)
 
-[ "$#" -lt 1 ] && usage
 
-for link in "$@"; do
-    if ! [ -L "$link" ]; then
-        printf 'Error: %s is not a symbolic link\n' "$link" >&2
-        exit 1
-    fi
-    target="$(readlink "$link")"
-    if [ "${target:0:1}" == '/' ]; then
-        printf 'Warning: %s is already an absolute symbolic link, skipping\n' "$link" >&2
-        continue
-    fi
-    resolved="$(dirname "$link")/$target"
-    absolute="$(realpath -s "$resolved")"
-    ln -snf "$absolute" "$link"
-done
+def _morley(file: Path, *, dry_run: bool) -> None:
+    if not file.is_symlink():
+        return
+    target = file.readlink()
+    resolved = file.parent.joinpath(target)
+    absolute = resolved.absolute()
+    if target != absolute:
+        assert file.resolve() == absolute.resolve()
+        _info(f"Converting {file} from relative symlink ({target}) to absolute ({absolute})")
+        if not dry_run:
+            file.unlink()
+            file.symlink_to(absolute)
+
+
+def _parse_args() -> Any:
+    parser = argparse.ArgumentParser(
+        description=(
+            "If FILE is a relative symbolic link, it will be replaced with an absolute symbolic"
+            " link to the same target. Symbolic links are NOT recursively evaluated."
+        ),
+    )
+    parser.add_argument('file', nargs='+')
+    parser.add_argument('--dry-run', action='store_true', default=False)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+    dry_run = args.dry_run
+    for file in args.file:
+        _morley(Path(file), dry_run=dry_run)
+
+
+if __name__ == '__main__':
+    main()
