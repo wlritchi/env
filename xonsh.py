@@ -188,6 +188,9 @@ def _setup():
         XSH.aliases['gm'] = 'git merge'  # graphicsmagick
         XSH.aliases['gs'] = 'git status'  # ghostscript
 
+        if which('grmx'):  # macos, with brew: gnu rm
+            XSH.aliases['grm'] = 'grmx'
+
         if which('bat'):
             XSH.aliases['cat'] = 'bat'
         if which('exa'):
