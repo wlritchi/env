@@ -443,6 +443,8 @@ alias gap='git add -p' # some algebra package
 alias gm='git merge' # graphicsmagick
 alias gs='git status' # ghostscript
 
+command -v grmx > /dev/null 2>&1 && alias grm='grmx' # macos, with brew: gnu rm
+
 command -v bat >/dev/null 2>&1 && alias cat='bat'
 command -v exa >/dev/null 2>&1 && alias ls='exa'
 

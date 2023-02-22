@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-exec git stash push -u "$@"
+exec git stash push -S "$@"
