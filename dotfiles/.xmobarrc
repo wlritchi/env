@@ -1,0 +1,20 @@
+Config
+  { lowerOnStart     = True
+  , hideOnStart      = False
+  , overrideRedirect = False
+  , pickBroadest     = False
+  , persistent       = True
+  , allDesktops      = False
+  , font     = "Fira Code 10"
+  , dpi      = 96
+  , bgColor  = "#002b36"
+  , fgColor  = "#839496"
+  , border   = FullB
+  , borderColor = "#839496"
+  , borderWidth = 1
+  , alignSep = "}{"
+  , template = "}{%StdinReader% "
+  , commands =
+    [ Run StdinReader
+    ]
+  }
