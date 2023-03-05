@@ -343,4 +343,11 @@ def randtimedelta(a, b=None):
 
 
 def snap_to_grid(point, grid_spacing=10, grid_reference=0):
-     return grid_reference + grid_spacing * round((point - grid_reference) / grid_spacing)
+    return grid_reference + grid_spacing * round((point - grid_reference) / grid_spacing)
+
+
+def bits(n):
+    # https://stackoverflow.com/a/4859937
+    if isinstance(n, str):
+        n = int(n, 16)
+    return bin(n)[2:].zfill(8)
