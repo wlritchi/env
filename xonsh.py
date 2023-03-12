@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from itertools import product
 from os.path import basename, dirname, exists, lexists, isabs, isfile, isdir, islink, ismount, realpath, relpath, samefile
 from random import randint
-from typing import Any, Callable, Dict, List, Optional, ParamSpec, TypeVar
+from typing import Any, Callable, Dict, List, Optional, ParamSpec, Tuple, TypeVar
 
 import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
