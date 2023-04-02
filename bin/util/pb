@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+# upload to a reasonable pastebin; currently, paste.rs
+
+file="${1:-/dev/stdin}"
+curl --data-binary "@$file" https://paste.rs
