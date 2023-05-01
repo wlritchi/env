@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ -z "${WOLFRAM_APP_ID:-}" ]; then
+    echo "Error: Missing WOLFRAM_APP_ID environment variable" >&2
+    exit 1
+fi
+
+resp="$(curl -s "https://api.wolframalpha.com/v1/result?appid=$WOLFRAM_APP_ID&units=metric&" --data-urlencode "i=$*")"
+
+if [ "$resp" == 'No short answer available' ]; then
+    # image response
+    curl -s "https://api.wolframalpha.com/v1/simple?appid=$WOLFRAM_APP_ID&units=metric&foreground=839496&background=002b36" --data-urlencode "i=$*" | display
+else
+    echo "$resp"
+fi
