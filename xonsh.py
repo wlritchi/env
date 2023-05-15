@@ -351,3 +351,8 @@ def bits(n):
     if isinstance(n, str):
         n = int(n, 16)
     return bin(n)[2:].zfill(8)
+
+
+def lines(file):
+    with open(file, 'r') as f:
+        return [x.strip() for x in f.readlines()]
