@@ -7,6 +7,7 @@ import random
 import subprocess
 import sys
 import threading
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from itertools import product
 from os.path import basename, dirname, exists, lexists, isabs, isfile, isdir, islink, ismount, realpath, relpath, samefile
