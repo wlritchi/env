@@ -281,6 +281,10 @@ bell:
 mouse_bindings:
   - { mouse: Middle, action: PasteSelection }
 
+hints:
+  # disable clickable URLs
+  enabled: []
+
 mouse:
   # Click settings
   #
