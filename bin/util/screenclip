@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+# dynamically select a region of the screen to copy to clipboard
+
+if command -v maim >/dev/null 2>&1; then
+    maim -s -f png | xclip -selection clipboard -t image/png
+elif command -v scrot >/dev/null 2>&1; then
+    scrot -s -e 'xclip -selection clipboard -t image/png $f'
+else
+    echo "No screenshot utility found (supported: maim, scrot)" >&2
+    exit 1
+fi
