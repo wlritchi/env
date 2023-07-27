@@ -1,12 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+get_rebase_point() {
+    # rebase against upstream/tracking branch, or against main/master if no upstream/tracking branch
+    git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || \
+        git infer-main-branch
+}
+
 if [ "$#" -eq 0 ]; then
-    if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u})"; then
-        exec git rebase -i --rebase-merges "$upstream"
-    else
-        exit 1
-    fi
+    exec git rebase -i --rebase-merges "$(get_rebase_point)"
 else
     exec git rebase -i --rebase-merges "$@"
 fi
