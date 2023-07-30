@@ -27,7 +27,7 @@ if editor="$(first_cmd subl3 subl)"; then
     export EDITOR="$editor -nw"
 fi
 
-if browser="$(first_cmd google-chrome-stable chromium firefox)"; then
+if browser="$(first_cmd librewolf firefox chromium google-chrome-stable)"; then
     export BROWSER="$browser"
 fi
 
