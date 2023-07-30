@@ -4,3 +4,6 @@
     * would need to write the post-checkout hook
       * remember that macos is stupid about coreutils so check for gpatch first
     * would need a pre-commit hook to validate that every patch applies
+- fix symlinks from the dotfiles/ dir to outside
+  - eg. want to effectively symlink `~/.local/share/applications/mimeapps.list` to `~/.config/mimeapps.list`
+  - could maintain `$WLRENV_DIR/xdg/config` as symlink to `$XDG_CONFIG`, and symlink to that
