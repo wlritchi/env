@@ -7,3 +7,4 @@
 - fix symlinks from the dotfiles/ dir to outside
   - eg. want to effectively symlink `~/.local/share/applications/mimeapps.list` to `~/.config/mimeapps.list`
   - could maintain `$WLRENV_DIR/xdg/config` as symlink to `$XDG_CONFIG`, and symlink to that
+    - right now that seems to result in the symlinker creating the link directly to the target, which... might be okay? as long as the xdg dirs are set up correctly _first_
