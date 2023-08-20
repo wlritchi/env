@@ -374,21 +374,6 @@ if [ -n "$wlr_interactive" ]; then
 fi
 
 
-# create terminal cgroup, if applicable
-
-if [ -n "$wlr_interactive" ]; then
-    if command -v tcg >/dev/null 2>&1; then
-        cgroup="$(tcg create)"
-        wlr-good tcg - "$cgroup"
-        if [ -n "$TMUX" ] && command -v tmux >/dev/null 2>&1; then
-            tmux rename-window "$cgroup"
-        fi
-    else
-        err_steps+=('tcg')
-    fi
-fi
-
-
 # invoke xonsh, if applicable
 
 if [ -n "$wlr_interactive" ]; then

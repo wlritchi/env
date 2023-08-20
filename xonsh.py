@@ -28,6 +28,7 @@ except Exception:
 
 XSH.env['XONSH_HISTORY_BACKEND'] = 'sqlite'
 XSH.env['XONSH_HISTORY_SIZE'] = '1000000 commands'
+XSH.env['fzf_history_binding'] = 'c-r'
 
 
 def _setup():
@@ -69,31 +70,40 @@ def _setup():
                         continue
                 missing_packages.add(pkgname)
         if missing_packages:
-            missing_package_collector += missing_packages
+            missing_package_collector |= missing_packages
         return not missing_packages
 
 
     CONVENIENCE_PACKAGES = (
         'numpy',  # imported as np if available
         'pytimeparse',  # used by randtimedelta
+        'skimage',
     )
 
-
     def prepare_packages():
-        missing_packages = set()
-        if ensure_packages(missing_packages, ['xontrib.argcomplete', 'xontrib-argcomplete']):
-            xontribs_load(['argcomplete'])
-        if ensure_packages(missing_packages, ['xontrib.pipeliner', 'xontrib-pipeliner']):
-            xontribs_load(['pipeliner'])
-        if which('tcg'):
-            if ensure_packages(missing_packages, ['xontrib.tcg', 'xonsh-tcg']):
-                xontribs_load(['tcg'])
-        xontribs_load(['vox'])  # shipped with xonsh
-        if ensure_packages(missing_packages, ['prompt_toolkit', 'prompt-toolkit']):
-            xontribs_load(['whole_word_jumping'])
+        xontribs = [
+            'xontrib.argcomplete',
+            'xontrib_avox_poetry',
+            'xontrib.jedi',
+            'xontrib.pipeliner',
+            'xontrib.vox',
+            ['xontrib.whole_word_jumping', 'prompt_toolkit'],
+        ]
+        if which('fzf'):
+            xontribs.append('xontrib.fzf-widgets')
         if which('zoxide'):
-            if ensure_packages(missing_packages, ['xontrib.zoxide', 'xontrib-zoxide']):
-                xontribs_load(['zoxide'])
+            xontribs.append('xontrib.zoxide')
+
+        missing_packages = set()
+        for xontrib in xontribs:
+            if not isinstance(xontrib, list):
+                xontrib = [xontrib]
+            xontrib_packages = [
+                [name, name.replace('_', '-').replace('.', '-')]
+                for name in xontrib
+            ]
+            if ensure_packages(missing_packages, *xontrib_packages):
+                xontribs_load([xontrib[0][8:]])
         ensure_packages(missing_packages, *CONVENIENCE_PACKAGES)
 
         if missing_packages:
