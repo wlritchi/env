@@ -12,11 +12,12 @@ from datetime import datetime, timedelta, timezone
 from itertools import product
 from os.path import basename, dirname, exists, lexists, isabs, isfile, isdir, islink, ismount, realpath, relpath, samefile
 from random import randint
-from typing import Any, Callable, Dict, List, Optional, ParamSpec, Tuple, TypeVar
+from typing import Any, Callable, Dict, List, Optional, ParamSpec, Set, Tuple, TypeVar
 
 import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
 from xonsh.built_ins import XSH
+from xonsh.tools import print_color
 from xonsh.xontribs import xontribs_load
 from xonsh.xoreutils import _which
 
@@ -32,7 +33,7 @@ XSH.env['fzf_history_binding'] = 'c-r'
 
 
 def _setup():
-    def which(bin):
+    def which(bin: str):
         try:
             _which.which(bin)
             return True
@@ -44,79 +45,102 @@ def _setup():
         return '.local/pipx/venvs/xonsh' in sys.prefix
 
 
-    def autoinstall(pkgname):
-        print(f"↻ xonsh - installing {pkgname}")  # TODO color ↻ blue
+    def autoinstall(pkgname: str):
+        print_color(f"{{BLUE}}↻{{RESET}} xonsh - installing {pkgname}")
         try:
             subprocess.run([sys.executable, '-m', 'pip', 'install', pkgname], check=True)
             return True
         except subprocess.CalledProcessError:
-            print(f"🗙 xonsh - failed to install {pkgname}")  # TODO color 🗙 red
+            print_color(f"{{RED}}🗙{{RESET}} xonsh - failed to install {pkgname}")
             return False
 
 
-    def ensure_packages(missing_package_collector, *packages):
+    def has_package(package_import: str):
         # lazy import
         from importlib import import_module
-        missing_packages = set()
-        for pkg in packages:
-            pkgname = pkg
-            if isinstance(pkg, list):
-                [pkg, pkgname] = pkg
-            try:
-                import_module(pkg)
-            except:
-                if can_autoinstall():
-                    if autoinstall(pkgname):
-                        continue
-                missing_packages.add(pkgname)
-        if missing_packages:
-            missing_package_collector |= missing_packages
-        return not missing_packages
+        try:
+            import_module(package_import)
+            return True
+        except ModuleNotFoundError:
+            pass
+        return False
 
 
+    def ensure_package(
+        missing_package_collector: Set[str],
+        package_spec: str | Tuple[str, str],
+    ):
+        # lazy import
+        from importlib import import_module
+        if isinstance(package_spec, tuple):
+            (package_import, package_pip) = package_spec
+        else:
+            package_import = package_spec
+            package_pip = package_spec.replace('_', '-').replace('.', '-')
+        if has_package(package_import):
+            return True
+        elif can_autoinstall() and autoinstall(package_pip or package_import):
+            return True
+        missing_package_collector.add(pkgname)
+        return False
+
+
+    # package spec: import name, or tuple (import name, pip name)
+    EARLY_PACKAGES = (
+        'pygments',
+        'prompt_toolkit',
+    )
     CONVENIENCE_PACKAGES = (
         'numpy',  # imported as np if available
+        'openai',  # used by gpt
         'pytimeparse',  # used by randtimedelta
-        'skimage',
+        'tiktoken',  # used by gpt
+        ('skimage', 'scikit-image'),
+    )
+    # xontrib spec: tuple (binary deps, package spec)
+    XONTRIBS = (
+        ([], 'xontrib.argcomplete'),
+        ([], 'xontrib_avox_poetry'),
+        ([], 'xontrib.jedi'),
+        ([], 'xontrib.pipeliner'),
+        ([], 'xontrib.vox'),
+        ([], 'xontrib.whole_word_jumping'),
+        (['fzf'], 'xontrib.fzf-widgets'),
+        (['zoxide'], 'xontrib.zoxide'),
     )
 
-    def prepare_packages():
-        xontribs = [
-            'xontrib.argcomplete',
-            'xontrib_avox_poetry',
-            'xontrib.jedi',
-            'xontrib.pipeliner',
-            'xontrib.vox',
-            ['xontrib.whole_word_jumping', 'prompt_toolkit'],
-        ]
-        if which('fzf'):
-            xontribs.append('xontrib.fzf-widgets')
-        if which('zoxide'):
-            xontribs.append('xontrib.zoxide')
-
+    def prepare_early_packages() -> bool:
         missing_packages = set()
-        for xontrib in xontribs:
-            if not isinstance(xontrib, list):
-                xontrib = [xontrib]
-            xontrib_packages = [
-                [name, name.replace('_', '-').replace('.', '-')]
-                for name in xontrib
-            ]
-            if ensure_packages(missing_packages, *xontrib_packages):
-                xontribs_load([xontrib[0][8:]])
-        ensure_packages(missing_packages, *CONVENIENCE_PACKAGES)
+        for package in EARLY_PACKAGES:
+            ensure_package(missing_packages, package)
+        if missing_packages:
+            print_color(f"{{YELLOW}}⚠{{RESET}} xonsh - missing packages for standard environment (xpip install {' '.join(missing_packages)} to fix)")
+            return False
+        return True
+
+    def prepare_packages():
+        missing_packages = set()
+        for package in CONVENIENCE_PACKAGES:
+            ensure_package(missing_packages, package)
+        for xontrib in XONTRIBS:
+            bins, package = xontrib
+            has_bins = True
+            for binary in bins:
+                if not which(binary):
+                    has_bins = False
+            if has_bins and ensure_package(missing_packages, package):
+                if isinstance(package, tuple):
+                    package_import, _package_pip = package
+                else:
+                    package_import = package
+                xontribs_load(package_import[8:])
 
         if missing_packages:
-            # TODO color ⚠ yellow
-            print(f"⚠ xonsh - missing packages for standard environment (xpip install {' '.join(missing_packages)} to fix)")
+            print_color(f"{{YELLOW}}⚠{{RESET}} xonsh - missing packages for standard environment (xpip install {' '.join(missing_packages)} to fix)")
 
 
     def setup_colors():
-        if not ensure_packages(
-            set(),
-            'pygments',
-            ['prompt_toolkit', 'prompt-toolkit'],
-        ):
+        if not prepare_early_packages():
             return
 
         from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
