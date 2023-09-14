@@ -27,6 +27,7 @@ try:
 except Exception:
     pass
 
+XSH.env['XONSH_SHOW_TRACEBACK'] = True
 XSH.env['XONSH_HISTORY_BACKEND'] = 'sqlite'
 XSH.env['XONSH_HISTORY_SIZE'] = '1000000 commands'
 XSH.env['fzf_history_binding'] = 'c-r'
@@ -198,18 +199,133 @@ def _setup():
     setup_colors()
 
 
+    GPT_MODEL_CHOICES_BY_TOKEN_COUNT = {
+        'gpt-3.5-turbo': [
+            (4096, 'gpt-3.5-turbo'),
+            (16384, 'gpt-3.5-turbo-16k'),
+        ],
+        'gpt-4': [
+            (8192, 'gpt-4'),
+            (32765, 'gpt-4-32k'),
+        ],
+    }
+    GPT_MODEL_PRICING = {  # prompt, completion, per 1000 tokens
+        'gpt-3.5-turbo': (0.0015, 0.002),
+        'gpt-3.5-turbo-16k': (0.003, 0.004),
+        'gpt-4': (0.03, 0.06),
+        'gpt-4-32k': (0.06, 0.12),
+    }
+    GPT_MODEL_EXTRA_TOKENS = {  # per message, per role switch
+        'gpt-3.5-turbo': (3, 1),  # used to be (4, 1) in the gpt-3.5-turbo-0301 model
+        'gpt-4': (3, 1),
+    }
+
+    GPT_STREAMING = True
+
+    gpt_cost_acc = 0
+    gpt_messages = []
+    gpt_tokens = 0
+
+    def _query_gpt(query, flavor):
+        nonlocal gpt_cost_acc, gpt_messages, gpt_tokens
+
+        try:
+            import openai
+        except ModuleNotFoundError:
+            print("Unable to load openai module, cannot query ChatGPT", file=sys.stderr)
+            return 1
+        try:
+            import tiktoken
+            encoder = tiktoken.encoding_for_model(flavor)
+        except ModuleNotFoundError:
+            print("Warning: Unable to load tiktoken module, cannot estimate token usage", file=sys.stderr)
+            encoder = None
+
+        # cheapo bare words approximation
+        if len(query) > 1:
+            query_str = ' '.join(f'"{q}"' if ' ' in q else q for q in query)
+        else:
+            query_str = query[0]
+
+        prompt_tokens = 0
+        if encoder is not None:
+            tokens_per_message, tokens_per_role_switch = GPT_MODEL_EXTRA_TOKENS[flavor]
+            extra_tokens = tokens_per_message * 2 + tokens_per_role_switch
+            if gpt_messages:
+                extra_tokens += tokens_per_role_switch
+            prompt_tokens = len(encoder.encode(query_str)) + extra_tokens
+        total_tokens = gpt_tokens + prompt_tokens
+
+        model_choices = GPT_MODEL_CHOICES_BY_TOKEN_COUNT[flavor]
+        for max_tokens, model in model_choices:
+            if total_tokens < max_tokens:
+                break
+
+        print(f'[{model}]')
+
+        gpt_messages.append({
+            'role': 'user',
+            'content': query_str,
+        })
+
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=gpt_messages,
+            stream=GPT_STREAMING,
+        )
+
+        if GPT_STREAMING:
+            response_message = {}
+            for chunk in response:
+                chunk_delta = chunk['choices'][0]['delta']
+                if 'role' in chunk_delta:
+                    response_message['role'] = chunk_delta['role']
+                if 'content' in chunk_delta:
+                    print(chunk_delta['content'], end='')
+                    response_message['content'] = response_message.get('content', '') + chunk_delta['content']
+            print()
+            gpt_messages.append(response_message)
+
+            if encoder is not None:
+                completion_tokens = len(encoder.encode(response_message['content']))
+                gpt_tokens += prompt_tokens + completion_tokens
+        else:
+            response_message = response['choices'][0]['message']
+
+            print(response_message['content'])
+            gpt_messages.append(response_message)
+
+            prompt_tokens = response['usage']['prompt_tokens']
+            completion_tokens = response['usage']['completion_tokens']
+            gpt_tokens = response['usage']['total_tokens']
+
+        prompt_price, completion_price = GPT_MODEL_PRICING[model]
+        gpt_cost_acc += (prompt_price * prompt_tokens + completion_price * completion_tokens) / 1000
+
+    def _gpt(query):
+        _query_gpt(query, 'gpt-3.5-turbo')
+
+    def _gpt4(query):
+        _query_gpt(query, 'gpt-4')
+
+    XSH.aliases['gpt'] = _gpt
+    XSH.aliases['gpt4'] = _gpt4
+
+
     # set up prompt
     def _prompt():
         global _
+        nonlocal gpt_cost_acc, gpt_tokens
         rtn_str = ''
         try:
             if _.rtn != 0:
-                rtn_str = f'[{_.rtn}]'
+                rtn_str = '{RED}' + f'[{_.rtn}]'
         except AttributeError: # previous command has no return code (e.g. because it's a xonsh function)
             pass
         except NameError: # no _, no previous command
             pass
-        rtn_formatted = '{RED}<\n{RESET}' + rtn_str
+        gpt_cost_str = f'{{BLUE}}{gpt_cost_acc:.2f}|{gpt_tokens})' if gpt_cost_acc else ''
+        rtn_formatted = '\n' + gpt_cost_str + rtn_str
         return rtn_formatted + '{YELLOW}{localtime}{GREEN}{user}@{hostname}{BLUE}{cwd}{YELLOW}{curr_branch:({})}{RESET}$ '
 
 
