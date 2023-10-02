@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-if command -v exa >/dev/null 2>&1; then
+if command -v eza >/dev/null 2>&1; then
+    eza -lab --git "$@"
+elif command -v exa >/dev/null 2>&1; then
     exa -lab --git "$@"
 else
     ls -lah "$@"

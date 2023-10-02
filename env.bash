@@ -431,7 +431,11 @@ alias gs='git status' # ghostscript
 command -v grmx > /dev/null 2>&1 && alias grm='grmx' # macos, with brew: gnu rm
 
 command -v bat >/dev/null 2>&1 && alias cat='bat'
-command -v exa >/dev/null 2>&1 && alias ls='exa'
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza'
+else
+    command -v exa >/dev/null 2>&1 && alias ls='exa'
+fi
 
 command -v dd-shim >/dev/null 2>&1 && alias dd='dd-shim'
 command -v gradle-shim >/dev/null 2>&1 && alias gradle='gradle-shim'
