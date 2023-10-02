@@ -9,7 +9,6 @@ pipx                    # python cli tool manager
 pyenv                   # python environment manager
 rg          ripgrep     # faster grep with useful defaults
 sponge      moreutils   # moreutils - misc utils
-tcg                     # cgroup for each shell
 tmux                    # terminal multiplexer, also hot spare shells
 wdiff                   # word diff
 xonsh                   # python-flavoured shell
