@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+
+# shim for yay to keep PATH clean, for Python PKGBUILDs
+
+if [ -n "${WLR_UNALIASED_PATH:-}" ]; then
+    export PATH="$WLR_UNALIASED_PATH"
+fi
+exec yay "$@"

@@ -353,6 +353,8 @@ def _setup():
             XSH.aliases['dd'] = 'dd-shim'
         if which('gradle-shim'):
             XSH.aliases['gradle'] = 'gradle-shim'
+        if which('yay-shim'):
+            XSH.aliases['yay'] = 'yay-shim'
 
         if which('fluxx'):
             XSH.aliases['flux'] = 'fluxx'

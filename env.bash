@@ -439,6 +439,7 @@ fi
 
 command -v dd-shim >/dev/null 2>&1 && alias dd='dd-shim'
 command -v gradle-shim >/dev/null 2>&1 && alias gradle='gradle-shim'
+command -v yay-shim >/dev/null 2>&1 && alias yay='yay-shim'
 
 command -v fluxx >/dev/null 2>&1 && alias flux='fluxx'
 command -v helmx > /dev/null 2>&1 && alias helm='helmx'
