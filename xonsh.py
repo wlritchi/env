@@ -112,6 +112,7 @@ def _setup():
 
     # package spec: import name, or tuple (import name, pip name)
     EARLY_PACKAGES = (
+        'catppuccin',
         'pygments',
         'prompt_toolkit',
     )
@@ -168,57 +169,37 @@ def _setup():
         if not prepare_early_packages():
             return
 
-        from xonsh.pyghooks import pygments_version_info, register_custom_pygments_style
+        from catppuccin import Flavour
+        from pygments.token import Token
+        from xonsh.pyghooks import register_custom_pygments_style
 
-        solarized = {
-            'BASE03' : '#002b36',
-            'BASE02' : '#073642',
-            'BASE01' : '#586e75',
-            'BASE00' : '#657b83',
-            'BASE0'  : '#839496',
-            'BASE1'  : '#93a1a1',
-            'BASE2'  : '#eee8d5',
-            'BASE3'  : '#fdf6e3',
-            'RED'    : '#dc322f',
-            'ORANGE' : '#cb4b16',
-            'YELLOW' : '#b58900',
-            'GREEN'  : '#859900',
-            'CYAN'   : '#2aa198',
-            'BLUE'   : '#268bd2',
-            'VIOLET' : '#6c71c4',
-            'MAGENTA': '#d33682',
+        catppuccin_macchiato = Flavour.macchiato()
+        color_tokens = {
+            getattr(Token.Color, key.upper()): f"#{value.hex}"
+            for key, value in catppuccin_macchiato.__dict__.items()
         }
-
-        style = {}
-
-        for color in ['RED', 'YELLOW', 'GREEN', 'CYAN', 'BLUE']:
-            style[color] = solarized[color]
-            style[f'INTENSE_{color}'] = solarized[color]
-        style['PURPLE'] = solarized['VIOLET']
-        style['INTENSE_PURPLE'] = solarized['VIOLET']
-        style['WHITE'] = solarized['BASE0']
-        style['INTENSE_WHITE'] = solarized['BASE1']
-        style['BLACK'] = solarized['BASE03']
-        style['INTENSE_BLACK'] = solarized['BASE02']
-
-        style['RESET'] = style['WHITE'] # would like to have 'noinherit ' on the front but xonsh bug
-
-        # style['Token'] = style['WHITE'] # xonsh bug
-        style['Token.Keyword'] = solarized['YELLOW']
-        style['Token.Literal.String'] = solarized['GREEN']
-        style['Token.Literal.Number'] = solarized['MAGENTA']
-        style['Token.Comment'] = solarized['BASE01']
-        style['Token.Comment.Special'] = solarized['CYAN']
-
-        # would use xonsh.tools helper to register both of these, but solarized-dark is only available in pygments
-        # need to use monokai as base for ansi styles
-        register_custom_ansi_style('solarized-dark-term', style, 'monokai')
-        if pygments_version_info():
-            register_custom_pygments_style('solarized-dark-term', style, None, None, 'solarized-dark')
-
-        # still don't like this way of passing config, but here we are
-        XSH.env['XONSH_COLOR_STYLE'] = 'solarized-dark-term'
-
+        intense_color_tokens = {
+            getattr(Token.Color, f"INTENSE_{key}".upper()): f"#{value.hex}"
+            for key, value in catppuccin_macchiato.__dict__.items()
+        }
+        register_custom_pygments_style(
+            'catppuccin-macchiato-term',
+            {
+                **color_tokens,
+                **intense_color_tokens,
+                # alias other color names xonsh expects
+                Token.Color.PURPLE: f"#{catppuccin_macchiato.pink.hex}",
+                Token.Color.INTENSE_PURPLE: f"#{catppuccin_macchiato.pink.hex}",
+                Token.Color.CYAN: f"#{catppuccin_macchiato.teal.hex}",
+                Token.Color.INTENSE_CYAN: f"#{catppuccin_macchiato.teal.hex}",
+                Token.Color.WHITE: f"#{catppuccin_macchiato.subtext0.hex}",
+                Token.Color.INTENSE_WHITE: f"#{catppuccin_macchiato.subtext1.hex}",
+                Token.Color.BLACK: f"#{catppuccin_macchiato.surface1.hex}",
+                Token.Color.INTENSE_BLACK: f"#{catppuccin_macchiato.surface2.hex}",
+            },
+            base='catppuccin-macchiato',
+        )
+        XSH.env['XONSH_COLOR_STYLE'] = 'catppuccin-macchiato-term'
 
     setup_colors()
 
