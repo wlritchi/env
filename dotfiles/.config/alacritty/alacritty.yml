@@ -18,9 +18,9 @@ window:
   #
   # Specified in number of columns/lines, not pixels.
   # If both are `0`, this setting is ignored.
-  dimensions:
-    columns: 0
-    lines: 0
+  # dimensions:
+  #   columns: 0
+  #   lines: 0
 
   # Window position (changes require restart)
   #
@@ -39,7 +39,7 @@ window:
     y: 2
 
   # Spread additional padding evenly around the terminal content.
-  dynamic_padding: false
+  dynamic_padding: true
 
   # Window decorations
   #
