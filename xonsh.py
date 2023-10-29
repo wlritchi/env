@@ -11,9 +11,32 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from itertools import product
 from math import log
-from os.path import basename, dirname, exists, lexists, isabs, isfile, isdir, islink, ismount, realpath, relpath, samefile
+from os.path import (
+    basename,
+    dirname,
+    exists,
+    isabs,
+    isdir,
+    isfile,
+    islink,
+    ismount,
+    lexists,
+    realpath,
+    relpath,
+    samefile,
+)
 from random import randint
-from typing import Any, Callable, Dict, List, Optional, ParamSpec, Set, Tuple, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    ParamSpec,
+    Set,
+    Tuple,
+    TypeVar,
+)
 
 import xonsh
 from xonsh.ansi_colors import register_custom_ansi_style
@@ -83,7 +106,7 @@ def _setup():
             return True
         elif can_autoinstall() and autoinstall(package_pip or package_import):
             return True
-        missing_package_collector.add(pkgname)
+        missing_package_collector.add(package_pip)
         return False
 
 
