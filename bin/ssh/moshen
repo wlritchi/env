@@ -10,4 +10,20 @@ fi
 host="$1"
 session_name="${2:-main}"
 
+state_dir="${XDG_STATE_HOME:-}"
+if [ -z "$state_dir" ]; then
+    state_dir="$HOME/.local/state"
+fi
+sessions_file="$state_dir/moshen/sessions"
+session_line="$(echo "$host" | base64):$(echo "$session_name" | base64)"
+
+if command -v sponge >/dev/null; then
+    (
+        cat "$sessions_file"
+        echo "$session_line"
+    ) | sort -u | sponge "$sessions_file"
+fi
 mosh "$host" -- sh -c 'command -v tmux >/dev/null 2>&1 || exec bash; tmux new -As '"${session_name@Q}"
+if command -v sponge >/dev/null; then
+    grep -v "^$session_line$" "$sessions_file" | sponge "$sessions_file"
+fi

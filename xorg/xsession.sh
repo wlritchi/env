@@ -85,9 +85,15 @@ systemctl --user import-environment PATH DBUS_SESSION_BUS_ADDRESS
 systemctl --no-block --user start xsession.target
 
 if cmd_exists tmux; then
-    wlr-fix-tmux-resurrect
-    wlr-ensure-tmux-running
-    wlr-open-tmux-sessions
+    (
+        wlr-fix-tmux-resurrect
+        wlr-ensure-tmux-running
+        wlr-open-tmux-sessions
+    ) &
+fi
+
+if cmd_exists mosh; then
+    wlr-restore-moshen-sessions
 fi
 
 if [ -n "${XBACKLIGHT:-}" ] && cmd_exists xbacklight; then
