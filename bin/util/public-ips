@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+
+readarray -t devices < <( ip a | grep '^[0-9]' | cut -d: -f2 | cut -c2- | cut -d@ -f1 )
+max_dev_len=4
+for device in "${devices[@]}"; do
+    if [ "${#device}" -gt "$max_dev_len" ]; then
+        max_dev_len="${#device}"
+    fi
+done
+
+for device in "${devices[@]}"; do
+    padded_dev="$device                                     "
+    padded_dev="${padded_dev:0:$((max_dev_len+2))}"
+    echo -n "$padded_dev"
+    curl --connect-timeout 2 --interface "$device" icanhazip.com 2>/dev/null || echo "-"
+done
