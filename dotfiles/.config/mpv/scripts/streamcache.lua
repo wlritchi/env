@@ -8,6 +8,7 @@ maxAdjPerSecond = 0.001
 targetBufferSeconds = 5
 targetAcceptableRange = 2 -- +- n seconds -> play at realtime
 autoAdjustTargetBuffer = true -- not implemented yet
+enabled = true
 
 -- implementation
 
@@ -36,7 +37,7 @@ function onLoad()
 end
 
 function adjustSpeed()
-    if (not mp.get_property_bool("demuxer-via-network")) then
+    if (not enabled or not mp.get_property_bool("demuxer-via-network")) then
         return
     end
     cacheDuration = mp.get_property_number("demuxer-cache-duration")
@@ -71,5 +72,17 @@ function adjustSpeed()
     end
 end
 
+function toggleEnabled()
+    if (enabled) then
+        enabled = false
+        setSpeed(1)
+        mp.osd_message("streamcache disabled")
+    else
+        enabled = true
+        mp.osd_message("streamcache enabled")
+    end
+end
+
 mp.register_event("file-loaded", onLoad)
 mp.add_periodic_timer(1.0, adjustSpeed)
+mp.add_key_binding("ctrl+S", toggleEnabled)
