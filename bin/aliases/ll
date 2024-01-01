@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if command -v eza >/dev/null 2>&1; then
-    eza -lab --git "$@"
+    eza -labX --git "$@"
 elif command -v exa >/dev/null 2>&1; then
     exa -lab --git "$@"
 else
