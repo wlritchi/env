@@ -12,3 +12,4 @@
 --playlist-random
 --download-archive ytdl_best_db.txt
 --netrc
+--abort-on-unavailable-fragment
