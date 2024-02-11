@@ -48,7 +48,7 @@ fi
 
 # check signature
 if ! "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$remote_commit"; then
-    wlr-error 'update failed, bad signature'
+    wlr-err 'update failed, bad signature'
     exit 1
 fi
 
