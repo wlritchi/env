@@ -1,4 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-exec gpg --no-default-keyring --keyring "$(realpath "$WLR_ENV_PATH/self-key.gpg")" "$@"

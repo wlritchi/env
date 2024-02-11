@@ -1,4 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-exec git -c "gpg.program=$WLR_ENV_PATH/bin/crypto/gpg-self" "$@"

@@ -47,7 +47,9 @@ if [ -z "$force" ]; then
 fi
 
 # check signature
-if ! "$WLR_ENV_PATH/bin/crypto/git-gpg-self" -C "$WLR_ENV_PATH" verify-commit "$remote_commit"; then
+# gpg.program=/dev/null - disable validation of GPG signatures entirely
+# gpg.ssh.allowedSignersFile - only accept SSH signatures from our existing known-good list
+if ! git -C "$WLR_ENV_PATH" -c gpg.program=/dev/null -c gpg.ssh.allowedSignersFile="$WLR_ENV_PATH/.allowed_signers" verify-commit "$remote_commit"; then
     wlr-err 'update failed, bad signature'
     exit 1
 fi
