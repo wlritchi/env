@@ -367,6 +367,8 @@ def _setup():
             XSH.aliases['helm'] = 'helmx'
         if which('fluxx'):
             XSH.aliases['kubectl'] = 'kubectlx'
+        if which('k9sx'):
+            XSH.aliases['k9s'] = 'k9sx'
 
         if which('sshx'):
             XSH.aliases['ssh'] = 'sshx'
