@@ -1,0 +1,11 @@
+views:
+  v1/nodes:
+    sortColumn: AGE:desc
+    columns:
+      - NAME
+      - STATUS
+      - TAINTS
+      - PODS
+      - AGE
+      - VERSION
+#      - node.kubernetes.io/instance-type
