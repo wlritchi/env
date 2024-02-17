@@ -398,7 +398,7 @@ def _setup():
                         xonsh.dirstack.popd([])
                     case [dirname, *_rest]:
                         if os.path.isdir(dirname):
-                            xonsh.dirstack.pushd(dirname)
+                            xonsh.dirstack.pushd([dirname])
                         else:
                             try:
                                 cmd = subprocess.run(
