@@ -374,6 +374,10 @@ if [ -n "$wlr_interactive" ]; then
 fi
 
 
+# print env report
+wlr-check-env
+
+
 # invoke xonsh, if applicable
 
 if [ -n "$wlr_interactive" ]; then
