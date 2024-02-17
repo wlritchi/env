@@ -391,6 +391,28 @@ def _setup():
                 xonsh.dirstack.popd(args)
         XSH.aliases['cd'] = _cd
 
+        if which('zoxide'):
+            def _cd(args):
+                match args:
+                    case [] | ['-']:
+                        xonsh.dirstack.popd([])
+                    case [dirname, *_rest]:
+                        if os.path.isdir(dirname):
+                            xonsh.dirstack.pushd(dirname)
+                        else:
+                            try:
+                                cmd = subprocess.run(
+                                    ['zoxide', 'query', '--exclude', XSH.env.get('PWD'), '--'] + args,
+                                    check=True,
+                                    capture_output=True,
+                                    encoding='utf-8',
+                                )
+                                xonsh.dirstack.pushd([cmd.stdout[:-1]])
+                            except subprocess.CalledProcessError:
+                                print(f"No directories matched query '{args}'", file=sys.stderr)
+            XSH.aliases['cd'] = _cd
+
+
         def _mkcd(args):
             if len(args) != 1:
                 print('Usage: mkcd DIRECTORY', file=sys.stderr)
