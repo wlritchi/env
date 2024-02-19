@@ -2,11 +2,7 @@
 set -euo pipefail
 
 # set up git config for env
-git -C "$WLR_ENV_PATH" config --local gpg.format ssh
 git -C "$WLR_ENV_PATH" config --local gpg.ssh.allowedSignersFile "$WLR_ENV_PATH/.allowed_signers"
-if ! git -C "$WLR_ENV_PATH" config --local --get user.signingKey >/dev/null; then
-    git -C "$WLR_ENV_PATH" config --local user.signingKey "$HOME/.ssh/id_ed25519_sk.pub"
-fi
 
 if command -v tmux >/dev/null 2>&1; then
     if ! [ -e "$HOME/.tmux/plugins/tpm" ]; then
