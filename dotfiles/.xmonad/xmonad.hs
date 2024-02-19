@@ -125,8 +125,8 @@ myKeys conf@(XConfig {modMask = modMask}) = M.fromList $
   , ((modMask                              , xK_Return), windows W.swapMaster)
   , ((modMask               .|. mod4Mask   , xK_Left  ), prevWS)
   , ((modMask               .|. mod4Mask   , xK_Right ), nextWS)
-  , ((modMask .|. shiftMask .|. mod4Mask   , xK_Left  ), shiftToNext >> nextWS)
-  , ((modMask .|. shiftMask .|. mod4Mask   , xK_Right ), shiftToPrev >> prevWS)
+  , ((modMask .|. shiftMask .|. mod4Mask   , xK_Left  ), shiftToPrev)  -- shiftToPrev >> prevWS to switch after
+  , ((modMask .|. shiftMask .|. mod4Mask   , xK_Right ), shiftToNext)
   , ((modMask                              , xK_h     ), sendMessage Shrink)
   , ((modMask                              , xK_l     ), sendMessage Expand)
   , ((modMask                              , xK_t     ), withFocused $ windows . W.sink)
