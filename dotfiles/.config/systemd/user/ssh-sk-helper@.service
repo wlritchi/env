@@ -1,0 +1,8 @@
+[Unit]
+Description=SSH hardware secret key forwarding service
+CollectMode=inactive-or-failed
+
+[Service]
+ExecStart=/usr/lib/ssh/ssh-sk-helper
+StandardInput=socket
+StandardOutput=socket
