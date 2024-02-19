@@ -1,13 +1,25 @@
 #!/bin/bash
 set -euo pipefail
 
-# wrapper for ssh to explicitly deactivate my usual tmux-ification if already running in tmux
+# ssh wrapper to apply several fixes:
+# - if running inside tmux, set WLR_TMUX=n on the remote to avoid tmux-in-tmux
+# - if ssh-sk-helper socket is available for forwarding, reconfigure the remote to use it
 
-if [ -z "${TMUX:-}" ]; then
-    # we're not running in tmux, nothing to de-weird
+apply_tmux_fix=
+apply_sk_helper=
+if [ -n "${TMUX:-}" ]; then
+    apply_tmux_fix=y
+fi
+if command -v systemctl >/dev/null && systemctl --user status ssh-sk-helper.socket >/dev/null 2>&1; then
+    apply_sk_helper=y
+fi
+
+if [ -z "$apply_tmux_fix$apply_sk_helper" ]; then
+    # nothing to do, run ssh directly
     exec ssh "$@"
 fi
 
+# parse known args to ssh
 has_pty_arg=
 has_cmd=
 while getopts ":46AaB:b:Cc:D:E:e:F:fGgI:i:J:KkL:l:Mm:NnO:o:p:Q:qR:S:sTtVvW:w:XxYy" o; do
@@ -20,6 +32,7 @@ done
 
 if [ "$#" -gt "$OPTIND" ]; then
     # command was provided, just run that
+    # TODO reconsider this behaviour, it may be useful to wrap commands like this too
     exec ssh "$@"
 fi
 
@@ -30,6 +43,22 @@ done
 if [ -z "$has_pty_arg" ]; then
     args+=("-t") # unclear how this would even work without -t
 fi
-args+=("WLR_TMUX=n" "bash")
+
+precmd=''
+cmd='"$SHELL"'  # TODO support passing command to the shell?
+if [ -n "$apply_tmux_fix" ]; then
+    cmd="export WLR_TMUX=n; $cmd"
+fi
+if [ -n "$apply_sk_helper" ]; then
+    port="$((RANDOM%32768+32768))"  # pick a random port to forward
+    identity_file="$(grep -e '^IdentityFile ' "$HOME/.ssh/config" | cut -c14- || true)"
+    if [ -n "$identity_file" ]; then
+        hash="$(sha256sum "${identity_file/#\~/$HOME}.pub" | cut -c-64)"
+        # locate corresponding file, patch git config via env
+        cmd='for file in "$HOME/.ssh/"*.pub; do if [ "$(sha256sum "$file" | cut -c-64)" == "'$hash'" ]; then eval "export GIT_CONFIG_KEY_${GIT_CONFIG_COUNT:-0}=gpg.format; export GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT:-0}=ssh; export GIT_CONFIG_KEY_$((GIT_CONFIG_COUNT+1))=user.signingKey; export GIT_CONFIG_VALUE_$((GIT_CONFIG_COUNT+1))=${file@Q}"; export GIT_CONFIG_COUNT="$((GIT_CONFIG_COUNT+2))"; break; fi; done; '"$cmd"
+    fi
+    cmd='tmpdir=$(mktemp -d); cleanup() { rm -r "$tmpdir"; } ; trap cleanup EXIT ; echo "nc localhost '$port' 2>/dev/null" >"$tmpdir/ssh-sk-helper"; chmod +x "$tmpdir/ssh-sk-helper"; export SSH_SK_HELPER="$tmpdir/ssh-sk-helper"; '"$cmd"
+fi
+args+=(-R "$port:localhost:19191" -- sh -c "${cmd@Q}")
 
 exec ssh "${args[@]}"
