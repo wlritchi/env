@@ -5,6 +5,7 @@ import Data.List
 import Data.List.Split
 import System.Exit
 import XMonad
+import XMonad.Actions.CycleWS
 import XMonad.Actions.PhysicalScreens
 import XMonad.Actions.UpdateFocus
 import XMonad.Actions.UpdatePointer
@@ -122,6 +123,10 @@ myKeys conf@(XConfig {modMask = modMask}) = M.fromList $
   , ((modMask .|. shiftMask                , xK_j     ), windows W.swapDown)
   , ((modMask .|. shiftMask                , xK_k     ), windows W.swapUp)
   , ((modMask                              , xK_Return), windows W.swapMaster)
+  , ((modMask               .|. mod4Mask   , xK_Left  ), prevWS)
+  , ((modMask               .|. mod4Mask   , xK_Right ), nextWS)
+  , ((modMask .|. shiftMask .|. mod4Mask   , xK_Left  ), shiftToNext >> nextWS)
+  , ((modMask .|. shiftMask .|. mod4Mask   , xK_Right ), shiftToPrev >> prevWS)
   , ((modMask                              , xK_h     ), sendMessage Shrink)
   , ((modMask                              , xK_l     ), sendMessage Expand)
   , ((modMask                              , xK_t     ), withFocused $ windows . W.sink)

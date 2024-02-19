@@ -42,6 +42,7 @@ fi
 cmd_exists numlockx && numlockx on
 cmd_exists i3status xmodar && i3status | xmobar &
 cmd_exists xbindkeys && xbindkeys
+cmd_exists fusuma && fusuma &
 
 if cmd_exists xautolock i3lock; then
     LOCKER='i3lock -fc000000 --ring-color=b5890080 --keyhl-color=b58900 --bshl-color=dc322f --verif-text= --insidever-color=00000000 --ringver-color=859900 --wrong-color=dc322f --insidewrong-color=00000000 --ringwrong-color=dc322f'
