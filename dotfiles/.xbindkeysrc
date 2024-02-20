@@ -1,0 +1,10 @@
+"pamixer --toggle-mute; killall -USR1 i3status"
+    c:121
+"pamixer --decrease 5; killall -USR1 i3status"
+    c:122
+"pamixer --increase 5; killall -USR1 i3status"
+    c:123
+"xautolock -locknow"
+    m:0x50 + c:33
+"playerctl play-pause"
+    Mod2 + XF86AudioPlay
