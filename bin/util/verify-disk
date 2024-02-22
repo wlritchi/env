@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 <disk>"
+    echo "Example: $0 /dev/sda"
+    exit 1
+}
+
+if [ $# -ne 1 ]; then
+    usage
+fi
+
+disk=$1
+
+if [ ! -b "$disk" ]; then
+    echo "Error: $disk is not a block device"
+    usage
+fi
+
+# get disk size in bytes, as 64-bit integer
+disk_size=$(sudo blockdev --getsize64 "$disk")
+
+echo "Expecting disk of size $disk_size bytes"
+
+sudo cat "$disk" | pv -s "$disk_size" | pee 'wc -c' 'sha256sum -b'

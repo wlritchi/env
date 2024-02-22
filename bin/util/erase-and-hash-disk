@@ -30,6 +30,8 @@ fi
 # get disk size in bytes, as 64-bit integer
 disk_size=$(sudo blockdev --getsize64 "$disk")
 
+echo "Wiping disk of size $disk_size bytes"
+
 get_random_bytes() {
     # use pv if available, otherwise cat
     if command -v pv >/dev/null 2>&1; then
