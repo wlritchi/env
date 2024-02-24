@@ -1,0 +1,6 @@
+[Unit]
+Description=Run git-sync on configured repos
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'ecode=0; shuf %E/git-sync.list | while read d; do echo "Syncing $d"; git -C "$d" sync; ecode=$?; [ $ecode -ne 0 ] && break; done; exit $ecode'
