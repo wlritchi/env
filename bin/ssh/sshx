@@ -51,7 +51,8 @@ if [ -n "$apply_tmux_fix" ]; then
 fi
 if [ -n "$apply_sk_helper" ]; then
     port="$((RANDOM%32768+32768))"  # pick a random port to forward
-    identity_file="$(grep -e '^IdentityFile ' "$HOME/.ssh/config" | cut -c14- || true)"
+    # TODO figure out how to identify which one's actually used
+    identity_file="$(grep -he '^IdentityFile ' "$HOME/.ssh/config.d/identities" "$HOME/.ssh/config" | head -n1 | cut -c14- || true)"
     if [ -n "$identity_file" ]; then
         hash="$(sha256sum "${identity_file/#\~/$HOME}.pub" | cut -c-64)"
         # locate corresponding file, patch git config via env
