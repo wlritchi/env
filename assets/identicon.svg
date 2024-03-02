@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="2000" width="2000">
+  <style>
+    rect.cyan {
+      fill: #2aa198;
+    }
+  </style>
+  <!--
+  <rect x="0" y="0" width="100%" height="100%" fill="#fdf6e3" />
+  -->
+
+  <rect x="125" y="0" width="250" height="500" class="cyan" />
+  <rect x="0" y="125" width="500" height="250" class="cyan" />
+  <rect x="1625" y="0" width="250" height="500" class="cyan" />
+  <rect x="1500" y="125" width="500" height="250" class="cyan" />
+  <rect x="1625" y="1500" width="250" height="500" class="cyan" />
+  <rect x="1500" y="1625" width="500" height="250" class="cyan" />
+  <rect x="125" y="1500" width="250" height="500" class="cyan" />
+  <rect x="0" y="1625" width="500" height="250" class="cyan" />
+
+  <rect x="625" y="125" width="250" height="250" class="cyan" />
+  <rect x="1125" y="125" width="250" height="250" class="cyan" />
+  <rect x="125" y="625" width="250" height="250" class="cyan" />
+  <rect x="625" y="625" width="250" height="250" class="cyan" />
+  <rect x="1125" y="625" width="250" height="250" class="cyan" />
+  <rect x="1625" y="625" width="250" height="250" class="cyan" />
+  <rect x="125" y="1125" width="250" height="250" class="cyan" />
+  <rect x="625" y="1125" width="250" height="250" class="cyan" />
+  <rect x="1125" y="1125" width="250" height="250" class="cyan" />
+  <rect x="1625" y="1125" width="250" height="250" class="cyan" />
+  <rect x="625" y="1625" width="250" height="250" class="cyan" />
+  <rect x="1125" y="1625" width="250" height="250" class="cyan" />
+</svg>
