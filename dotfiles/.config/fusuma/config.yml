@@ -1,8 +1,14 @@
 swipe:
   3:
-    left:
+    down:
       # command: 'fusuma-sendkey LEFTALT+LEFTMETA+LEFT'
       command: 'xdotool key alt+super+Left'
-    right:
+    up:
       # command: 'fusuma-sendkey LEFTALT+LEFTMETA+RIGHT'
       command: 'xdotool key alt+super+Right'
+    left:
+      # command: 'funuma-sendkey LEFTALT+J'
+      command: 'xdotool key alt+j'
+    right:
+      # command: 'fusuma-sendkey LEFTALT+K'
+      command: 'xdotool key alt+k'
