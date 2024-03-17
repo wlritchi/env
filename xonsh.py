@@ -240,7 +240,7 @@ def _setup():
         nonlocal gpt_cost_acc, gpt_messages, gpt_tokens
 
         try:
-            import openai
+            from openai import OpenAI
         except ModuleNotFoundError:
             print("Unable to load openai module, cannot query ChatGPT", file=sys.stderr)
             return 1
@@ -278,7 +278,8 @@ def _setup():
             'content': query_str,
         })
 
-        response = openai.ChatCompletion.create(
+        client = OpenAI()
+        response = client.chat.completions.create(
             model=model,
             messages=gpt_messages,
             stream=GPT_STREAMING,
@@ -287,12 +288,13 @@ def _setup():
         if GPT_STREAMING:
             response_message = {}
             for chunk in response:
-                chunk_delta = chunk['choices'][0]['delta']
-                if 'role' in chunk_delta:
-                    response_message['role'] = chunk_delta['role']
-                if 'content' in chunk_delta:
-                    print(chunk_delta['content'], end='')
-                    response_message['content'] = response_message.get('content', '') + chunk_delta['content']
+                chunk_delta = chunk.choices[0].delta
+                if chunk_delta.role:
+                    response_message['role'] = chunk_delta.role
+                if chunk_delta.content:
+                    print(chunk_delta.content, end='')
+                    response_message['content'] = response_message.get('content', '') + chunk_delta.content
+#                print(chunk)
             print()
             gpt_messages.append(response_message)
 
@@ -300,14 +302,14 @@ def _setup():
                 completion_tokens = len(encoder.encode(response_message['content']))
                 gpt_tokens += prompt_tokens + completion_tokens
         else:
-            response_message = response['choices'][0]['message']
+            response_message = response.choices[0].message
 
             print(response_message['content'])
             gpt_messages.append(response_message)
 
-            prompt_tokens = response['usage']['prompt_tokens']
-            completion_tokens = response['usage']['completion_tokens']
-            gpt_tokens = response['usage']['total_tokens']
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
+            gpt_tokens = response.usage.total_tokens
 
         prompt_price, completion_price = GPT_MODEL_PRICING[model]
         gpt_cost_acc += (prompt_price * prompt_tokens + completion_price * completion_tokens) / 1000
