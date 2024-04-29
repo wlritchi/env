@@ -27,6 +27,11 @@
 
 [ -n "$__ALIAS_STACK" ] && exit # xonsh source-bash or similar
 
+if [ -d "$PWD" ] && ! [ -x "$PWD" ] && [ "$PWD" != "$HOME" ]; then
+    echo "$PWD not navigable, changing to $HOME" >&2
+    cd "$HOME"
+fi
+
 
 good_steps=()
 warnings=()
