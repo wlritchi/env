@@ -10,5 +10,7 @@ if ! command -v "$term" >/dev/null 2>&1; then
 fi
 
 for session in "${detached_sessions[@]}"; do
-    "$term" -e tmux attach-session -t "$session" &
+    if ! echo "$session" | grep -Eq '^[0-9a-f]{7}$'; then
+        "$term" -e tmux attach-session -t "$session" &
+    fi
 done
