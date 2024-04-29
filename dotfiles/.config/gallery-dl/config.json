@@ -15,6 +15,7 @@
             }
         },
         "instagram": {
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; rv:125.0) Gecko/20100101 Firefox/125.0",
             "directory": ["{username}", "{post_shortcode}"],
             "stories": {
                 "directory": ["{username}", "story"],
