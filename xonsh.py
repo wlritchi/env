@@ -90,6 +90,9 @@ def _setup():
             pass
         return False
 
+    def find_or(haystack: str, needle: str, default: int) -> int:
+        ret = haystack.find(needle)
+        return ret if ret != -1 else default
 
     def ensure_package(
         missing_package_collector: Set[str],
@@ -100,8 +103,14 @@ def _setup():
         if isinstance(package_spec, tuple):
             (package_import, package_pip) = package_spec
         else:
-            package_import = package_spec
-            package_pip = package_spec.replace('_', '-').replace('.', '-')
+            split_index = min(
+                find_or(package_spec, '>', len(package_spec)),
+                find_or(package_spec, '<', len(package_spec)),
+                find_or(package_spec, '=', len(package_spec)),
+                find_or(package_spec, ',', len(package_spec)),
+            )
+            package_import = package_spec[:split_index]
+            package_pip = package_import.replace('_', '-').replace('.', '-') + package_spec[split_index:]
         if has_package(package_import):
             return True
         elif can_autoinstall() and autoinstall(package_pip or package_import):
@@ -112,7 +121,7 @@ def _setup():
 
     # package spec: import name, or tuple (import name, pip name)
     EARLY_PACKAGES = (
-        'catppuccin',
+        'catppuccin>=1.0.0,<2.0.0',
         'pygments',
         'prompt_toolkit',
     )
