@@ -56,7 +56,7 @@ if [ -n "$apply_sk_helper" ]; then
     if [ -n "$identity_file" ]; then
         hash="$(sha256sum "${identity_file/#\~/$HOME}.pub" | cut -c-64)"
         # locate corresponding file, patch git config via env
-        cmd='for file in "$HOME/.ssh/"*.pub; do if [ "$(sha256sum "$file" | cut -c-64)" == "'$hash'" ]; then eval "export GIT_CONFIG_KEY_${GIT_CONFIG_COUNT:-0}=gpg.format; export GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT:-0}=ssh; export GIT_CONFIG_KEY_$((GIT_CONFIG_COUNT+1))=user.signingKey; export GIT_CONFIG_VALUE_$((GIT_CONFIG_COUNT+1))=${file@Q}"; export GIT_CONFIG_COUNT="$((GIT_CONFIG_COUNT+2))"; break; fi; done; '"$cmd"
+        cmd='shopt -s nullglob; for file in "$HOME/.ssh/"*.pub; do if [ "$(sha256sum "$file" | cut -c-64)" == "'$hash'" ]; then eval "export GIT_CONFIG_KEY_${GIT_CONFIG_COUNT:-0}=gpg.format; export GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT:-0}=ssh; export GIT_CONFIG_KEY_$((GIT_CONFIG_COUNT+1))=user.signingKey; export GIT_CONFIG_VALUE_$((GIT_CONFIG_COUNT+1))=${file@Q}"; export GIT_CONFIG_COUNT="$((GIT_CONFIG_COUNT+2))"; break; fi; done; '"$cmd"
     fi
     cmd='tmpdir=$(mktemp -d); cleanup() { rm -r "$tmpdir"; } ; trap cleanup EXIT ; echo "nc localhost '$port' 2>/dev/null" >"$tmpdir/ssh-sk-helper"; chmod +x "$tmpdir/ssh-sk-helper"; export SSH_SK_HELPER="$tmpdir/ssh-sk-helper"; '"$cmd"
     args+=(-R "$port:localhost:19191")
