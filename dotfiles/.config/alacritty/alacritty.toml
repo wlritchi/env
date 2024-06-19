@@ -806,6 +806,9 @@ multiplier = 5
 save_to_clipboard = false
 semantic_escape_chars = ",│`|:\"' ()[]{}<>"
 
+[terminal]
+osc52 = "CopyPaste"
+
 [window]
 decorations = "none"
 dynamic_padding = true
