@@ -25,6 +25,7 @@ from os.path import (
     relpath,
     samefile,
 )
+from pprint import pprint
 from random import randint
 from typing import (
     Any,
@@ -121,7 +122,7 @@ def _setup():
 
     # package spec: import name, or tuple (import name, pip name)
     EARLY_PACKAGES = (
-        'catppuccin>=1.0.0,<2.0.0',
+        'catppuccin>=2.0.0',
         'pygments',
         'prompt_toolkit',
     )
@@ -178,35 +179,38 @@ def _setup():
         if not prepare_early_packages():
             return
 
-        from catppuccin import Flavour
+        from catppuccin.extras.pygments import MacchiatoStyle
+        from catppuccin import PALETTE
         from pygments.token import Token
         from xonsh.pyghooks import register_custom_pygments_style
 
-        catppuccin_macchiato = Flavour.macchiato()
+        catppuccin_macchiato = PALETTE.macchiato.colors
         color_tokens = {
-            getattr(Token.Color, key.upper()): f"#{value.hex}"
-            for key, value in catppuccin_macchiato.__dict__.items()
+            getattr(Token.Color, color.name.upper()): color.hex
+            for color in catppuccin_macchiato
         }
         intense_color_tokens = {
-            getattr(Token.Color, f"INTENSE_{key}".upper()): f"#{value.hex}"
-            for key, value in catppuccin_macchiato.__dict__.items()
+            getattr(Token.Color, f'INTENSE_{color.name.upper()}'): color.hex
+            for color in catppuccin_macchiato
+        }
+        color_map = {
+            **MacchiatoStyle.styles,
+            **color_tokens,
+            **intense_color_tokens,
+            # alias other color names xonsh expects
+            Token.Color.PURPLE: catppuccin_macchiato.pink.hex,
+            Token.Color.INTENSE_PURPLE: catppuccin_macchiato.pink.hex,
+            Token.Color.CYAN: catppuccin_macchiato.teal.hex,
+            Token.Color.INTENSE_CYAN: catppuccin_macchiato.teal.hex,
+            Token.Color.WHITE: catppuccin_macchiato.subtext0.hex,
+            Token.Color.INTENSE_WHITE: catppuccin_macchiato.subtext1.hex,
+            Token.Color.BLACK: catppuccin_macchiato.surface1.hex,
+            Token.Color.INTENSE_BLACK: catppuccin_macchiato.surface2.hex,
         }
         register_custom_pygments_style(
             'catppuccin-macchiato-term',
-            {
-                **color_tokens,
-                **intense_color_tokens,
-                # alias other color names xonsh expects
-                Token.Color.PURPLE: f"#{catppuccin_macchiato.pink.hex}",
-                Token.Color.INTENSE_PURPLE: f"#{catppuccin_macchiato.pink.hex}",
-                Token.Color.CYAN: f"#{catppuccin_macchiato.teal.hex}",
-                Token.Color.INTENSE_CYAN: f"#{catppuccin_macchiato.teal.hex}",
-                Token.Color.WHITE: f"#{catppuccin_macchiato.subtext0.hex}",
-                Token.Color.INTENSE_WHITE: f"#{catppuccin_macchiato.subtext1.hex}",
-                Token.Color.BLACK: f"#{catppuccin_macchiato.surface1.hex}",
-                Token.Color.INTENSE_BLACK: f"#{catppuccin_macchiato.surface2.hex}",
-            },
-            base='catppuccin-macchiato',
+            color_map,
+#             base='catppuccin-macchiato',
         )
         XSH.env['XONSH_COLOR_STYLE'] = 'catppuccin-macchiato-term'
 
