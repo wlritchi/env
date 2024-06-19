@@ -168,7 +168,7 @@ def _setup():
                     package_import, _package_pip = package
                 else:
                     package_import = package
-                xontribs_load(package_import[8:])
+                xontribs_load([package_import[8:]])
 
         if missing_packages:
             print_color(f"{{YELLOW}}⚠{{RESET}} xonsh - missing packages for standard environment (xpip install {' '.join(missing_packages)} to fix)")
