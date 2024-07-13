@@ -111,6 +111,8 @@ myKeys conf@(XConfig {modMask = modMask}) = M.fromList $
   , ((modMask .|. shiftMask                , xK_s     ), mkXPrompt MoshPrompt promptCfg noCompletion mosh) -- TODO maybe complete on hosts somehow?
   , ((modMask .|. shiftMask .|. controlMask, xK_s     ), mkXPrompt SshPrompt promptCfg noCompletion ssh)
   , ((modMask .|. shiftMask                , xK_m     ), safeSpawn "alacritty" ["-e", "minicom"])
+  , ((modMask                              , xK_slash ), safeSpawn "alacritty" ["-e", "elia"])
+  , ((modMask                              , xK_dollar), safeSpawn "alacritty" ["-e", "k9sx"])
   , ((modMask .|. shiftMask .|. controlMask, xK_m     ), mkXPrompt MinicomPrompt promptCfg noCompletion sshMinicom)
   , ((modMask .|. shiftMask                , xK_t     ), mkXPrompt TwitchPrompt promptCfg noCompletion twitch)
   , ((modMask                              , xK_r     ), spawn "slop")
