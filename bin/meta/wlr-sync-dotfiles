@@ -17,6 +17,19 @@ get_permissions() {
     fi
 }
 
+is_newer() {
+    if stat --version 2>/dev/null | grep -q GNU; then
+        # GNU coreutils
+        mtime1="$(stat -c '%Y' "$1")"
+        mtime2="$(stat -c '%Y' "$2")"
+    else
+        # macOS, BSD
+        mtime1="$(stat -f '%m' "$1")"
+        mtime2="$(stat -f '%m' "$2")"
+    fi
+    [ "$mtime1" -gt "$mtime2" ]
+}
+
 sync_dir() {
     local parent="${1%/*}"
     if [ "$parent" != "$1" ]; then
@@ -41,26 +54,38 @@ sync_dir() {
     fi
 }
 
+render_file() {
+    if [ -n "$HOSTNAME" ] && [ -f "$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch" ]; then
+        if ! [ -f "$WLR_ENV_PATH/rendered/$1" ] || ! is_newer "$WLR_ENV_PATH/rendered/$1" "$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch" || ! is_newer "$WLR_ENV_PATH/rendered/$1" "$WLR_ENV_PATH/dotfiles/$1"; then
+            mkdir -p "$(dirname "$WLR_ENV_PATH/rendered/$1")"
+            patch "$WLR_ENV_PATH/dotfiles/$1" "$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch" -o "$WLR_ENV_PATH/rendered/$1" >/dev/null
+        fi
+        echo "$WLR_ENV_PATH/rendered/$1"
+        return
+    fi
+    echo "$WLR_ENV_PATH/dotfiles/$1"
+}
+
 link_file() {
+    rendered="$(realpath "$(render_file "$1")")"
     if [ -L "$HOME/$1" ]; then
-        expected_target="$(realpath "$WLR_ENV_PATH/dotfiles/$1")"
         actual_target="$(realpath "$HOME/$1")"
-        if [ "$expected_target" != "$actual_target" ]; then
-            print_diff "$HOME/$1" "$WLR_ENV_PATH/dotfiles/$1"
-            if wlr-ask "Update symlink $HOME/$1 to point to $WLR_ENV_PATH/dotfiles/$1 (currently $actual_target)?"; then
-                ln -sf "$WLR_ENV_PATH/dotfiles/$1" "$HOME/$1"
+        if [ "$rendered" != "$actual_target" ]; then
+            print_diff "$HOME/$1" "$rendered"
+            if wlr-ask "Update symlink $HOME/$1 to point to $rendered (currently $actual_target)?"; then
+                ln -sf "$rendered" "$HOME/$1"
             fi
         fi
     elif [ -f "$HOME/$1" ]; then
-        print_diff "$HOME/$1" "$WLR_ENV_PATH/dotfiles/$1"
-        if wlr-ask "Replace $HOME/$1 with a symlink to $WLR_ENV_PATH/dotfiles/$1?"; then
-            ln -sf "$WLR_ENV_PATH/dotfiles/$1" "$HOME/$1"
+        print_diff "$HOME/$1" "$rendered"
+        if wlr-ask "Replace $HOME/$1 with a symlink to $rendered?"; then
+            ln -sf "$rendered" "$HOME/$1"
         fi
     elif [ -e "$HOME/$1" ]; then
         wlr-warn "update: $HOME/$1 exists, but is not a regular file or symlink"
         return 1
     else
-        ln -s "$(realpath "$WLR_ENV_PATH/dotfiles/$1")" "$HOME/$1"
+        ln -s "$rendered" "$HOME/$1"
     fi
 }
 
