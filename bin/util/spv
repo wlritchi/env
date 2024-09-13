@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ -b "$1" ]; then
+    sudo cat "$1" | pv -cN "$1" -s "$(sudo blockdev --getsize64 "$1")" "${@:2}"
+elif [ -f "$1" ]; then
+    sudo cat "$1" | pv -cN "$1" -s "$(stat -c%s "$1")" "${@:2}"
+else
+    echo "Not a block device or file: $1" >&2
+    exit 2
+fi

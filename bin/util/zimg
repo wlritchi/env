@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 BLOCK_DEV" >&2
+    exit 1
+fi
+
+if [ -b "$1" ]; then
+    spv "$1" | zstd | pv -cWN zstd
+else
+    echo "Not a block device: $1" >&2
+    exit 1
+fi
