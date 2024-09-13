@@ -1,0 +1,31 @@
+diff --git a/dotfiles/.i3status.conf b/dotfiles/.i3status.conf
+index c0a2a2a..9f19c4d 100644
+--- a/dotfiles/.i3status.conf
++++ b/dotfiles/.i3status.conf
+@@ -14,26 +14,6 @@ disk "/" {
+   low_threshold = 5
+ }
+ 
+-order += "ipv6"
+-
+-order += "ethernet _first_"
+-ethernet "_first_" {
+-  format_up = "%ip (%speed)"
+-  format_down = "no ethernet"
+-}
+-
+-order += "wireless _first_"
+-wireless "_first_" {
+-  format_up = "%essid %ip (%bitrate %frequency %quality)"
+-  format_down = "no wireless"
+-}
+-
+-order += "volume master"
+-volume "master" {
+-  format = "♪ %volume"
+-  format_muted = "✖ %volume"
+-}
+-
+ order += "battery 0"
+ battery 0 {
+   format = "%status %percentage %remaining (%consumption)"
