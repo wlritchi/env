@@ -72,7 +72,7 @@ def _setup():
 
 
     def can_autoinstall():
-        return '.local/pipx/venvs/xonsh' in sys.prefix
+        return '.local/share/uv/tools' in sys.prefix
 
 
     def autoinstall(pkgname: str):

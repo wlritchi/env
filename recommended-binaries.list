@@ -6,11 +6,10 @@ fzf                     # interactive selection utility
 jq                      # json manipulation in shell pipelines
 nnn                     # terminal file manager
 nodenv                  # node environment manager
-pipx                    # python cli tool manager
-pyenv                   # python environment manager
 rg          ripgrep     # faster grep with useful defaults
 sponge      moreutils   # moreutils - misc utils
 tmux                    # terminal multiplexer
+uv                      # python environment and tool manager
 wdiff                   # word diff
 xonsh                   # python-flavoured shell
 zoxide                  # cd replacement (fuzzy matching, fzf integration, internal db to reduce fs lookups)

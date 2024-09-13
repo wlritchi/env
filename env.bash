@@ -276,22 +276,6 @@ wlr_check_env_shim() {
     fi
 }
 
-wlr_setup_pyenv() {
-    if wlr_check_env_shim pyenv python && wlr_check_env_shim pyenv pip; then
-        ensurepath --head "$HOME/.pyenv/shims"
-        pyenv rehash >/dev/null 2>&1 &
-        if ! command -v pyenv-virtualenv >/dev/null 2>&1; then
-            warnings+=('pyenv is installed, but pyenv-virtualenv was not found')
-        else
-            good_steps+=('pyenv')
-        fi
-    elif ! command -v pyenv >/dev/null 2>&1; then
-        err_steps+=('pyenv')
-    fi
-}
-[ "$WLR_PYENV" != 'n' ] && wlr_setup_pyenv
-unset wlr_setup_pyenv
-
 wlr_setup_nodenv() {
     local good=y
     if wlr_check_env_shim nodenv node && wlr_check_env_shim nodenv npm && wlr_check_env_shim nodenv npx; then
@@ -312,17 +296,6 @@ wlr_setup_nodenv() {
 }
 [ "$WLR_NODENV" != 'n' ] && wlr_setup_nodenv
 unset wlr_setup_nodenv
-
-wlr_check_pipx() {
-    [ -z "$wlr_interactive" ] && return
-    if command -v pipx >/dev/null 2>&1; then
-        good_steps+=('pipx')
-    else
-        err_steps+=('pipx')
-    fi
-}
-wlr_check_pipx
-unset wlr_check_pipx
 
 # disabled while I figure out the correct way to approach conda envs
 # looks like some pyenv-related tools might be able to handle it?
@@ -401,8 +374,8 @@ if [ -n "$wlr_interactive" ]; then
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
         export XONSHRC="$WLR_ENV_PATH/xonsh.py"
         exec xonsh
-    elif command -v pipx >/dev/null 2>&1; then
-        warnings+=('xonsh is not installed (but you can install it with `pipx install xonsh`')
+    elif command -v uv >/dev/null 2>&1; then
+        warnings+=('xonsh is not installed (but you can install it with `uv tool install xonsh --with pip --with prompt-toolkit`')
     else
         err_steps+=('xonsh')
     fi
@@ -415,10 +388,6 @@ try_source /usr/share/git/completion/git-completion.bash || \
     try_source /usr/local/etc/profile.d/bash_completion.sh
 try_source /usr/share/git/completion/git-prompt.sh
 try_source /usr/share/doc/pkgfile/command-not-found.bash
-
-if command -v register-python-argcomplete >/dev/null 2>&1; then
-    command -v pipx >/dev/null 2>&1 && eval "$(register-python-argcomplete pipx)"
-fi
 
 if command -v thefuck >/dev/null 2>&1; then
     eval "$(thefuck --alias)"
