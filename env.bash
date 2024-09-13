@@ -132,6 +132,13 @@ ensurepath() {
 }
 
 
+# brew
+
+if [ -x "/opt/homebrew/bin/brew" ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
+
 # BSD coreutils suck, add gnubin to path
 # https://apple.stackexchange.com/a/371984
 # must be run early because new macOS doesn't even have realpath (!)
