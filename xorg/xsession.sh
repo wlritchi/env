@@ -40,7 +40,7 @@ fi
 [ -f "$HOME/.Xresources" ] && xrdb -merge "$HOME/.Xresources"
 
 cmd_exists numlockx && numlockx on
-cmd_exists i3status xmodar && i3status | xmobar &
+cmd_exists i3status && cmd_exists xmobar && i3status | xmobar &
 cmd_exists xbindkeys && xbindkeys
 cmd_exists fusuma && fusuma &
 
