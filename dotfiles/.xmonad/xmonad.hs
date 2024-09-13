@@ -117,7 +117,7 @@ myKeys conf@(XConfig {modMask = modMask}) = M.fromList $
   , ((modMask .|. shiftMask                , xK_t     ), mkXPrompt TwitchPrompt promptCfg noCompletion twitch)
   , ((modMask                              , xK_r     ), spawn "slop")
   , ((modMask .|. shiftMask                , xK_c     ), kill)
-  , ((modMask                              , xK_space ), sendMessage NextLayout)
+  , ((modMask .|. shiftMask                , xK_space ), sendMessage NextLayout)
   , ((modMask                              , xK_n     ), refresh)
   , ((modMask                              , xK_j     ), windows W.focusDown)
   , ((modMask                              , xK_k     ), windows W.focusUp)
