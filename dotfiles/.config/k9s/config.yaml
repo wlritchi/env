@@ -7,9 +7,9 @@ k9s:
   noExitOnCtrlC: false
   ui:
     enableMouse: false
-    headless: true
+    headless: false
     logoless: true
-    crumbsless: true
+    crumbsless: false
     reactive: true
     noIcons: false
     skin: catppuccin-mocha
