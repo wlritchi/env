@@ -12,6 +12,7 @@ if command -v tmux >/dev/null 2>&1; then
 
     # reload tmux config
     tmux source-file "$HOME/.tmux.conf"
+    "$HOME/.tmux/plugins/tpm/bin/install_plugins"
 fi
 
 "$WLR_ENV_PATH/bin/meta/wlr-check-env"
