@@ -564,3 +564,37 @@ def bits(n):
 def lines(file):
     with open(file, 'r') as f:
         return [x.strip() for x in f.readlines()]
+
+SIZE_SUFFIXES = (
+    ('TiB', 1024 * 1024 * 1024 * 1024),
+    ('GiB', 1024 * 1024 * 1024),
+    ('MiB', 1024 * 1024),
+    ('KiB', 1024),
+    ('TB', 1000 * 1000 * 1000 * 1000),
+    ('GB', 1000 * 1000 * 1000),
+    ('MB', 1000 * 1000),
+    ('KB', 1000),
+    ('T', 1024 * 1024 * 1024 * 1024),
+    ('G', 1024 * 1024 * 1024),
+    ('M', 1024 * 1024),
+    ('K', 1024),
+    ('B', 1),
+)
+
+def parse_size(size: str):
+    for suffix, multiplier in SIZE_SUFFIXES:
+        if size.endswith(suffix):
+            suffix_len = len(suffix)
+            return float(size[:-suffix_len]) * multiplier
+    return int(size)
+
+
+def format_size(size: float) -> str:
+    for suffix, multiplier in SIZE_SUFFIXES:
+        if size > multiplier:
+            size_in_units = size / multiplier
+            if size_in_units >= 999.5:
+                # fix for returns like "1.03e3"
+                return f"{int(size_in_units)} {suffix}"
+            return f"{size_in_units:.3g} {suffix}"
+    return f"{size}"
