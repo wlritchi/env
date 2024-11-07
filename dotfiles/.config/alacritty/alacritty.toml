@@ -1,5 +1,5 @@
 [general]
-import = ["/home/wlritchi/.config/alacritty/catppuccin/catppuccin-macchiato.toml"]
+import = ["~/.config/alacritty/catppuccin/catppuccin-macchiato.toml"]
 live_config_reload = true
 working_directory = "None"
 
