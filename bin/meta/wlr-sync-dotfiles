@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 print_diff() {
@@ -55,15 +55,42 @@ sync_dir() {
 }
 
 render_file() {
+    current="$WLR_ENV_PATH/dotfiles/$1"
+    tmp=
+    final="$current"
+
+    patches=()
     if [ -n "$HOSTNAME" ] && [ -f "$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch" ]; then
-        if ! [ -f "$WLR_ENV_PATH/rendered/$1" ] || ! is_newer "$WLR_ENV_PATH/rendered/$1" "$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch" || ! is_newer "$WLR_ENV_PATH/rendered/$1" "$WLR_ENV_PATH/dotfiles/$1"; then
-            mkdir -p "$(dirname "$WLR_ENV_PATH/rendered/$1")"
-            patch "$WLR_ENV_PATH/dotfiles/$1" "$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch" -o "$WLR_ENV_PATH/rendered/$1" >/dev/null
-        fi
-        echo "$WLR_ENV_PATH/rendered/$1"
-        return
+        patches+=("$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch")
     fi
-    echo "$WLR_ENV_PATH/dotfiles/$1"
+    if [ -n "$(uname)" ] && [ -f "$WLR_ENV_PATH/patches/uname/$(uname)/$1.patch" ]; then
+        patches+=("$WLR_ENV_PATH/patches/uname/$(uname)/$1.patch")
+    fi
+
+    needs_patch=
+    for patch in "${patches[@]}"; do
+        final="$WLR_ENV_PATH/rendered/$1"
+        mkdir -p "$(dirname "$final")"
+        if ! [ -f "$final" ] || ! is_newer "$final" "$patch" || ! is_newer "$final" "$current"; then
+            needs_patch=y
+        fi
+    done
+
+    if [ -n "$needs_patch" ]; then
+        for patch in "${patches[@]}"; do
+            if [ -n "$tmp" ]; then
+                rm "$tmp"
+            fi
+            tmp="$(mktemp)"
+            next="$tmp"
+            patch "$current" "$patch" -o "$next" >/dev/null
+            current="$next"
+        done
+    fi
+    if [ "$final" != "$current" ]; then
+        mv "$current" "$final"
+    fi
+    echo "$final"
 }
 
 link_file() {

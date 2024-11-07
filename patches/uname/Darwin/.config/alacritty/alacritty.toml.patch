@@ -1,0 +1,22 @@
+diff --git a/dotfiles/.config/alacritty/alacritty.toml b/dotfiles/.config/alacritty/alacritty.toml
+index af0b951..daf8810 100644
+--- a/dotfiles/.config/alacritty/alacritty.toml
++++ b/dotfiles/.config/alacritty/alacritty.toml
+@@ -89,7 +89,7 @@ render_timer = false
+ PROMPT_TOOLKIT_COLOR_DEPTH = "DEPTH_24_BIT"
+ 
+ [font]
+-size = 10.0
++size = 12.0
+ 
+ [font.bold]
+ family = "FiraCode Nerd Font"
+@@ -804,7 +804,7 @@ history = 10000
+ multiplier = 5
+ 
+ [selection]
+-save_to_clipboard = false
++save_to_clipboard = true
+ semantic_escape_chars = ",│`|:\"' ()[]{}<>"
+ 
+ [terminal]
