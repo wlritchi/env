@@ -342,7 +342,7 @@ unset wlr_setup_krew
 
 # initialize PATH for custom aliases, wrappers, and scripts
 
-ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.cabal/bin" "$HOME/.gchup/bin" 2>/dev/null # allow these to fail silently, they might not exist
+ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.ghcup/bin" 2>/dev/null # allow these to fail silently, they might not exist
 while IFS=$'\n' read wlr_env_subdir; do
     ensurepath "$wlr_env_subdir"
 done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
