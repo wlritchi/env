@@ -17,6 +17,11 @@ if [ -z "$force" ]; then
     fi
 fi
 
+if ! curl -q 1.1.1.1 >/dev/null 2>&1; then
+    wlr-err 'no internet, skipping update'
+    exit 1
+fi
+
 wlr-working 'update check'
 
 # find remote for non-interactive updates
