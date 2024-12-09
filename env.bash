@@ -197,6 +197,9 @@ wlr_detect_named_term() {
 }
 
 wlr_suspect_tty() {
+    if [ -n "$WLR_FIRST_SHELL" ]; then
+        return 0
+    fi
     # usually this is from IDEs' integrated terminals
     if [ "$(realpath "$(pwd)")" != "$(realpath "$HOME")" ]; then
         return 0
@@ -341,7 +344,6 @@ unset wlr_setup_krew
 
 
 # initialize PATH for custom aliases, wrappers, and scripts
-
 ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.ghcup/bin" 2>/dev/null # allow these to fail silently, they might not exist
 while IFS=$'\n' read wlr_env_subdir; do
     ensurepath "$wlr_env_subdir"
@@ -359,12 +361,20 @@ if [ -n "$wlr_interactive" ]; then
 fi
 
 
+# do host-specific autorun
+if [ -n "$WLR_FIRST_SHELL" ]; then
+    export WLR_FIRST_SHELL=
+    if [ -x "$WLR_ENV_PATH/autorun/$HOSTNAME" ]; then
+        exec "$WLR_ENV_PATH/autorun/$HOSTNAME"
+    fi
+fi
+
+
 # print env report
 wlr-check-env
 
 
 # invoke xonsh, if applicable
-
 if [ -n "$wlr_interactive" ]; then
     if [ "$WLR_XONSH" == 'n' ] || [ "$POETRY_ACTIVE" == '1' ]; then
         warnings+=('xonsh - skipping')

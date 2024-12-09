@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+
+while ! grep -q amdgpu /proc/modules >/dev/null || ! lspci -k -d ::03xx | grep -q amdgpu >/dev/null; do
+    echo Waiting for amdgpu driver to load...
+    sleep 1
+done
+exec niri-session
+# exec startx
