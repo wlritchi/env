@@ -233,6 +233,12 @@ def _setup():
         'gpt-4-turbo': [
             (128000, 'gpt-4-turbo-preview'),
         ],
+        'gpt-4o': [
+            (128000, 'gpt-4o')
+        ],
+        'gpt-4o-mini': [
+            (128000, 'gpt-4o-mini')
+        ]
     }
     GPT_MODEL_PRICING = {  # prompt, completion, per 1000 tokens
         'gpt-3.5-turbo': (0.0005, 0.0015),
@@ -240,11 +246,15 @@ def _setup():
         'gpt-4': (0.03, 0.06),
         'gpt-4-32k': (0.06, 0.12),
         'gpt-4-turbo-preview': (0.01, 0.03),
+        'gpt-4o': (0.0025, 0.01),
+        'gpt-4o-mini': (0.00015, 0.0006),
     }
     GPT_MODEL_EXTRA_TOKENS = {  # per message, per role switch
         'gpt-3.5-turbo': (3, 1),  # used to be (4, 1) in the gpt-3.5-turbo-0301 model
         'gpt-4': (3, 1),
         'gpt-4-turbo': (3, 1),
+        'gpt-4o': (3, 1),  # guess
+        'gpt-4o-mini': (3, 1),  # guess
     }
 
     GPT_STREAMING = True
@@ -331,13 +341,9 @@ def _setup():
         prompt_price, completion_price = GPT_MODEL_PRICING[model]
         gpt_cost_acc += (prompt_price * prompt_tokens + completion_price * completion_tokens) / 1000
 
-    def _gpt3(query):
-        _query_gpt(query, 'gpt-3.5-turbo')
-
     def _gpt(query):
-        _query_gpt(query, 'gpt-4-turbo')
+        _query_gpt(query, 'gpt-4o')
 
-    XSH.aliases['gpt3'] = _gpt3
     XSH.aliases['gpt'] = _gpt
 
 
