@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+target="$(fuzzel --dmenu -p 'moshen ')"
+if [ -n "$target" ]; then
+    exec alacritty -e moshen $target
+fi

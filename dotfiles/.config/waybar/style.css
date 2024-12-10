@@ -1,0 +1,80 @@
+* {
+	font-size: 18px;
+	font-family: Fira Code Nerd;
+}
+
+window#waybar {
+	background: #1e2030;  /* mantle */
+	color: #cad3f5;  /* text */
+}
+
+#custom-right-arrow-dark,
+#custom-left-arrow-dark {
+	color: #1e2030;  /* mantle */
+    background: #363a4f;  /* surface0 */
+}
+#custom-right-arrow-light,
+#custom-left-arrow-light {
+	color: #363a4f;  /* surface0 */
+	background: #1e2030;  /* mantle */
+}
+
+/*
+#workspaces,
+#clock,
+#pulseaudio,
+#memory,
+#cpu,
+#battery,
+#temperature,
+#backlight,
+#network,
+#idle_inhibitor,
+#disk
+{
+	background: #1e2030;
+}
+*/
+
+
+#workspaces button {
+	padding: 0 2px;
+	color: #fdf6e3;
+}
+#workspaces button.focused {
+	color: #268bd2;
+}
+#workspaces button:hover {
+	box-shadow: inherit;
+	text-shadow: inherit;
+}
+#workspaces button:hover {
+	background: #1a1a1a;
+	border: #1a1a1a;
+	padding: 0 3px;
+}
+
+#pulseaudio {
+	color: #7dc4e4;  /* sapphire */
+}
+#memory {
+	color: #a6da95;  /* green */
+}
+#cpu {
+	color: #b7bdf8;  /* lavendar */
+}
+#battery {
+	color: #eed49f;  /* yellow */
+}
+#disk {
+	color: #b58900;
+}
+
+#clock,
+#pulseaudio,
+#memory,
+#cpu,
+#battery,
+#disk {
+	padding: 0 10px;
+}
