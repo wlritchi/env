@@ -6,6 +6,7 @@
     // "width":  // auto
     "spacing": 0,
     "modules-left": [
+        "custom/weather",
         "custom/media",
     ],
     "modules-center": [
@@ -14,6 +15,7 @@
         "tray",
         "mpd",
         "pulseaudio",
+        "backlight",
         "custom/left-arrow-light",
         "custom/left-arrow-dark",
         "idle_inhibitor",
@@ -25,12 +27,7 @@
         "power-profiles-daemon",
         "cpu",
         "memory",
-        "custom/left-arrow-light",
-        "custom/left-arrow-dark",
         "temperature",
-        "backlight",
-        "custom/left-arrow-light",
-        "custom/left-arrow-dark",
         "battery",
         "battery#bat2",
         "custom/left-arrow-light",
@@ -52,6 +49,13 @@
     "custom/right-arrow-light": {
         "format": "",
         "tooltip": false,
+    },
+    "custom/weather": {
+        "format": "{}°",
+        "tooltip": true,
+        "interval": 3600,
+        "exec": "wttrbar",
+        "return-type": "json",
     },
     "mpd": {
         "format": "{stateIcon} {consumeIcon}{randomIcon}{repeatIcon}{singleIcon}{artist} - {album} - {title} ({elapsedTime:%M:%S}/{totalTime:%M:%S}) ⸨{songPosition}|{queueLength}⸩ {volume}% ",

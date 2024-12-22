@@ -54,7 +54,7 @@ window#waybar {
 	padding: 0 3px;
 }
 
-#pulseaudio {
+#pulseaudio, #backlight {
 	color: #7dc4e4;  /* sapphire */
 }
 #memory {
