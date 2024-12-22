@@ -277,6 +277,8 @@ binds {
     Alt+Shift+S { spawn "moshen-prompt"; }
     Alt+Shift+Ctrl+S { spawn "sshen-prompt"; }
 
+    Alt+Dollar { spawn "alacritty" "-e" "k9s"; }
+
     // You can also use a shell. Do this if you need pipes, multiple commands, etc.
     // Note: the entire command goes as a single argument in the end.
     // Mod+T { spawn "bash" "-c" "notify-send hello && exec alacritty"; }
@@ -292,6 +294,8 @@ binds {
 
     Alt+J  { focus-column-left; }
     Alt+K { focus-column-right; }
+    Alt+Super+Left { focus-column-left; }
+    Alt+Super+Right { focus-column-right; }
     Super+Down  { focus-window-down; }
     Super+Up    { focus-window-up; }
     Mod+H     { focus-column-left; }
