@@ -277,6 +277,8 @@ binds {
     Super+Alt+L { spawn "swaylock"; }
     Alt+Shift+S { spawn "moshen-prompt"; }
     Alt+Shift+Ctrl+S { spawn "sshen-prompt"; }
+    Alt+Shift+M { spawn "alacritty" "-e" "minicom"; }
+    Alt+Shift+Ctrl+M { spawn "ssh-minicom-prompt"; }
 
     Alt+Dollar { spawn "alacritty" "-e" "k9s"; }
 
