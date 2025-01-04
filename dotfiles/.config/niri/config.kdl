@@ -475,9 +475,9 @@ binds {
     // Mod+Space       { switch-layout "next"; }
     // Mod+Shift+Space { switch-layout "prev"; }
 
-    Print { screenshot; }
-    Ctrl+Print { screenshot-screen; }
-    Alt+Print { screenshot-window; }
+    Alt+Ctrl+S { screenshot; }
+    Alt+S { screenshot-screen; }
+    Alt+Super+S { screenshot-window; }
 
     // The quit action will show a confirmation dialog to avoid accidental exits.
     Alt+Shift+Q { quit; }
