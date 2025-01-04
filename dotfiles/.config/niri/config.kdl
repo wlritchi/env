@@ -301,10 +301,10 @@ binds {
     Alt+Super+Right { focus-column-right; }
     Super+Down  { focus-window-down; }
     Super+Up    { focus-window-up; }
-    Mod+H     { focus-column-left; }
-    Mod+J     { focus-window-down; }
-    Mod+K     { focus-window-up; }
-    Mod+L     { focus-column-right; }
+    // Mod+H     { focus-column-left; }
+    // Mod+J     { focus-window-down; }
+    // Mod+K     { focus-window-up; }
+    // Mod+L     { focus-column-right; }
 
     Alt+Shift+J  { move-column-left; }
     Mod+Ctrl+Down  { move-window-down; }
@@ -437,9 +437,9 @@ binds {
     // Mod+Tab { focus-workspace-previous; }
 
     // Consume one window from the right into the focused column.
-    Mod+Comma  { consume-window-into-column; }
+    Alt+Comma  { consume-window-into-column; }
     // Expel one window from the focused column to the right.
-    Mod+Period { expel-window-from-column; }
+    Alt+Period { expel-window-from-column; }
 
     // There are also commands that consume or expel a single window to the side.
     Mod+BracketLeft  { consume-or-expel-window-left; }
