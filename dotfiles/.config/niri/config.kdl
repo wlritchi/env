@@ -489,6 +489,10 @@ binds {
 }
 
 environment {
+    TERMINAL "alacritty"
     // use xwayland-satellite by default
     DISPLAY ":0"
 }
+
+spawn-at-startup "wlr-restore-moshen-sessions"
+spawn-at-startup "bash" "-c" "command -v tmux && wlr-fix-tmux-resurrect && wlr-ensure-tmux-running && wlr-open-tmux-sessions"
