@@ -382,7 +382,7 @@ if [ -n "$wlr_interactive" ]; then
         print_status
         wlr-working 'xonsh'
         if command -v uv >/dev/null 2>&1; then
-            sed -re 's@^@--with @' "$WLR_ENV_PATH/requirements.txt" | xargs uv tool install xonsh
+            sed -re 's@^@--with @' "$WLR_ENV_PATH/requirements.txt" | xargs uv tool install xonsh --quiet --python 3.12
         fi
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
         export XONSHRC="$WLR_ENV_PATH/xonsh.py"
