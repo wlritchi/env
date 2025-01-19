@@ -189,7 +189,7 @@ wlr_detect_named_term() {
             echo "$__INTELLIJ_COMMAND_HISTFILE__"
         } | sha256sum | cut -c1-7
         return 0
-    elif [ -n "$VSCODE_SHELL_INTEGRATION" ] | [ -n "$ZED_TERM" ]; then
+    elif [ -n "$VSCODE_SHELL_INTEGRATION" ] || [ -n "$ZED_TERM" ]; then
         pwd | sha256sum | cut -c1-7
         return 0
     fi
