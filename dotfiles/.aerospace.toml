@@ -59,15 +59,15 @@ alt-shift-enter = 'exec-and-forget open -n -a Alacritty.app --args --working-dir
 alt-slash = 'exec-and-forget open -n -a Alacritty.app --args -e sh -c ". ~/.config/env_secret && ~/.local/bin/elia"'
 alt-backtick = 'exec-and-forget open -n -a Alacritty.app --args -e sh -c "~/.wlrenv/bin/k8s/k9sx"'
 
-alt-j = 'focus left'
-alt-k = 'focus right'
+alt-j = 'focus left --boundaries-action wrap-around-the-workspace'
+alt-k = 'focus right --boundaries-action wrap-around-the-workspace'
 alt-shift-j = 'move left'
 alt-shift-k = 'move right'
 
 # aerospace binds by keycode instead of keysym, which is very annoying
 # add bindings for its misunderstanding of Moonlander keystrokes since it presents as qwerty but dvorak is set above
-alt-h = 'focus left'
-alt-t = 'focus right'
+alt-h = 'focus left --boundaries-action wrap-around-the-workspace'
+alt-t = 'focus right --boundaries-action wrap-around-the-workspace'
 alt-shift-h = 'move left'
 alt-shift-t = 'move right'
 
