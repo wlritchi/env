@@ -11,17 +11,65 @@ if ! [ -d "$resurrect_dir" ]; then
     exit
 fi
 
-if [ -f "$resurrect_dir/last" ]; then
-    echo "tmux-resurrect 'last' symlink is not broken, nothing to fix"
-    exit
-fi
+fix_symlink() {
+    if [ -f "$resurrect_dir/last" ]; then
+        echo "tmux-resurrect 'last' symlink is not broken, nothing to fix"
+        return
+    fi
 
-real_last="$(ls "$resurrect_dir/"tmux*txt | sort | tail -n1)"
+    local real_last="$(ls "$resurrect_dir/"tmux*txt | sort | tail -n1)"
 
-if ! [ -n "$real_last" ]; then
-    echo "tmux-resurrect has no snapshots"
-    exit
-fi
+    if ! [ -n "$real_last" ]; then
+        echo "tmux-resurrect has no snapshots"
+        return
+    fi
 
-ln -sf "$real_last" "$resurrect_dir/last"
+    ln -sf "$real_last" "$resurrect_dir/last"
+}
 
+check_tar_file() {
+    local file="$1"
+    local min_entries=5
+
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+
+    if ! entry_count=$(tar tf "$file" 2>/dev/null | wc -l); then
+        return 1
+    fi
+
+    if [ "$entry_count" -lt "$min_entries" ]; then
+        return 1
+    fi
+
+    return 0
+}
+
+fix_pane_contents() {
+    local current_file="$resurrect_dir/pane_contents.tar.gz"
+    local backup_file="$resurrect_dir/pane_contents.tar.gz.bak"
+    local backups
+
+    if check_tar_file "$current_file"; then
+        echo "Current pane contents file is valid"
+        return
+    fi
+
+    readarray -t backups < <(find "$resurrect_dir" -name "pane_contents.*.tar.gz" -type f | sort -r | head -n 20)
+    for backup in "${backups[@]}"; do
+        echo "Checking backup: $(basename "$backup")"
+
+        if check_tar_file "$backup"; then
+            echo "Found valid backup: $(basename "$backup")"
+            mv "$current_file" "$backup_file"
+            cp "$backup" "$current_file"
+            return
+        fi
+    done
+
+    echo "No valid pane contents backup"
+}
+
+fix_symlink
+fix_pane_contents
