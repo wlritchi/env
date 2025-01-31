@@ -86,8 +86,6 @@ render_file() {
             patch "$current" "$patch" -o "$next" >/dev/null
             current="$next"
         done
-    fi
-    if [ "$final" != "$current" ]; then
         mv "$current" "$final"
     fi
     echo "$final"
