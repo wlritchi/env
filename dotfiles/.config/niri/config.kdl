@@ -294,6 +294,7 @@ binds {
     XF86AudioMicMute     allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SOURCE@" "toggle"; }
 
     Alt+Shift+C { close-window; }
+    Alt+T { toggle-window-floating; }
 
     Alt+J  { focus-column-left; }
     Alt+K { focus-column-right; }
