@@ -12,6 +12,8 @@ if ! [ -d "$resurrect_dir" ]; then
 fi
 
 fix_symlink() {
+    find "$resurrect_dir" -type f -empty -delete
+
     if [ -f "$resurrect_dir/last" ]; then
         echo "tmux-resurrect 'last' symlink is not broken, nothing to fix"
         return
