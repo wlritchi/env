@@ -378,17 +378,19 @@ wlr-check-env
 if [ -n "$wlr_interactive" ]; then
     if [ "$WLR_XONSH" == 'n' ] || [ "$POETRY_ACTIVE" == '1' ]; then
         warnings+=('xonsh - skipping')
+    elif command -v uv >/dev/null 2>&1; then
+        print_status
+        wlr-working 'xonsh'
+        uv tool install "$WLR_ENV_PATH/" --quiet
+        export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
+        export XONSHRC="$WLR_ENV_PATH/xonshrc.py"
+        exec xonsh
     elif command -v xonsh >/dev/null 2>&1; then
         print_status
         wlr-working 'xonsh'
-        if command -v uv >/dev/null 2>&1; then
-            sed -re 's@^@--with @' "$WLR_ENV_PATH/requirements.txt" | xargs uv tool install xonsh --quiet --python 3.12
-        fi
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
-        export XONSHRC="$WLR_ENV_PATH/xonsh.py"
+        export XONSHRC="$WLR_ENV_PATH/xonshrc.py"
         exec xonsh
-    elif command -v uv >/dev/null 2>&1; then
-        warnings+=('xonsh is not installed (but you can install it with `uv tool install xonsh --with pip --with prompt-toolkit`')
     else
         err_steps+=('xonsh')
     fi
