@@ -34,7 +34,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.scripts]
-xonsh = 'xonsh.cli:main'
+xonsh = 'xonsh.main:main'
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
