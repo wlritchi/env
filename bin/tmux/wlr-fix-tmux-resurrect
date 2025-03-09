@@ -58,13 +58,15 @@ fix_pane_contents() {
         return
     fi
 
-    readarray -t backups < <(find "$resurrect_dir" -name "pane_contents.*.tar.gz" -type f | sort -r | head -n 20)
+    readarray -t backups < <(find "$resurrect_dir" -name "pane_contents.*.tar.gz" -type f | sort -r | head -n 200)
     for backup in "${backups[@]}"; do
         echo "Checking backup: $(basename "$backup")"
 
         if check_tar_file "$backup"; then
             echo "Found valid backup: $(basename "$backup")"
-            mv "$current_file" "$backup_file"
+            if [ -e "$current_file" ]; then
+                mv "$current_file" "$backup_file"
+            fi
             cp "$backup" "$current_file"
             return
         fi
