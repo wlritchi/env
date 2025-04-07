@@ -281,6 +281,8 @@ def _setup() -> None:
             XSH.aliases['dd'] = 'dd-shim'
         if which('gradle-shim'):
             XSH.aliases['gradle'] = 'gradle-shim'
+        if which('rsync-shim'):
+            XSH.aliases['rsync'] = 'rsync-shim'
         if which('yay-shim'):
             XSH.aliases['yay'] = 'yay-shim'
 

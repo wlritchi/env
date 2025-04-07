@@ -1,0 +1,73 @@
+#!/usr/bin/env -S uv run -qs
+# vim: filetype=python
+
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+# ]
+# ///
+
+import argparse
+import os
+import sys
+from textwrap import dedent
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Wrapper for rsync that enforces best practices",
+        add_help=False,
+    )
+
+    parser.add_argument('-c', '--checksum', action='store_true')
+    parser.add_argument('-h', '--help', action='store_true')
+    parser.add_argument(
+        '--allow-unsafe-copy',
+        action='store_true',
+        help="Allow rsync to run without checksum verification (not recommended)",
+    )
+
+    args, unknown = parser.parse_known_args()
+
+    has_combined_checksum = False
+    for arg in sys.argv[1:]:
+        # Stop processing options if we see '--' (POSIX convention for end of options)
+        if arg == '--':
+            break
+        if arg.startswith('-') and not arg.startswith('--') and 'c' in arg:
+            has_combined_checksum = True
+            break
+
+    # Filter out our custom arguments from the arguments we'll pass to rsync
+    rsync_args: list[str] = ["rsync"]
+    for arg in sys.argv[1:]:
+        if arg != "--allow-unsafe-copy":
+            rsync_args.append(arg)
+
+    if not any(
+        (
+            len(sys.argv) <= 1,
+            args.checksum,
+            has_combined_checksum,
+            args.allow_unsafe_copy,
+            args.help,
+        )
+    ):
+        print(  # noqa: T201
+            dedent(
+                """
+                Error: rsync requires --checksum mode for safe file comparisons.
+                Without checksums, rsync only compares size and modification time,
+                which can lead to data corruption or missed transfers.
+                To bypass this check, use --allow-unsafe-copy (not recommended).
+                """
+            ).strip(),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    os.execvp("/usr/bin/rsync", rsync_args)  # noqa: S606
+
+
+if __name__ == '__main__':
+    main()
