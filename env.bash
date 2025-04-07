@@ -442,9 +442,6 @@ command -v gradle-shim >/dev/null 2>&1 && alias gradle='gradle-shim'
 command -v rsync-shim >/dev/null 2>&1 && alias rsync='rsync-shim'
 command -v yay-shim >/dev/null 2>&1 && alias yay='yay-shim'
 
-command -v fluxx >/dev/null 2>&1 && alias flux='fluxx'
-command -v helmx > /dev/null 2>&1 && alias helm='helmx'
-command -v kubectlx > /dev/null 2>&1 && alias kubectl='kubectlx'
 command -v k9sx > /dev/null 2>&1 && alias k9s='k9sx'
 
 command -v sshx > /dev/null 2>&1 && alias ssh='sshx'

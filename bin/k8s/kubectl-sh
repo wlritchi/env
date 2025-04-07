@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-kubectlx exec --stdin --tty "$@" -- /bin/sh
+kubectl exec --stdin --tty "$@" -- /bin/sh

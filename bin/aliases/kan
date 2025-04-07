@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-exec kubectlx "$1" --all-namespaces "${@:2}"
+exec kubectl "$1" --all-namespaces "${@:2}"

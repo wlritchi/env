@@ -11,14 +11,14 @@ namespace="$1"
 cluster="$2"
 db="${3:-}"
 
-creds="$(kubectlx get secret -n "$namespace" "postgres.$cluster.credentials.postgresql.acid.zalan.do" -o 'jsonpath={.data}')"
+creds="$(kubectl get secret -n "$namespace" "postgres.$cluster.credentials.postgresql.acid.zalan.do" -o 'jsonpath={.data}')"
 username="$(echo "$creds" | jq -r '.username' | base64 -d)"
 password="$(echo "$creds" | jq -r '.password' | base64 -d)"
 
 # this is the ugly port-forward way to do it
 hostname=localhost
 port=5432
-master_node="$(kubectlx get pods -n "$namespace" -l "cluster-name=$cluster,spilo-role=master" -o 'jsonpath={.items..metadata.name}')"
+master_node="$(kubectl get pods -n "$namespace" -l "cluster-name=$cluster,spilo-role=master" -o 'jsonpath={.items..metadata.name}')"
 kubectl port-forward -n "$namespace" "$master_node" 5432:5432 &
 pid="$!"
 

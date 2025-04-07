@@ -1,18 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# k9s, but with support for ~/.kube/config.d/
-# still salty about .kube/ vs .config/kubernetes/, but that's for another day
-
-if [ -d "$HOME/.kube/config.d" ]; then
-    if ! command -v wlr-helper-source >/dev/null 2>&1; then
-        printf 'Warning: unable to locate wlr helpers!\n' >&2
-    else
-        . "$(wlr-helper-source)"
-        ensurevar --require-file KUBECONFIG "$HOME/.kube/config.d/"*
-    fi
-fi
-
 # the right way to do this is for tmux to advertise tmux-direct, and maybe to set COLORTERM=truecolor
 # but for some reason k9s gets extremely slow and emits garbage if we set tmux-direct, and refuses to emit truecolor otherwise
 # but if we pick alacritty and set COLORTERM, it works fine, even in tmux

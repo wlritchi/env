@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
 
-exec kubectlx logs -f --since-time=1970-01-01T00:00:00Z "$@"
+exec kubectl logs -f --since-time=1970-01-01T00:00:00Z "$@"

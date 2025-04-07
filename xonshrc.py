@@ -286,12 +286,6 @@ def _setup() -> None:
         if which('yay-shim'):
             XSH.aliases['yay'] = 'yay-shim'
 
-        if which('fluxx'):
-            XSH.aliases['flux'] = 'fluxx'
-        if which('helmx'):
-            XSH.aliases['helm'] = 'helmx'
-        if which('fluxx'):
-            XSH.aliases['kubectl'] = 'kubectlx'
         if which('k9sx'):
             XSH.aliases['k9s'] = 'k9sx'
 

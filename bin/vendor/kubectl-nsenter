@@ -27,7 +27,7 @@ else
     args="\"-\""
 fi
 
-kubectlx run "${podName:?}" --restart=Never ${interactiveFlag} --quiet --rm --image overriden --overrides '
+kubectl run "${podName:?}" --restart=Never ${interactiveFlag} --quiet --rm --image overriden --overrides '
 {
   "spec": {
     "hostPID": true,
