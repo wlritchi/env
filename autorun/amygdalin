@@ -6,4 +6,3 @@ while ! grep -q amdgpu /proc/modules >/dev/null || ! lspci -k -d ::03xx | grep -
     sleep 1
 done
 exec niri-session
-# exec startx
