@@ -189,6 +189,44 @@ layout {
         top 1
         bottom 1
     }
+
+    shadow {
+        on
+    }
+}
+
+// shadow for fuzzel
+layer-rule {
+    match namespace="^launcher$"
+
+    shadow {
+        on
+    }
+
+    geometry-corner-radius 10
+}
+
+window-rule {
+    match is-window-cast-target=true
+
+    focus-ring {
+        active-color "#ed8796"  // macchiato-red
+        inactive-color "#ed8796"
+    }
+
+    border {
+        active-color "#ed8796"
+        inactive-color "#ed8796"
+    }
+
+    shadow {
+        color "#ed879670"
+    }
+
+    tab-indicator {
+        active-color "#ed8796"
+        inactive-color "#ed8796"
+    }
 }
 
 // Add lines like this to spawn processes at startup.
