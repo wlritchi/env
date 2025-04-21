@@ -312,6 +312,7 @@ binds {
     // Suggested binds for running programs: terminal, app launcher, screen locker.
     Alt+Shift+Return { spawn "alacritty"; }
     Alt+P { spawn "fuzzel"; }
+    Alt+Shift+P { spawn "yubikey-oath-dmenu" "--type" "--menu-cmd" "fuzzel -dp 'TOTP >'"; }
     Super+Alt+L { spawn "swaylock"; }
     Alt+Shift+S { spawn "moshen-prompt"; }
     Alt+Shift+Ctrl+S { spawn "sshen-prompt"; }
