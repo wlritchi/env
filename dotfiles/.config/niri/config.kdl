@@ -72,7 +72,7 @@ input {
 // Find more information on the wiki:
 // https://github.com/YaLTeR/niri/wiki/Configuration:-Outputs
 // Remember to uncomment the node by removing "/-"!
-output "eDP-1" {
+output "Apple Computer Inc Color LCD Unknown" {
     // Uncomment this line to disable this output.
     // off
 
@@ -104,17 +104,13 @@ output "eDP-1" {
     background-color "#181926"  // crust
 }
 
-// this output appears sometimes instead of eDP-1
-output "eDP-2" {
-    mode "3072x1920"
-    scale 1
-    transform "normal"
-    position x=0 y=0
-    background-color "#181926"  // crust
-}
-
-output "DP-3" {
+output "Acer Technologies XZ242Q Unknown" {
     off
+    mode "1920x1080"
+    scale 0.5
+    transform "normal"
+    position x=1850 y=-2160
+    background-color "#181926"  // crust
 }
 
 // Settings that influence how windows are positioned and sized.
