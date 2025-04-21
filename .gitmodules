@@ -1,0 +1,3 @@
+[submodule "vendor/catppuccin-fuzzel"]
+	path = vendor/catppuccin-fuzzel
+	url = https://github.com/catppuccin/fuzzel
