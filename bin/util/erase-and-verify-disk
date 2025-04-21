@@ -1,0 +1,95 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+    echo "Usage: $0 <disk>"
+    echo "Example: $0 /dev/sda"
+    exit 1
+}
+
+# Re-run with sudo if not root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This script requires root privileges. Re-executing with sudo..."
+    exec sudo "$0" "$@"
+fi
+
+if [ $# -ne 1 ]; then
+    usage
+fi
+
+disk=$1
+
+if [ ! -b "$disk" ]; then
+    echo "Error: $disk is not a block device"
+    usage
+fi
+
+# require confirmation by typing the disk name
+echo "This script will PERMANENTLY ERASE the entire contents of $disk"
+read -p "Retype the disk path to confirm: " confirm_disk
+
+if [ "$disk" != "$confirm_disk" ]; then
+    echo "Error: disk path does not match"
+    exit 1
+fi
+
+# Initialize counters and history
+success_count=0
+failure_count=0
+history=""
+
+# Function to print summary
+print_summary() {
+    echo "Passes: $success_count, Failures: $failure_count, History: $history"
+}
+
+while true; do
+    # get disk size in bytes, as 64-bit integer
+    disk_size=$(blockdev --getsize64 "$disk")
+    
+    echo "Wiping disk of size $disk_size bytes"
+    
+    get_random_bytes() {
+        # use pv if available, otherwise cat
+        if command -v pv >/dev/null 2>&1; then
+            # -s: size for display purposes, -S: truncate to size
+            pv -s "$disk_size" -S /dev/urandom
+        else
+            head -c "$disk_size" /dev/urandom
+        fi
+    }
+    
+    # Create temp files for hashes
+    write_hash_file=$(mktemp)
+    read_hash_file=$(mktemp)
+    
+    # Erase and hash - capture the hash
+    echo "Erasing disk with random data and hashing..."
+    get_random_bytes | tee "$disk" | sha256sum -b | tee "$write_hash_file"
+    write_hash=$(awk '{print $1}' "$write_hash_file")
+    
+    # Verify
+    echo "Verifying disk content..."
+    cat "$disk" | pv -s "$disk_size" | sha256sum -b | tee "$read_hash_file"
+    read_hash=$(awk '{print $1}' "$read_hash_file")
+    
+    # Clean up temp files
+    rm -f "$write_hash_file" "$read_hash_file"
+    
+    # Compare hashes and update counters
+    if [ "$write_hash" = "$read_hash" ]; then
+        echo "Verification PASSED"
+        success_count=$((success_count + 1))
+        history="${history}."
+    else
+        echo "Verification FAILED"
+        failure_count=$((failure_count + 1))
+        history="${history}X"
+    fi
+    
+    # Print summary
+    print_summary
+    
+    echo "Starting next cycle..."
+    echo
+done
