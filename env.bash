@@ -279,26 +279,12 @@ wlr_check_env_shim() {
     fi
 }
 
-wlr_setup_nodenv() {
-    local good=y
-    if wlr_check_env_shim nodenv node && wlr_check_env_shim nodenv npm && wlr_check_env_shim nodenv npx; then
-        ensurepath --head "$HOME/.nodenv/shims"
-        nodenv rehash >/dev/null 2>&1 &
-        if command -v nvm >/dev/null 2>&1; then
-            warnings+=('nodenv is installed, but nvm is also present (you should uninstall nvm)')
-            good=
-        fi
-        if ! command -v node-build >/dev/null 2>&1; then
-            warnings+=('nodenv is installed, but node-build is missing (install nodenv-node-build-git to fix)')
-            good=
-        fi
-        [ -n "$good" ] && good_steps+=('nodenv')
-    elif ! command -v nodenv >/dev/null 2>&1; then
-        err_steps+=('nodenv')
-    fi
-}
-[ "$WLR_NODENV" != 'n' ] && wlr_setup_nodenv
-unset wlr_setup_nodenv
+# set up fnm
+if command -v fnm >/dev/null 2>&1 && eval "$(fnm env --shell bash)"; then
+    good_steps+=('fnm')
+else
+    err_steps+=('fnm')
+fi
 
 # disabled while I figure out the correct way to approach conda envs
 # looks like some pyenv-related tools might be able to handle it?
@@ -447,14 +433,15 @@ command -v sshx > /dev/null 2>&1 && alias ssh='sshx'
 command -v sshfsx > /dev/null 2>&1 && alias sshfs='sshfsx'
 command -v moshx > /dev/null 2>&1 && alias mosh='moshx'
 
-alias cd='wrappercd'
-wrappercd() {
+__cd() {
     if [ $# -eq 0 ]; then
         popd >/dev/null 2>&1
     else
         pushd "$1" >/dev/null
     fi
+    [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
 }
+alias cd='__cd'
 
 mkcd() {
     if [ $# -ne 1 ]; then

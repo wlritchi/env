@@ -300,60 +300,62 @@ def _setup() -> None:
         if which('timex'):
             XSH.aliases['time'] = 'timex'
 
-        def _cd(args: list[str]) -> int | None:
-            if len(args) > 0:
-                _r = xonsh.dirstack.pushd(args)
-                if _r[1] is not None:  # type: ignore
-                    print(_r[1].strip(), file=sys.stderr)  # type: ignore
-                return _r[2]  # type: ignore
-            else:
-                xonsh.dirstack.popd(args)
+        _has_zoxide = bool(which('zoxide'))
+        _has_fnm = bool(which('fnm'))
+
+        def _fnm_use() -> None:
+            if not XSH.env:
+                raise RuntimeError('xonsh is not loaded')
+
+            if _has_fnm and 'FNM_MULTISHELL_PATH' in XSH.env:
+                subprocess.run(['fnm', 'use', '--silent-if-unchanged'])  # noqa: S603, S607
+
+        def _cd(args: list[str]) -> None:
+            if not XSH.env:
+                raise RuntimeError('xonsh is not loaded')
+
+            match args:
+                case [] | ['-']:
+                    xonsh.dirstack.popd([])
+                case [dir_name, *_rest]:
+                    if os.path.isdir(dir_name):
+                        xonsh.dirstack.pushd([dir_name])
+                    elif _has_zoxide:
+                        try:
+                            cmd = subprocess.run(  # noqa: S603
+                                [
+                                    'zoxide',
+                                    'query',
+                                    '--exclude',
+                                    XSH.env.get('PWD'),
+                                    '--',
+                                ]
+                                + args,
+                                check=True,
+                                capture_output=True,
+                                encoding='utf-8',
+                            )
+                            xonsh.dirstack.pushd([cmd.stdout[:-1]])
+                        except subprocess.CalledProcessError:
+                            print(
+                                f"No directories matched query '{args}'",
+                                file=sys.stderr,
+                            )
+                    else:
+                        print(
+                            f"Directory {dir_name} does not exist, and zoxide is not available"
+                        )
+            _fnm_use()
 
         XSH.aliases['cd'] = _cd
-
-        if which('zoxide'):
-
-            def _zoxide_cd(args: list[str]) -> None:
-                if not XSH.env:
-                    raise RuntimeError('xonsh is not loaded')
-
-                match args:
-                    case [] | ['-']:
-                        xonsh.dirstack.popd([])
-                    case [dirname, *_rest]:
-                        if os.path.isdir(dirname):
-                            xonsh.dirstack.pushd([dirname])
-                        else:
-                            try:
-                                cmd = subprocess.run(  # noqa: S603
-                                    [
-                                        'zoxide',
-                                        'query',
-                                        '--exclude',
-                                        XSH.env.get('PWD'),
-                                        '--',
-                                    ]
-                                    + args,
-                                    check=True,
-                                    capture_output=True,
-                                    encoding='utf-8',
-                                )
-                                xonsh.dirstack.pushd([cmd.stdout[:-1]])
-                            except subprocess.CalledProcessError:
-                                print(
-                                    f"No directories matched query '{args}'",
-                                    file=sys.stderr,
-                                )
-
-            XSH.aliases['cd'] = _zoxide_cd
 
         def _mkcd(args: list[str]) -> int | None:
             if len(args) != 1:
                 print('Usage: mkcd DIRECTORY', file=sys.stderr)
                 return 1
-            dir = args[0]
-            os.mkdir(dir)
-            xonsh.dirstack.pushd([dir])
+            dir_name = args[0]
+            os.mkdir(dir_name)
+            _cd([dir_name])
 
         XSH.aliases['mkcd'] = _mkcd
 
