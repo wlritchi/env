@@ -60,7 +60,7 @@ if [ -n "$TERM" ]; then
             ;;
     esac
 fi
-[ -n "$INTELLIJ_ENVIRONMENT_READER" ] && wlr_interactive=
+[ -n "$INTELLIJ_ENVIRONMENT_READER" ] || [ -n "$CLAUDECODE" ] && wlr_interactive=
 
 try_source() {
     if [ -r "$1" ]; then
@@ -370,12 +370,11 @@ if [ -n "$WLR_FIRST_SHELL" ]; then
 fi
 
 
-# print env report
-wlr-check-env
-
-
-# invoke xonsh, if applicable
 if [ -n "$wlr_interactive" ]; then
+    # print env report
+    wlr-check-env
+
+    # invoke xonsh, if applicable
     if [ "$WLR_XONSH" == 'n' ] || [ "$POETRY_ACTIVE" == '1' ]; then
         warnings+=('xonsh - skipping')
     elif command -v uv >/dev/null 2>&1; then
@@ -467,7 +466,7 @@ mkcd() {
 }
 
 
-print_status
+[ -n "$wlr_interactive" ] && print_status
 
 
 unset good_steps
