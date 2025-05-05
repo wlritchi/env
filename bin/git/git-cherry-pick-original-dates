@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# git-cherry-pick-original-dates
+# Cherry picks a commit while preserving both author and commit dates
+
+if [ $# -lt 1 ]; then
+    echo "Usage: git-cherry-pick-original-dates <commit> [<commit>...]"
+    exit 1
+fi
+
+for commit in "$@"; do
+    # Get the original dates
+    author_date=$(git log -1 --format=%ad "$commit")
+    commit_date=$(git log -1 --format=%cd "$commit")
+    
+    # Cherry-pick with both original dates
+    GIT_AUTHOR_DATE="$author_date" GIT_COMMITTER_DATE="$commit_date" git cherry-pick "$commit"
+done

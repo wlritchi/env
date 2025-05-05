@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# git-commit-amend-original-dates
+# Amends the current commit while preserving both author and commit dates
+
+# Get the original dates
+author_date=$(git log -1 --format=%ad HEAD)
+commit_date=$(git log -1 --format=%cd HEAD)
+
+# Amend the commit with the original dates
+GIT_AUTHOR_DATE="$author_date" GIT_COMMITTER_DATE="$commit_date" git commit --amend "$@"

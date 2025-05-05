@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+
+exec git-commit-amend-original-dates --no-edit "$@"
