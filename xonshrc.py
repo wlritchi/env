@@ -276,6 +276,8 @@ def _setup() -> None:
             XSH.aliases['ls'] = 'eza'
         elif which('exa'):
             XSH.aliases['ls'] = 'exa'
+        if which('nvim'):
+            XSH.aliases['vim'] = 'nvim'
 
         if which('dd-shim'):
             XSH.aliases['dd'] = 'dd-shim'

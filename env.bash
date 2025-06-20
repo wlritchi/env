@@ -421,6 +421,7 @@ if command -v eza >/dev/null 2>&1; then
 else
     command -v exa >/dev/null 2>&1 && alias ls='exa'
 fi
+command -v nvim >/dev/null 2>&1 && alias vim='nvim'
 
 command -v dd-shim >/dev/null 2>&1 && alias dd='dd-shim'
 command -v gradle-shim >/dev/null 2>&1 && alias gradle='gradle-shim'
