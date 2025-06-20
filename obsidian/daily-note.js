@@ -30,6 +30,8 @@ const fixup = async (vault, editor, path) => {
         const today = date.format('YYYY-MM-DD');
         const yesterday = moment(date).subtract(1, 'day').format('YYYY-MM-DD');
         const tomorrow = moment(date).add(1, 'day').format('YYYY-MM-DD');
+        await createIfMissing(vault, editor, `${yesterday}.md`);
+        await createIfMissing(vault, editor, `${tomorrow}.md`);
         let automationStart = null;
         for (let i = 0; i < editor.lineCount(); i++) {
             let line = editor.getLine(i);
@@ -41,8 +43,6 @@ const fixup = async (vault, editor, path) => {
                 automationStart = {ch: 0, line: i};
             }
         }
-        await createIfMissing(vault, editor, `${yesterday}.md`);
-        await createIfMissing(vault, editor, `${tomorrow}.md`);
         if (automationStart) {
             let line = editor.lastLine();
             const lineContent = editor.getLine(line) || '';
