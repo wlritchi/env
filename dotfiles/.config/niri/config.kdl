@@ -335,6 +335,7 @@ binds {
     Alt+Shift+Ctrl+M { spawn "ssh-minicom-prompt"; }
 
     Alt+Dollar { spawn "alacritty" "-e" "k9s"; }
+    Alt+Grave { spawn "alacritty" "-e" "k9s"; }
 
     // You can also use a shell. Do this if you need pipes, multiple commands, etc.
     // Note: the entire command goes as a single argument in the end.
