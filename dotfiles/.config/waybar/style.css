@@ -57,24 +57,38 @@ window#waybar {
 #pulseaudio, #backlight {
 	color: #7dc4e4;  /* sapphire */
 }
-#memory {
+#cpu, #memory, #disk, #battery {
 	color: #a6da95;  /* green */
 }
-#cpu {
-	color: #b7bdf8;  /* lavendar */
+#temperature {
+    color: #91d7e3 ; /* sky */
 }
-#battery {
+#cpu.warning, #memory.warning, #disk.warning, #battery.20, #battery.30, #battery.40 {
 	color: #eed49f;  /* yellow */
 }
-#disk {
-	color: #b58900;
+#cpu.critical, #memory.critical, #temperature.critical, #disk.critical, #battery.0, #battery.10 {
+    color: #ed8796;  /* red */
 }
 
-#clock,
-#pulseaudio,
-#memory,
-#cpu,
-#battery,
-#disk {
-	padding: 0 10px;
+
+#custom-weather {
+    padding-left: 0.25em;
+}
+#pulseaudio {
+    padding-right: 0.5em;
+}
+#idle_inhibitor {
+    padding: 0 0.5em;
+}
+#network {
+    padding: 0 0.25em;
+}
+#cpu {
+    padding-left: 0.5em;
+}
+#cpu, #memory, #temperature, #disk, #battery {
+    padding-right: 0.75em;
+}
+#clock {
+    padding: 0 0.5em;
 }
