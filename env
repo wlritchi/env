@@ -3,3 +3,4 @@ export HISTFILESIZE=
 export HISTCONTROL=ignoredups
 export AUTO_INIT_TCG=
 export MINICOM='-c on'
+export K9S_CONFIG_DIR=~/.config/k9s
