@@ -60,7 +60,7 @@ if [ -n "$TERM" ]; then
             ;;
     esac
 fi
-[ -n "$INTELLIJ_ENVIRONMENT_READER" ] || [ -n "$CLAUDECODE" ] && wlr_interactive=
+[ -n "$INTELLIJ_ENVIRONMENT_READER" ] || [ -n "$VSCODE_RESOLVING_ENVIRONMENT" ] || [ -n "$CLAUDECODE" ] && wlr_interactive=
 
 try_source() {
     if [ -r "$1" ]; then
