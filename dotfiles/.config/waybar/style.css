@@ -85,6 +85,7 @@ window#waybar {
 }
 #cpu {
     padding-left: 0.5em;
+    min-width: 3em;
 }
 #cpu, #memory, #temperature, #disk, #battery {
     padding-right: 0.75em;

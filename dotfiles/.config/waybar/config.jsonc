@@ -141,7 +141,9 @@
         "format-alt": " {ifname}: {ipaddr}/{cidr}",
     },
     "cpu": {
-        "format": "{usage}% 󰓅",
+        "interval": 5,
+        "format": "{usage}% {icon}",
+        "format-icons": ["󰾆", "󰾅", "󰓅"],
         "tooltip": false,
         "states": {
             "warning": 80,
@@ -149,6 +151,7 @@
         },
     },
     "memory": {
+        "interval": 5,
         "format": "{}% ",
         "states": {
             "warning": 80,
