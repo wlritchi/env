@@ -10,6 +10,7 @@ rg          ripgrep     # faster grep with useful defaults
 sponge      moreutils   # moreutils - misc utils
 tmux                    # terminal multiplexer
 uv                      # python environment and tool manager
+watchexec               # monitor files and directories, run command when they change
 wdiff                   # word diff
 xonsh                   # python-flavoured shell
 zoxide                  # cd replacement (fuzzy matching, fzf integration, internal db to reduce fs lookups)
