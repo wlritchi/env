@@ -2,10 +2,10 @@
 bat                     # cat replacement (auto-pager, line numbers)
 colordiff               # diff with coloured output (though latest GNU diff supports --color=auto which is probably equivalent)
 eza                     # ls replacement (fast, git status integration)
+fnm                     # node environment manager
 fzf                     # interactive selection utility
 jq                      # json manipulation in shell pipelines
 nnn                     # terminal file manager
-nodenv                  # node environment manager
 rg          ripgrep     # faster grep with useful defaults
 sponge      moreutils   # moreutils - misc utils
 tmux                    # terminal multiplexer

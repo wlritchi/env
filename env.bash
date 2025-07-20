@@ -287,7 +287,7 @@ wlr_check_env_shim() {
 }
 
 # set up fnm
-if command -v fnm >/dev/null 2>&1 && eval "$(fnm env --shell bash)"; then
+if command -v fnm >/dev/null 2>&1 && eval "$(fnm env --version-file-strategy=recursive --resolve-engines=false --shell bash)"; then
     good_steps+=('fnm')
 else
     err_steps+=('fnm')
