@@ -270,8 +270,15 @@ if [ -n "$wlr_interactive" ]; then
 fi
 
 
-# initialize env shims
+# initialize PATH for custom aliases, wrappers, and scripts
+ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.ghcup/bin" 2>/dev/null # allow these to fail silently, they might not exist
+while IFS=$'\n' read wlr_env_subdir; do
+    ensurepath "$wlr_env_subdir"
+done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+unset wlr_env_subdir
 
+
+# initialize env shims
 wlr_check_env_shim() {
     if ! [ -f "$HOME/.$1/shims/$2" ]; then
         warnings+=("$1: $2 shim is missing ($1 install <version> and/or $1 rehash to fix)")
@@ -327,14 +334,6 @@ wlr_setup_krew() {
 }
 wlr_setup_krew
 unset wlr_setup_krew
-
-
-# initialize PATH for custom aliases, wrappers, and scripts
-ensurepath "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.ghcup/bin" 2>/dev/null # allow these to fail silently, they might not exist
-while IFS=$'\n' read wlr_env_subdir; do
-    ensurepath "$wlr_env_subdir"
-done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
-unset wlr_env_subdir
 
 
 # push env into dbus and systemd
