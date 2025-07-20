@@ -120,46 +120,35 @@ def _setup() -> None:
 
     setup_colors()
 
-    gpt_model_choices_by_token_count = {
-        'gpt-3.5-turbo': [
-            (4096, 'gpt-3.5-turbo'),
-            (16384, 'gpt-3.5-turbo-16k'),
-        ],
-        'gpt-4': [
-            (8192, 'gpt-4'),
-            (32765, 'gpt-4-32k'),
-        ],
-        'gpt-4-turbo': [
-            (128000, 'gpt-4-turbo-preview'),
-        ],
-        'gpt-4o': [(128000, 'gpt-4o')],
-        'gpt-4o-mini': [(128000, 'gpt-4o-mini')],
-    }
-    gpt_model_pricing = {  # prompt, completion, per 1000 tokens
-        'gpt-3.5-turbo': (0.0005, 0.0015),
-        'gpt-3.5-turbo-16k': (0.0015, 0.0020),
-        'gpt-4': (0.03, 0.06),
-        'gpt-4-32k': (0.06, 0.12),
-        'gpt-4-turbo-preview': (0.01, 0.03),
-        'gpt-4o': (0.0025, 0.01),
-        'gpt-4o-mini': (0.00015, 0.0006),
-    }
-    gpt_model_extra_tokens = {  # per message, per role switch
-        'gpt-3.5-turbo': (3, 1),  # used to be (4, 1) in the gpt-3.5-turbo-0301 model
-        'gpt-4': (3, 1),
-        'gpt-4-turbo': (3, 1),
-        'gpt-4o': (3, 1),  # guess
-        'gpt-4o-mini': (3, 1),  # guess
+    gpt_model_pricing = {  # prompt, completion, per million tokens
+        'gpt-4o': (2.5, 10),
+        'gpt-4o-mini': (0.15, 0.6),
+        'gpt-4.1': (2, 8),
+        'gpt-4.1-mini': (0.4, 1.6),
+        'gpt-4.1-nano': (0.1, 0.4),
+        'gpt-4.5-preview': (75, 150),
+        'o1': (15, 60),
+        'o1-mini': (1.1, 4.4),
+        'o1-pro': (150, 600),
+        'o3': (2, 8),
+        'o3-mini': (1.1, 4.4),
+        'o3-deep-research': (10, 40),
+        'o4-mini': (1.1, 4.4),
+        'o4-mini-deep-research': (2, 8),
     }
 
     gpt_cost_acc = 0
     gpt_messages = []
     gpt_tokens = 0
 
-    def _query_gpt(query: list[str], flavor: str) -> None:
+    def _query_gpt(query: list[str], model: str) -> None:
         nonlocal gpt_cost_acc, gpt_messages, gpt_tokens
 
-        encoder = tiktoken.encoding_for_model(flavor)
+        encoder = None
+        try:
+            encoder = tiktoken.encoding_for_model(model.replace('o4', 'o3'))
+        except KeyError:
+            pass
 
         # cheapo bare words approximation
         if len(query) > 1:
@@ -169,20 +158,12 @@ def _setup() -> None:
 
         prompt_tokens = 0
         if encoder is not None:
-            tokens_per_message, tokens_per_role_switch = gpt_model_extra_tokens[flavor]
+            tokens_per_message = 3
+            tokens_per_role_switch = 1
             extra_tokens = tokens_per_message * 2 + tokens_per_role_switch
             if gpt_messages:
                 extra_tokens += tokens_per_role_switch
             prompt_tokens = len(encoder.encode(query_str)) + extra_tokens
-        total_tokens = gpt_tokens + prompt_tokens
-
-        model_choices = gpt_model_choices_by_token_count[flavor]
-        for max_tokens, _model in model_choices:
-            if total_tokens < max_tokens:
-                model = _model
-                break
-        else:
-            raise RuntimeError(f'No suitable model found for {flavor}')
 
         print(f'[{model}]')
 
@@ -214,16 +195,20 @@ def _setup() -> None:
         print()
         gpt_messages.append(response_message)
 
-        completion_tokens = len(encoder.encode(response_message['content']))
+        completion_tokens = (
+            len(encoder.encode(response_message['content']))
+            if encoder is not None
+            else 0
+        )
         gpt_tokens += prompt_tokens + completion_tokens
 
         prompt_price, completion_price = gpt_model_pricing[model]
         gpt_cost_acc += (
             prompt_price * prompt_tokens + completion_price * completion_tokens
-        ) / 1000
+        ) / 1000000
 
     def _gpt(query: list[str]) -> None:
-        _query_gpt(query, 'gpt-4o')
+        _query_gpt(query, 'o4-mini')
 
     XSH.aliases['gpt'] = _gpt
 
