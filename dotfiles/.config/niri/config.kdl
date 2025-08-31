@@ -496,12 +496,12 @@ binds {
     Alt+BracketLeft  { consume-or-expel-window-left; }
     Alt+BracketRight { consume-or-expel-window-right; }
 
-    Alt+R { switch-preset-column-width; }
-    Alt+Shift+R { switch-preset-window-height; }
-    Alt+Ctrl+R { reset-window-height; }
+    // Alt+R { switch-preset-column-width; }
+    // Alt+Shift+R { switch-preset-window-height; }
+    // Alt+Ctrl+R { reset-window-height; }
     Alt+F { maximize-column; }
     Alt+Shift+F { fullscreen-window; }
-    Alt+C { center-column; }
+    // Alt+C { center-column; }
 
     // Finer width adjustments.
     // This command can also:
