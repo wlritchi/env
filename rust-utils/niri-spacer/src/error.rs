@@ -72,6 +72,9 @@ pub enum NiriSpacerError {
 
     #[error("Channel communication error: {0}")]
     ChannelError(String),
+
+    #[error("Signal handling error: {0}")]
+    SignalHandling(String),
 }
 
 pub type Result<T> = std::result::Result<T, NiriSpacerError>;

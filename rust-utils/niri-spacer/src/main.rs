@@ -1,15 +1,19 @@
 use clap::Parser;
 use color_eyre::eyre::Result;
 use niri_spacer::native::NativeConfig;
-use niri_spacer::{defaults, NiriSpacer, NiriSpacerError, APP_DESCRIPTION, APP_NAME, APP_VERSION};
-use tracing::{error, info, Level};
+use niri_spacer::signal::setup_signal_handler;
+use niri_spacer::{defaults, NiriSpacer, NiriSpacerError, APP_NAME, APP_VERSION};
+use std::time::Duration;
+use tracing::{error, info, warn, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 /// CLI arguments for niri-spacer
 #[derive(Parser, Debug)]
 #[command(name = APP_NAME)]
 #[command(version = APP_VERSION)]
-#[command(about = APP_DESCRIPTION)]
+#[command(
+    about = "A persistent utility to spawn and manage placeholder windows in niri workspaces"
+)]
 #[command(long_about = None)]
 struct Args {
     /// Number of spacer windows to create (1-50)
@@ -141,7 +145,7 @@ async fn main() -> Result<()> {
         return handle_stats(&mut spacer).await;
     }
 
-    // Main spacer creation logic
+    // Main spacer creation logic - application runs persistently after creating windows
     info!("Creating {} spacer windows", args.count);
 
     match spacer.run(args.count).await {
@@ -169,7 +173,14 @@ async fn main() -> Result<()> {
                 }
             }
 
-            info!("niri-spacer completed successfully");
+            info!("niri-spacer window creation completed successfully");
+
+            // Always run in persistent mode
+            info!("Entering persistent mode - press Ctrl+C to exit gracefully");
+            if let Err(e) = run_persistent_mode(&mut spacer).await {
+                error!("Error in persistent mode: {}", e);
+                std::process::exit(1);
+            }
         },
         Err(e) => {
             match &e {
@@ -352,4 +363,87 @@ fn parse_hex_color(hex: &str) -> Result<(u8, u8, u8)> {
         .map_err(|_| color_eyre::eyre::eyre!("Invalid blue component in hex color '{}'", hex))?;
 
     Ok((r, g, b))
+}
+
+/// Run the application in persistent mode
+async fn run_persistent_mode(spacer: &mut NiriSpacer) -> Result<()> {
+    // Set up signal handler for graceful shutdown
+    let signal_handler = setup_signal_handler().await?;
+
+    info!(
+        "Persistent mode started with {} active spacer windows",
+        spacer.get_active_spacers().len()
+    );
+
+    // Initial status report
+    print_persistent_status(spacer).await;
+
+    // Main event loop
+    let mut maintenance_interval = tokio::time::interval(Duration::from_secs(30));
+    let mut status_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+
+    loop {
+        tokio::select! {
+            // Check for shutdown signal
+            _ = signal_handler.wait_for_shutdown() => {
+                info!("Shutdown signal received, starting graceful shutdown...");
+                break;
+            }
+
+            // Perform periodic maintenance
+            _ = maintenance_interval.tick() => {
+                if let Err(e) = spacer.perform_maintenance().await {
+                    warn!("Maintenance failed: {}", e);
+                }
+            }
+
+            // Print status update
+            _ = status_interval.tick() => {
+                print_persistent_status(spacer).await;
+            }
+        }
+    }
+
+    // Cleanup
+    info!("Performing graceful shutdown...");
+    if let Err(e) = spacer.cleanup().await {
+        warn!("Error during cleanup: {}", e);
+    }
+
+    info!("niri-spacer persistent mode shutdown complete");
+    Ok(())
+}
+
+/// Print status information for persistent mode
+async fn print_persistent_status(spacer: &mut NiriSpacer) {
+    let active_spacers = spacer.get_active_spacers();
+    info!("Status: {} active spacer windows", active_spacers.len());
+
+    if !active_spacers.is_empty() {
+        info!("Active spacers:");
+        for (i, spacer_window) in active_spacers.iter().enumerate().take(10) {
+            info!(
+                "  {}: Window {} in workspace {}",
+                i + 1,
+                spacer_window.id,
+                spacer_window.workspace_id
+            );
+        }
+        if active_spacers.len() > 10 {
+            info!("  ... and {} more", active_spacers.len() - 10);
+        }
+    }
+
+    // Get and display current workspace stats
+    match spacer.get_stats().await {
+        Ok(stats) => {
+            info!("Workspace state: {}", stats.summary());
+            if !stats.has_good_tiling_layout() {
+                info!("Note: Workspace layout could be optimized");
+            }
+        },
+        Err(e) => {
+            warn!("Failed to get workspace statistics: {}", e);
+        },
+    }
 }

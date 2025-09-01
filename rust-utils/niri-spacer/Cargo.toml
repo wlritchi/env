@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.70"
 authors = ["niri-spacer contributors"]
-description = "A utility to spawn placeholder windows in niri workspaces for improved tiling behavior"
+description = "A persistent utility to spawn and manage placeholder windows in niri workspaces for improved tiling behavior"
 documentation = "https://docs.rs/niri-spacer"
 repository = "https://github.com/YaLTeR/niri-spacer"
 license = "MIT OR Apache-2.0"
@@ -15,6 +15,10 @@ readme = "README.md"
 [dependencies]
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
+
+# Signal handling
+signal-hook = "0.3"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 
 # JSON handling
 serde = { version = "1.0", features = ["derive"] }
