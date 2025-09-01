@@ -55,6 +55,7 @@ pub enum NiriAction {
         id: u64,
     },
     MoveColumnLeft {},
+    MoveColumnToFirst {},
     FocusWorkspace {
         reference: WorkspaceReferenceArg,
     },
@@ -98,6 +99,15 @@ pub struct Workspace {
     pub active_window_id: Option<u64>,
 }
 
+/// niri window layout information - position and size details
+#[derive(Debug, Clone, Deserialize)]
+pub struct WindowLayout {
+    /// Position in scrolling layout as (column index, tile index in column)
+    /// Indices are 1-based, so the leftmost column is index 1
+    /// None for floating windows
+    pub pos_in_scrolling_layout: Option<(usize, usize)>,
+}
+
 /// niri window information - matches actual niri response format
 #[derive(Debug, Clone, Deserialize)]
 pub struct Window {
@@ -109,6 +119,8 @@ pub struct Window {
     pub is_focused: bool,
     pub is_floating: bool,
     pub is_urgent: bool,
+    #[serde(default)]
+    pub layout: Option<WindowLayout>,
 }
 
 /// niri event types - matches actual niri event format like {"WindowFocusChanged":{"id":123}}
@@ -257,6 +269,17 @@ impl NiriClient {
     /// Move current column to leftmost position
     pub async fn move_column_to_left(&mut self) -> Result<()> {
         let action = NiriAction::MoveColumnLeft {};
+        let response = self.request(NiriRequest::Action(action)).await?;
+
+        match response {
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowMove(msg)),
+        }
+    }
+
+    /// Move current column to first position in workspace
+    pub async fn move_column_to_first(&mut self) -> Result<()> {
+        let action = NiriAction::MoveColumnToFirst {};
         let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {

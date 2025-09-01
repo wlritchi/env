@@ -120,6 +120,10 @@ impl NativeWindowManager {
         self.ensure_window_in_workspace_index(niri_window_id, workspace_idx)
             .await?;
 
+        // Verify and ensure window is positioned in column 1 with retry logic
+        self.ensure_window_in_column_1_with_retry(niri_window_id, workspace_idx)
+            .await?;
+
         info!(
             "Successfully created native spacer window {} (niri ID: {})",
             window_number, niri_window_id
@@ -239,28 +243,157 @@ impl NativeWindowManager {
         self.niri_client.focus_window(window_id).await?;
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Move the column all the way to the leftmost position
-        // Keep moving left until it can't move further (typically 3-5 moves should be enough)
-        for i in 0..10 {
-            // Safety limit to prevent infinite loops
-            match self.niri_client.move_column_to_left().await {
-                Ok(()) => {
-                    debug!("Moved column left (attempt {})", i + 1);
-                    // Small delay to allow move to register before next attempt
-                    tokio::time::sleep(Duration::from_millis(25)).await;
-                },
-                Err(e) => {
-                    // If move fails, we've likely reached the leftmost position
-                    debug!("Column reached leftmost position after {} moves: {}", i, e);
-                    break;
-                },
-            }
+        // Move the column to first position using direct command
+        match self.niri_client.move_column_to_first().await {
+            Ok(()) => {
+                debug!("Moved column to first position");
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            Err(e) => {
+                // Fall back to the old method if move_column_to_first fails
+                warn!(
+                    "move_column_to_first failed ({}), falling back to move_column_to_left loop",
+                    e
+                );
+                for i in 0..10 {
+                    match self.niri_client.move_column_to_left().await {
+                        Ok(()) => {
+                            debug!("Moved column left (attempt {})", i + 1);
+                            tokio::time::sleep(Duration::from_millis(25)).await;
+                        },
+                        Err(e) => {
+                            debug!("Column reached leftmost position after {} moves: {}", i, e);
+                            break;
+                        },
+                    }
+                }
+            },
         }
 
         debug!(
             "Successfully positioned window {} at leftmost column",
             window_id
         );
+        Ok(())
+    }
+
+    /// Verify that a window is positioned in column 1 (leftmost column)
+    async fn verify_window_in_column_1(&mut self, window_id: u64) -> Result<bool> {
+        let windows = self.niri_client.get_windows().await?;
+
+        let window = windows
+            .iter()
+            .find(|w| w.id == window_id)
+            .ok_or(NiriSpacerError::WindowNotFound(window_id))?;
+
+        match &window.layout {
+            Some(layout) => {
+                match layout.pos_in_scrolling_layout {
+                    Some((column_index, _tile_index)) => {
+                        let is_in_column_1 = column_index == 1; // 1-based indexing
+                        debug!(
+                            "Window {} position verification: column {}, in column 1: {}",
+                            window_id, column_index, is_in_column_1
+                        );
+                        Ok(is_in_column_1)
+                    },
+                    None => {
+                        // Window is floating, not in tiling layout
+                        debug!("Window {} is floating, not in tiling layout", window_id);
+                        Ok(false) // Floating windows aren't considered to be in column 1
+                    },
+                }
+            },
+            None => {
+                // Layout information not available (older niri version)
+                debug!(
+                    "Window {} layout information not available, assuming successful positioning",
+                    window_id
+                );
+                Ok(true) // Assume success when layout data unavailable
+            },
+        }
+    }
+
+    /// Verify and correct window position with retry logic
+    async fn ensure_window_in_column_1_with_retry(
+        &mut self,
+        window_id: u64,
+        workspace_idx: u8,
+    ) -> Result<()> {
+        const MAX_POSITION_ATTEMPTS: u32 = 3;
+        const POSITION_RETRY_DELAY_MS: u64 = 100;
+
+        for attempt in 1..=MAX_POSITION_ATTEMPTS {
+            // Verify current position
+            match self.verify_window_in_column_1(window_id).await {
+                Ok(true) => {
+                    if attempt > 1 {
+                        info!(
+                            "Window {} successfully positioned in column 1 after {} attempts",
+                            window_id,
+                            attempt - 1
+                        );
+                    } else {
+                        debug!("Window {} confirmed in column 1", window_id);
+                    }
+                    return Ok(());
+                },
+                Ok(false) => {
+                    warn!(
+                        "Window {} is not in column 1 (attempt {}), attempting to reposition",
+                        window_id, attempt
+                    );
+
+                    if attempt <= MAX_POSITION_ATTEMPTS {
+                        debug!("Attempting to reposition window {} to column 1", window_id);
+
+                        // Try to reposition the window
+                        if let Err(e) = self
+                            .position_window_leftmost_by_index(window_id, workspace_idx)
+                            .await
+                        {
+                            warn!(
+                                "Failed to reposition window {} (attempt {}): {}",
+                                window_id, attempt, e
+                            );
+                        } else {
+                            // Wait before checking again
+                            tokio::time::sleep(Duration::from_millis(POSITION_RETRY_DELAY_MS))
+                                .await;
+                        }
+                    }
+                },
+                Err(e) => {
+                    warn!(
+                        "Could not verify column position for window {} (attempt {}): {}",
+                        window_id, attempt, e
+                    );
+                    if attempt < MAX_POSITION_ATTEMPTS {
+                        tokio::time::sleep(Duration::from_millis(POSITION_RETRY_DELAY_MS)).await;
+                    }
+                },
+            }
+        }
+
+        // Final verification after all attempts
+        match self.verify_window_in_column_1(window_id).await {
+            Ok(is_in_column_1) => {
+                if !is_in_column_1 {
+                    warn!(
+                        "Window {} failed to reach column 1 after {} positioning attempts",
+                        window_id, MAX_POSITION_ATTEMPTS
+                    );
+                }
+            },
+            Err(e) => {
+                warn!(
+                    "Could not verify final column position for window {}: {}",
+                    window_id, e
+                );
+            },
+        }
+
         Ok(())
     }
 
