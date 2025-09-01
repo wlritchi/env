@@ -1,5 +1,6 @@
 use clap::Parser;
 use color_eyre::eyre::Result;
+use niri_spacer::native::NativeConfig;
 use niri_spacer::{defaults, NiriSpacer, NiriSpacerError, APP_DESCRIPTION, APP_NAME, APP_VERSION};
 use tracing::{error, info, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -44,6 +45,33 @@ struct Args {
         long_help = "Display current workspace and window statistics including workspace utilization, window distribution, and tiling layout assessment, then exit without creating any windows."
     )]
     stats: bool,
+
+    /// Background color for native windows (RGB hex: RRGGBB)
+    #[arg(
+        long,
+        help = "Background color for native windows in RGB hex format",
+        long_help = "Set the background color for native windows using RGB hex format (e.g., 808080 for gray, FF0000 for red). Only applies when using native windows.",
+        value_name = "RRGGBB"
+    )]
+    native_color: Option<String>,
+
+    /// Timeout for native window correlation (milliseconds)
+    #[arg(
+        long,
+        help = "Timeout for correlating native windows with niri (milliseconds)",
+        long_help = "Maximum time to wait for native windows to appear in niri's window list for correlation. Increase if experiencing timeout errors.",
+        value_name = "MS",
+        default_value = "5000"
+    )]
+    correlation_timeout: u64,
+
+    /// Enable debug logging for native windows
+    #[arg(
+        long,
+        help = "Enable detailed debug logging for native window operations",
+        long_help = "Enable verbose debug output for native window creation, correlation, and lifecycle management. Useful for troubleshooting native window issues."
+    )]
+    debug_native: bool,
 }
 
 #[tokio::main]
@@ -60,8 +88,21 @@ async fn main() -> Result<()> {
     // Log startup information
     info!("{} v{} starting", APP_NAME, APP_VERSION);
 
-    // Initialize niri-spacer
-    let mut spacer = match NiriSpacer::new().await {
+    // Create configuration from CLI arguments
+    let native_config = create_native_config(&args)?;
+
+    // Log configuration
+    if args.debug || args.debug_native {
+        info!(
+            "Native config: debug={}, timeout={}ms, color={:?}",
+            native_config.debug_native,
+            native_config.correlation_timeout_ms,
+            native_config.background_color
+        );
+    }
+
+    // Initialize niri-spacer with configuration
+    let mut spacer = match NiriSpacer::new_with_native_config(native_config).await {
         Ok(spacer) => spacer,
         Err(e) => {
             match &e {
@@ -140,10 +181,10 @@ async fn main() -> Result<()> {
                         defaults::MAX_WINDOW_COUNT
                     );
                 },
-                NiriSpacerError::ProcessSpawn(io_err) => {
-                    error!("Failed to spawn process: {}", io_err);
-                    eprintln!("Error: Could not spawn terminal windows.");
-                    eprintln!("Make sure 'foot' terminal and 'bash' are installed and accessible.");
+                NiriSpacerError::NativeWindowCreation(msg) => {
+                    error!("Failed to create native window: {}", msg);
+                    eprintln!("Error: Could not create native Wayland window.");
+                    eprintln!("Make sure Wayland is available and you have proper permissions.");
                 },
                 NiriSpacerError::OperationTimeout => {
                     error!("Operation timed out");
@@ -274,4 +315,41 @@ async fn handle_stats(spacer: &mut NiriSpacer) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Create native configuration from CLI arguments
+fn create_native_config(args: &Args) -> Result<NativeConfig> {
+    let mut config = NativeConfig {
+        correlation_timeout_ms: args.correlation_timeout,
+        debug_native: args.debug_native,
+        ..Default::default()
+    };
+
+    // Parse background color if provided
+    if let Some(color_str) = &args.native_color {
+        config.background_color = parse_hex_color(color_str)?;
+    }
+
+    Ok(config)
+}
+
+/// Parse hex color string to RGB tuple
+fn parse_hex_color(hex: &str) -> Result<(u8, u8, u8)> {
+    let hex = hex.trim_start_matches('#');
+
+    if hex.len() != 6 {
+        return Err(color_eyre::eyre::eyre!(
+            "Invalid hex color format '{}'. Expected 6 characters (RRGGBB)",
+            hex
+        ));
+    }
+
+    let r = u8::from_str_radix(&hex[0..2], 16)
+        .map_err(|_| color_eyre::eyre::eyre!("Invalid red component in hex color '{}'", hex))?;
+    let g = u8::from_str_radix(&hex[2..4], 16)
+        .map_err(|_| color_eyre::eyre::eyre!("Invalid green component in hex color '{}'", hex))?;
+    let b = u8::from_str_radix(&hex[4..6], 16)
+        .map_err(|_| color_eyre::eyre::eyre!("Invalid blue component in hex color '{}'", hex))?;
+
+    Ok((r, g, b))
 }

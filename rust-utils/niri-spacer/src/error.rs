@@ -1,5 +1,4 @@
 use std::io;
-use std::process::ExitStatus;
 
 /// Custom error types for niri-spacer operations
 #[derive(thiserror::Error, Debug)]
@@ -25,12 +24,6 @@ pub enum NiriSpacerError {
     #[error("Window count must be between 1 and 50, got {0}")]
     InvalidWindowCount(u32),
 
-    #[error("Failed to spawn process: {0}")]
-    ProcessSpawn(io::Error),
-
-    #[error("Process failed with exit code: {0:?}")]
-    ProcessFailed(ExitStatus),
-
     #[error("Timeout waiting for operation to complete")]
     OperationTimeout,
 
@@ -54,6 +47,31 @@ pub enum NiriSpacerError {
 
     #[error("Failed to focus window: {0}")]
     WindowFocus(String),
+
+    // Native window errors
+    #[error("Wayland connection failed: {0}")]
+    WaylandConnection(String),
+
+    #[error("Window surface creation failed: {0}")]
+    SurfaceCreation(String),
+
+    #[error("Buffer allocation failed: {0}")]
+    BufferAllocation(String),
+
+    #[error("Native window creation failed: {0}")]
+    NativeWindowCreation(String),
+
+    #[error("Window correlation failed: {0}")]
+    WindowCorrelation(String),
+
+    #[error("Wayland protocol error: {0}")]
+    WaylandProtocol(String),
+
+    #[error("Native window not supported")]
+    NativeNotSupported,
+
+    #[error("Channel communication error: {0}")]
+    ChannelError(String),
 }
 
 pub type Result<T> = std::result::Result<T, NiriSpacerError>;
@@ -84,6 +102,14 @@ mod tests {
             (
                 NiriSpacerError::InvalidWindowCount(100),
                 "Window count must be between 1 and 50, got 100",
+            ),
+            (
+                NiriSpacerError::NativeWindowCreation("test".to_string()),
+                "Native window creation failed: test",
+            ),
+            (
+                NiriSpacerError::WindowCorrelation("test".to_string()),
+                "Window correlation failed: test",
             ),
             (
                 NiriSpacerError::OperationTimeout,

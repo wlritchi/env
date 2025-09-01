@@ -5,6 +5,7 @@
 //! consistent workspace layouts.
 
 pub mod error;
+pub mod native;
 pub mod niri;
 pub mod session;
 pub mod window;
@@ -12,6 +13,7 @@ pub mod workspace;
 
 // Re-export commonly used types
 pub use error::{NiriSpacerError, Result};
+pub use native::{create_native_manager, is_native_supported, NativeConfig};
 pub use niri::{NiriClient, NiriRequest, NiriResponse, Window, Workspace};
 pub use session::{NiriSessionInfo, SessionValidator};
 pub use window::{SpacerWindow, WindowManager};
@@ -48,13 +50,29 @@ pub struct NiriSpacer {
 }
 
 impl NiriSpacer {
-    /// Initialize niri-spacer with environment validation
+    /// Initialize niri-spacer with environment validation and default window manager
     pub async fn new() -> Result<Self> {
         // Validate environment and detect session
         let session_info = SessionValidator::validate_environment()?;
 
         // Initialize managers
         let window_manager = WindowManager::new().await?;
+        let workspace_manager = WorkspaceManager::new().await?;
+
+        Ok(Self {
+            session_info,
+            window_manager,
+            workspace_manager,
+        })
+    }
+
+    /// Initialize niri-spacer with custom native configuration
+    pub async fn new_with_native_config(native_config: NativeConfig) -> Result<Self> {
+        // Validate environment and detect session
+        let session_info = SessionValidator::validate_environment_native_only()?;
+
+        // Initialize managers with custom configuration
+        let window_manager = WindowManager::new_with_native_config(native_config).await?;
         let workspace_manager = WorkspaceManager::new().await?;
 
         Ok(Self {

@@ -6,90 +6,101 @@ use tokio::net::UnixStream;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::{debug, trace, warn};
 
-/// niri IPC request message
+/// niri IPC request message - based on actual niri IPC protocol
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type")]
 pub enum NiriRequest {
-    #[serde(rename = "workspaces")]
     Workspaces,
-
-    #[serde(rename = "windows")]
     Windows,
-
-    #[serde(rename = "action")]
-    Action { action: NiriAction },
-
-    #[serde(rename = "event-stream")]
+    Action(NiriAction),
     EventStream,
 }
 
-/// niri IPC actions
+/// niri size change specification - matches niri-ipc SizeChange enum
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type")]
+pub enum SizeChange {
+    SetFixed(i32),
+    SetProportion(f64),
+    AdjustFixed(i32),
+    AdjustProportion(f64),
+}
+
+/// niri workspace reference - matches niri-ipc WorkspaceReferenceArg
+#[derive(Debug, Clone, Serialize)]
+pub enum WorkspaceReferenceArg {
+    Index(u64),
+    Name(String),
+}
+
+/// niri IPC actions - based on actual niri IPC protocol
+#[derive(Debug, Clone, Serialize)]
 pub enum NiriAction {
-    #[serde(rename = "spawn")]
-    Spawn { command: Vec<String> },
-
-    #[serde(rename = "resize-window")]
-    ResizeWindow {
-        window_id: u64,
-        width: Option<i32>,
-        height: Option<i32>,
+    Spawn {
+        command: Vec<String>,
     },
-
-    #[serde(rename = "move-window-to-workspace")]
-    MoveWindowToWorkspace { window_id: u64, workspace_id: u64 },
-
-    #[serde(rename = "focus-window")]
-    FocusWindow { window_id: u64 },
-
-    #[serde(rename = "move-column-to-left")]
-    MoveColumnToLeft,
-
-    #[serde(rename = "focus-workspace")]
-    FocusWorkspace { workspace_id: u64 },
+    SetWindowWidth {
+        id: Option<u64>,
+        change: SizeChange,
+    },
+    SetWindowHeight {
+        id: Option<u64>,
+        change: SizeChange,
+    },
+    MoveWindowToWorkspace {
+        window_id: Option<u64>,
+        reference: WorkspaceReferenceArg,
+        focus: bool,
+    },
+    FocusWindow {
+        id: u64,
+    },
+    MoveColumnLeft {},
+    FocusWorkspace {
+        reference: WorkspaceReferenceArg,
+    },
 }
 
-/// niri IPC response message
+/// niri IPC response message - wrapped in Ok/Err as per niri protocol
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
 pub enum NiriResponse {
-    #[serde(rename = "ok")]
-    Ok {
-        #[serde(default)]
-        data: Option<serde_json::Value>,
-    },
-
-    #[serde(rename = "error")]
-    Error { msg: String },
-
-    #[serde(rename = "workspaces")]
-    Workspaces { workspaces: Vec<Workspace> },
-
-    #[serde(rename = "windows")]
-    Windows { windows: Vec<Window> },
-
-    #[serde(rename = "event")]
-    Event { event: NiriEvent },
+    Ok(ResponseData),
+    Err(String),
 }
 
-/// niri workspace information
+/// Response data types from niri - matches the nested structure
+#[derive(Debug, Clone, Deserialize)]
+pub enum ResponseData {
+    Workspaces(Vec<Workspace>),
+    Windows(Vec<Window>),
+    Event(NiriEvent),
+    // For actions that return empty success - will be an empty object {}
+    #[serde(other)]
+    Empty,
+}
+
+/// niri workspace information - matches actual niri response format
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
     pub id: u64,
+    pub idx: u64,
     pub name: Option<String>,
-    pub is_focused: bool,
+    pub output: String,
+    pub is_urgent: bool,
     pub is_active: bool,
+    pub is_focused: bool,
+    pub active_window_id: Option<u64>,
 }
 
-/// niri window information
+/// niri window information - matches actual niri response format
 #[derive(Debug, Clone, Deserialize)]
 pub struct Window {
     pub id: u64,
     pub title: String,
-    pub app_id: Option<String>,
+    pub app_id: String,
+    pub pid: u32,
     pub workspace_id: u64,
     pub is_focused: bool,
+    pub is_floating: bool,
+    pub is_urgent: bool,
 }
 
 /// niri event types
@@ -160,19 +171,17 @@ impl NiriClient {
         trace!("Received response: {}", response_line);
         let response: NiriResponse = serde_json::from_str(&response_line)?;
 
-        // Check for error responses
-        if let NiriResponse::Error { msg } = &response {
-            return Err(NiriSpacerError::NiriError(msg.clone()));
+        match response {
+            NiriResponse::Ok(data) => Ok(NiriResponse::Ok(data)),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::NiriError(msg)),
         }
-
-        Ok(response)
     }
 
     /// Get list of current workspaces
     pub async fn get_workspaces(&mut self) -> Result<Vec<Workspace>> {
         let response = self.request(NiriRequest::Workspaces).await?;
         match response {
-            NiriResponse::Workspaces { workspaces } => Ok(workspaces),
+            NiriResponse::Ok(ResponseData::Workspaces(workspaces)) => Ok(workspaces),
             _ => Err(NiriSpacerError::UnexpectedResponse),
         }
     }
@@ -181,7 +190,7 @@ impl NiriClient {
     pub async fn get_windows(&mut self) -> Result<Vec<Window>> {
         let response = self.request(NiriRequest::Windows).await?;
         match response {
-            NiriResponse::Windows { windows } => Ok(windows),
+            NiriResponse::Ok(ResponseData::Windows(windows)) => Ok(windows),
             _ => Err(NiriSpacerError::UnexpectedResponse),
         }
     }
@@ -189,29 +198,26 @@ impl NiriClient {
     /// Spawn a new process
     pub async fn spawn_process(&mut self, command: Vec<String>) -> Result<()> {
         let action = NiriAction::Spawn { command };
-        let response = self.request(NiriRequest::Action { action }).await?;
+        let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {
-            NiriResponse::Ok { .. } => Ok(()),
-            NiriResponse::Error { msg } => Err(NiriSpacerError::NiriError(msg)),
-            _ => Err(NiriSpacerError::UnexpectedResponse),
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::NiriError(msg)),
         }
     }
 
     /// Resize a window to minimum width
     pub async fn resize_window_to_minimum(&mut self, window_id: u64) -> Result<()> {
-        let action = NiriAction::ResizeWindow {
-            window_id,
-            width: Some(1), // Minimum width to trigger column resize
-            height: None,
+        let action = NiriAction::SetWindowWidth {
+            id: Some(window_id),
+            change: SizeChange::SetFixed(1), // Minimum width to trigger column resize
         };
 
-        let response = self.request(NiriRequest::Action { action }).await?;
+        let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {
-            NiriResponse::Ok { .. } => Ok(()),
-            NiriResponse::Error { msg } => Err(NiriSpacerError::WindowResize(msg)),
-            _ => Err(NiriSpacerError::UnexpectedResponse),
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowResize(msg)),
         }
     }
 
@@ -222,51 +228,50 @@ impl NiriClient {
         workspace_id: u64,
     ) -> Result<()> {
         let action = NiriAction::MoveWindowToWorkspace {
-            window_id,
-            workspace_id,
+            window_id: Some(window_id),
+            reference: WorkspaceReferenceArg::Index(workspace_id),
+            focus: false,
         };
-        let response = self.request(NiriRequest::Action { action }).await?;
+        let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {
-            NiriResponse::Ok { .. } => Ok(()),
-            NiriResponse::Error { msg } => Err(NiriSpacerError::WindowMove(msg)),
-            _ => Err(NiriSpacerError::UnexpectedResponse),
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowMove(msg)),
         }
     }
 
     /// Focus a specific window
     pub async fn focus_window(&mut self, window_id: u64) -> Result<()> {
-        let action = NiriAction::FocusWindow { window_id };
-        let response = self.request(NiriRequest::Action { action }).await?;
+        let action = NiriAction::FocusWindow { id: window_id };
+        let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {
-            NiriResponse::Ok { .. } => Ok(()),
-            NiriResponse::Error { msg } => Err(NiriSpacerError::WindowFocus(msg)),
-            _ => Err(NiriSpacerError::UnexpectedResponse),
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowFocus(msg)),
         }
     }
 
     /// Move current column to leftmost position
     pub async fn move_column_to_left(&mut self) -> Result<()> {
-        let action = NiriAction::MoveColumnToLeft;
-        let response = self.request(NiriRequest::Action { action }).await?;
+        let action = NiriAction::MoveColumnLeft {};
+        let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {
-            NiriResponse::Ok { .. } => Ok(()),
-            NiriResponse::Error { msg } => Err(NiriSpacerError::WindowMove(msg)),
-            _ => Err(NiriSpacerError::UnexpectedResponse),
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowMove(msg)),
         }
     }
 
     /// Focus a specific workspace
     pub async fn focus_workspace(&mut self, workspace_id: u64) -> Result<()> {
-        let action = NiriAction::FocusWorkspace { workspace_id };
-        let response = self.request(NiriRequest::Action { action }).await?;
+        let action = NiriAction::FocusWorkspace {
+            reference: WorkspaceReferenceArg::Index(workspace_id),
+        };
+        let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {
-            NiriResponse::Ok { .. } => Ok(()),
-            NiriResponse::Error { msg } => Err(NiriSpacerError::NiriError(msg)),
-            _ => Err(NiriSpacerError::UnexpectedResponse),
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::NiriError(msg)),
         }
     }
 }

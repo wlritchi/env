@@ -59,45 +59,6 @@ impl SessionValidator {
         Ok(session_info)
     }
 
-    /// Validate that foot terminal is available
-    pub fn validate_foot_terminal() -> Result<()> {
-        debug!("Checking for foot terminal availability");
-
-        // Check if foot is in PATH
-        match which::which("foot") {
-            Ok(foot_path) => {
-                debug!("Found foot terminal at: {}", foot_path.display());
-                Ok(())
-            },
-            Err(e) => {
-                warn!("foot terminal not found in PATH: {}", e);
-                Err(NiriSpacerError::ProcessSpawn(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "foot terminal not found in PATH",
-                )))
-            },
-        }
-    }
-
-    /// Validate that bash is available
-    pub fn validate_bash() -> Result<()> {
-        debug!("Checking for bash availability");
-
-        match which::which("bash") {
-            Ok(bash_path) => {
-                debug!("Found bash at: {}", bash_path.display());
-                Ok(())
-            },
-            Err(e) => {
-                warn!("bash not found in PATH: {}", e);
-                Err(NiriSpacerError::ProcessSpawn(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "bash not found in PATH",
-                )))
-            },
-        }
-    }
-
     /// Run comprehensive environment validation
     pub fn validate_environment() -> Result<NiriSessionInfo> {
         debug!("Running comprehensive environment validation");
@@ -105,15 +66,53 @@ impl SessionValidator {
         // Detect niri session
         let session_info = Self::detect_niri_session()?;
 
-        // Validate required programs
-        Self::validate_foot_terminal()?;
-        Self::validate_bash()?;
-
         // Additional environment checks
         Self::check_permissions(&session_info.socket_path)?;
 
         info!("Environment validation completed successfully");
         Ok(session_info)
+    }
+
+    /// Run environment validation for native-only mode
+    pub fn validate_environment_native_only() -> Result<NiriSessionInfo> {
+        debug!("Running native-only environment validation");
+
+        // Detect niri session
+        let session_info = Self::detect_niri_session()?;
+
+        // Validate Wayland environment
+        Self::validate_wayland_environment()?;
+
+        // Additional environment checks
+        Self::check_permissions(&session_info.socket_path)?;
+
+        info!("Native-only environment validation completed successfully");
+        Ok(session_info)
+    }
+
+    /// Validate Wayland environment for native windows
+    fn validate_wayland_environment() -> Result<()> {
+        debug!("Checking Wayland environment for native windows");
+
+        // Check for Wayland display
+        if std::env::var("WAYLAND_DISPLAY").is_err() {
+            warn!("WAYLAND_DISPLAY not set - native windows may not work");
+        }
+
+        // Check session type
+        match std::env::var("XDG_SESSION_TYPE") {
+            Ok(session_type) if session_type == "wayland" => {
+                debug!("Confirmed Wayland session type");
+            },
+            Ok(other) => {
+                warn!("Session type is '{}', expected 'wayland'", other);
+            },
+            Err(_) => {
+                warn!("XDG_SESSION_TYPE not set");
+            },
+        }
+
+        Ok(())
     }
 
     /// Check permissions on the niri socket

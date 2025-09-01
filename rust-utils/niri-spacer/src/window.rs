@@ -1,5 +1,6 @@
 use crate::error::{NiriSpacerError, Result};
-use crate::niri::{wait_for_window_spawn, NiriClient, Window};
+use crate::native::{create_spacer_with_strategy, NativeConfig};
+use crate::niri::{NiriClient, Window};
 use tracing::{debug, info, warn};
 
 /// Represents a spacer window that maintains workspace structure
@@ -10,47 +11,50 @@ pub struct SpacerWindow {
     pub window_number: u32,
 }
 
-/// Window manager for creating and managing spacer windows
+/// Window manager for creating and managing native spacer windows
 pub struct WindowManager {
     client: NiriClient,
+    native_config: NativeConfig,
 }
 
 impl WindowManager {
-    /// Create a new window manager
+    /// Create a new window manager with default native settings
     pub async fn new() -> Result<Self> {
         let client = NiriClient::connect().await?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            native_config: NativeConfig::default(),
+        })
     }
 
-    /// Spawn a single spacer window
-    pub async fn spawn_spacer_window(&mut self, window_number: u32) -> Result<SpacerWindow> {
-        info!("Spawning spacer window {}", window_number);
-
-        let command = vec![
-            "foot".to_string(),
-            "-e".to_string(),
-            "bash".to_string(),
-            "-c".to_string(),
-            format!(
-                "echo 'niri-spacer window {}'; exec sleep infinity",
-                window_number
-            ),
-        ];
-
-        // Spawn the process
-        self.client.spawn_process(command).await?;
-
-        // Wait for the window to appear
-        let search_text = format!("niri-spacer window {}", window_number);
-        let window = wait_for_window_spawn(&search_text).await?;
-
-        debug!("Spawned window {} with id {}", window_number, window.id);
-
-        Ok(SpacerWindow {
-            id: window.id,
-            workspace_id: window.workspace_id,
-            window_number,
+    /// Create a new window manager with custom native configuration
+    pub async fn new_with_native_config(native_config: NativeConfig) -> Result<Self> {
+        let client = NiriClient::connect().await?;
+        Ok(Self {
+            client,
+            native_config,
         })
+    }
+
+    /// Set the native window configuration
+    pub fn set_native_config(&mut self, config: NativeConfig) {
+        self.native_config = config;
+    }
+
+    /// Spawn a single native spacer window
+    pub async fn spawn_spacer_window(&mut self, window_number: u32) -> Result<SpacerWindow> {
+        info!("Spawning native spacer window {}", window_number);
+        self.spawn_native_window(window_number).await
+    }
+
+    /// Spawn a spacer window using native Wayland implementation
+    async fn spawn_native_window(&self, window_number: u32) -> Result<SpacerWindow> {
+        debug!("Creating native spacer window {}", window_number);
+
+        let config = self.native_config.clone();
+
+        // Create with temporary workspace - will be moved to correct workspace later
+        create_spacer_with_strategy(&config, window_number, 1).await
     }
 
     /// Resize a window to minimum width to optimize tiling

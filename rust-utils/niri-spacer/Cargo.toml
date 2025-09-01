@@ -37,8 +37,14 @@ futures-util = { version = "0.3", features = ["sink"] }
 
 # Additional dependencies
 thiserror = "1.0"
-which = "6.0"
 tokio-util = { version = "0.7", features = ["codec"] }
+
+# Native Wayland window support
+smithay-client-toolkit = { version = "0.19", features = ["calloop"] }
+wayland-client = "0.31"
+wayland-backend = { version = "0.3" }
+softbuffer = "0.4"
+fastrand = "2.0"
 
 [profile.release]
 opt-level = 3
