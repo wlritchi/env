@@ -488,6 +488,39 @@ impl NativeWindowManager {
                                         "✅ SUCCESS: Redirected focus from spacer window {}",
                                         focused_window_id
                                     );
+
+                                    // Fix 1px layout shift using center + maximize toggle hack
+                                    debug!("📤 SENDING: center-column + maximize toggle to fix layout positioning");
+
+                                    // Step 1: Center the column (moves to screen center)
+                                    if let Err(e) = action_client.center_column().await {
+                                        warn!("⚠️  WARNING: Failed to center column: {}", e);
+                                    } else {
+                                        // Small delay to let centering complete
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(50))
+                                            .await;
+
+                                        // Step 2: Maximize column (should expand to fill screen)
+                                        if let Err(e) = action_client.maximize_column().await {
+                                            warn!("⚠️  WARNING: Failed to maximize column: {}", e);
+                                        } else {
+                                            // Small delay to let maximize complete
+                                            tokio::time::sleep(tokio::time::Duration::from_millis(
+                                                10,
+                                            ))
+                                            .await;
+
+                                            // Step 3: Maximize again to toggle back to original layout
+                                            if let Err(e) = action_client.maximize_column().await {
+                                                warn!(
+                                                    "⚠️  WARNING: Failed to toggle maximize: {}",
+                                                    e
+                                                );
+                                            } else {
+                                                debug!("✅ SUCCESS: Applied center + maximize toggle layout fix");
+                                            }
+                                        }
+                                    }
                                 },
                                 Err(e) => {
                                     warn!(

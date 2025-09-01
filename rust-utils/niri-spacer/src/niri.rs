@@ -59,6 +59,11 @@ pub enum NiriAction {
         reference: WorkspaceReferenceArg,
     },
     FocusColumnRight {},
+    CenterColumn {},
+    SetColumnWidth {
+        change: SizeChange,
+    },
+    MaximizeColumn {},
 }
 
 /// niri IPC response message - wrapped in Ok/Err as per niri protocol
@@ -267,6 +272,39 @@ impl NiriClient {
         match response {
             NiriResponse::Ok(_) => Ok(()),
             NiriResponse::Err(msg) => Err(NiriSpacerError::WindowFocus(msg)),
+        }
+    }
+
+    /// Center the current column to fix layout positioning
+    pub async fn center_column(&mut self) -> Result<()> {
+        let action = NiriAction::CenterColumn {};
+        let response = self.request(NiriRequest::Action(action)).await?;
+
+        match response {
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowMove(msg)),
+        }
+    }
+
+    /// Set the width of the current column
+    pub async fn set_column_width(&mut self, change: SizeChange) -> Result<()> {
+        let action = NiriAction::SetColumnWidth { change };
+        let response = self.request(NiriRequest::Action(action)).await?;
+
+        match response {
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowResize(msg)),
+        }
+    }
+
+    /// Maximize the current column
+    pub async fn maximize_column(&mut self) -> Result<()> {
+        let action = NiriAction::MaximizeColumn {};
+        let response = self.request(NiriRequest::Action(action)).await?;
+
+        match response {
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowResize(msg)),
         }
     }
 
