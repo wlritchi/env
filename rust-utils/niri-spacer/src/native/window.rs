@@ -70,15 +70,15 @@ impl NativeWindowManager {
         })
     }
 
-    /// Create a native spacer window
-    pub async fn create_spacer(
+    /// Create a native spacer window by workspace index (position)
+    pub async fn create_spacer_by_index(
         &mut self,
         window_number: u32,
-        workspace_id: u64,
+        workspace_idx: u8,
     ) -> Result<SpacerWindow> {
         info!(
-            "Creating native spacer window {} for workspace {}",
-            window_number, workspace_id
+            "Creating native spacer window {} for workspace index {}",
+            window_number, workspace_idx
         );
 
         // Generate unique app_id for correlation
@@ -100,25 +100,28 @@ impl NativeWindowManager {
         // Update the native window record
         let native_window_index = self.windows.len() - 1;
         self.windows[native_window_index].niri_window_id = Some(niri_window_id);
-        self.windows[native_window_index].workspace_id = Some(workspace_id);
+        // Note: We store the index as u64 for now, but it's conceptually a workspace index
+        self.windows[native_window_index].workspace_id = Some(workspace_idx as u64);
 
-        // Move to target workspace if needed
-        let current_workspace = self.get_window_workspace(niri_window_id).await?;
-        if current_workspace != workspace_id {
-            self.niri_client
-                .move_window_to_workspace(niri_window_id, workspace_id)
-                .await?;
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
+        // Move to target workspace index
+        self.niri_client
+            .move_window_to_workspace_index(niri_window_id, workspace_idx)
+            .await?;
+        // Short delay to allow workspace move to register
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Resize to minimum width
         self.niri_client
             .resize_window_to_minimum(niri_window_id)
             .await?;
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        // No delay needed - resize is immediate
 
         // Position at leftmost column
-        self.position_window_leftmost(niri_window_id, workspace_id)
+        self.position_window_leftmost_by_index(niri_window_id, workspace_idx)
+            .await?;
+
+        // Verify window is in expected workspace index
+        self.ensure_window_in_workspace_index(niri_window_id, workspace_idx)
             .await?;
 
         info!(
@@ -128,7 +131,7 @@ impl NativeWindowManager {
 
         Ok(SpacerWindow {
             id: niri_window_id,
-            workspace_id,
+            workspace_id: workspace_idx as u64, // Store as index for now
             window_number,
         })
     }
@@ -219,43 +222,165 @@ impl NativeWindowManager {
         Ok(None)
     }
 
-    /// Get the workspace of a window
-    async fn get_window_workspace(&mut self, window_id: u64) -> Result<u64> {
-        let windows = self.niri_client.get_windows().await?;
-
-        for window in windows {
-            if window.id == window_id {
-                return Ok(window.workspace_id);
-            }
-        }
-
-        Err(NiriSpacerError::WindowNotFound(window_id))
-    }
-
-    /// Position a window at the leftmost column of its workspace
-    async fn position_window_leftmost(&mut self, window_id: u64, workspace_id: u64) -> Result<()> {
+    /// Position a window at the leftmost column of its workspace by index
+    async fn position_window_leftmost_by_index(
+        &mut self,
+        window_id: u64,
+        workspace_idx: u8,
+    ) -> Result<()> {
         debug!(
-            "Positioning window {} at leftmost column in workspace {}",
-            window_id, workspace_id
+            "Positioning window {} at leftmost column in workspace index {}",
+            window_id, workspace_idx
         );
 
-        // Focus the target workspace
-        self.niri_client.focus_workspace(workspace_id).await?;
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        // Focus the target workspace by index
+        self.niri_client
+            .focus_workspace_index(workspace_idx)
+            .await?;
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Focus the target window
         self.niri_client.focus_window(window_id).await?;
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Move the column to the leftmost position
-        self.niri_client.move_column_to_left().await?;
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        // Move the column all the way to the leftmost position
+        // Keep moving left until it can't move further (typically 3-5 moves should be enough)
+        for i in 0..10 {
+            // Safety limit to prevent infinite loops
+            match self.niri_client.move_column_to_left().await {
+                Ok(()) => {
+                    debug!("Moved column left (attempt {})", i + 1);
+                    // Small delay to allow move to register before next attempt
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                },
+                Err(e) => {
+                    // If move fails, we've likely reached the leftmost position
+                    debug!("Column reached leftmost position after {} moves: {}", i, e);
+                    break;
+                },
+            }
+        }
 
         debug!(
             "Successfully positioned window {} at leftmost column",
             window_id
         );
         Ok(())
+    }
+
+    /// Ensure a window stays in the expected workspace index, correcting if niri moved it
+    async fn ensure_window_in_workspace_index(
+        &mut self,
+        window_id: u64,
+        expected_workspace_idx: u8,
+    ) -> Result<()> {
+        const MAX_CORRECTION_ATTEMPTS: u32 = 3;
+        const CORRECTION_DELAY_MS: u64 = 50; // Reduced from 100ms since workspace placement is more reliable now
+
+        for attempt in 1..=MAX_CORRECTION_ATTEMPTS {
+            // Check current workspace by getting window info and finding which workspace index it's on
+            match self.get_window_workspace_index(window_id).await {
+                Ok(current_workspace_idx) => {
+                    if current_workspace_idx == expected_workspace_idx {
+                        // Window is in the correct workspace index
+                        if attempt > 1 {
+                            debug!(
+                                "Window {} successfully corrected to workspace index {} after {} attempts",
+                                window_id, expected_workspace_idx, attempt - 1
+                            );
+                        }
+                        return Ok(());
+                    } else {
+                        // Window was moved by niri, try to move it back
+                        tracing::warn!(
+                            "Window {} moved from expected workspace index {} to {} (attempt {})",
+                            window_id,
+                            expected_workspace_idx,
+                            current_workspace_idx,
+                            attempt
+                        );
+
+                        if attempt <= MAX_CORRECTION_ATTEMPTS {
+                            debug!(
+                                "Attempting to move window {} back to workspace index {} (attempt {}/{})",
+                                window_id, expected_workspace_idx, attempt, MAX_CORRECTION_ATTEMPTS
+                            );
+
+                            // Try to move it back
+                            if let Err(e) = self
+                                .niri_client
+                                .move_window_to_workspace_index(window_id, expected_workspace_idx)
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to correct window {} workspace (attempt {}): {}",
+                                    window_id,
+                                    attempt,
+                                    e
+                                );
+                            } else {
+                                // Wait before checking again
+                                tokio::time::sleep(Duration::from_millis(CORRECTION_DELAY_MS))
+                                    .await;
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        "Could not check workspace for window {} (attempt {}): {}",
+                        window_id,
+                        attempt,
+                        e
+                    );
+                    break;
+                },
+            }
+        }
+
+        // Final check after all attempts
+        match self.get_window_workspace_index(window_id).await {
+            Ok(final_workspace_idx) => {
+                if final_workspace_idx != expected_workspace_idx {
+                    tracing::warn!(
+                        "Window {} remains in workspace index {} instead of expected {} after {} correction attempts",
+                        window_id, final_workspace_idx, expected_workspace_idx, MAX_CORRECTION_ATTEMPTS
+                    );
+                }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    "Could not verify final workspace for window {}: {}",
+                    window_id,
+                    e
+                );
+            },
+        }
+
+        Ok(())
+    }
+
+    /// Get the workspace index of a window by finding it in the workspace list
+    async fn get_window_workspace_index(&mut self, window_id: u64) -> Result<u8> {
+        let windows = self.niri_client.get_windows().await?;
+        let workspaces = self.niri_client.get_workspaces().await?;
+
+        // Find the window
+        let window = windows
+            .iter()
+            .find(|w| w.id == window_id)
+            .ok_or(NiriSpacerError::WindowNotFound(window_id))?;
+
+        // Find the workspace with this ID and get its index
+        let workspace = workspaces
+            .iter()
+            .find(|w| w.id == window.workspace_id)
+            .ok_or(NiriSpacerError::IpcError(format!(
+                "Workspace with ID {} not found",
+                window.workspace_id
+            )))?;
+
+        Ok(workspace.idx)
     }
 
     /// Generate a unique app_id for window correlation

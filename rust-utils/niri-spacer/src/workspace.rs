@@ -1,7 +1,7 @@
 use crate::error::{NiriSpacerError, Result};
 use crate::niri::{NiriClient, Workspace};
 use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Workspace manager for niri workspace operations
 pub struct WorkspaceManager {
@@ -81,11 +81,9 @@ impl WorkspaceManager {
         }
     }
 
-    /// Check workspace utilization and suggest optimal starting workspace
-    pub async fn suggest_starting_workspace(&mut self, window_count: u32) -> Result<u64> {
-        let workspaces = self.get_workspaces().await?;
-
-        // Get windows to understand workspace utilization
+    /// Check workspace utilization and suggest optimal starting workspace index
+    pub async fn suggest_starting_workspace(&mut self, _window_count: u32) -> Result<u8> {
+        // Get windows to understand current workspace utilization
         let windows = self.client.get_windows().await?;
         let mut workspace_window_counts: HashMap<u64, u32> = HashMap::new();
 
@@ -100,63 +98,36 @@ impl WorkspaceManager {
             workspace_window_counts
         );
 
-        // Try to find empty workspaces first
-        let empty_workspaces: Vec<_> = workspaces
-            .iter()
-            .filter(|w| !workspace_window_counts.contains_key(&w.id))
-            .map(|w| w.id)
-            .collect();
-
-        if !empty_workspaces.is_empty() {
-            // Use the lowest numbered empty workspace
-            let start_id = *empty_workspaces.iter().min().unwrap();
-
-            // Check if we have enough consecutive empty workspaces
-            let mut consecutive_count = 0u32;
-            for i in 0..window_count {
-                let check_id = start_id + u64::from(i);
-                if empty_workspaces.contains(&check_id) {
-                    consecutive_count += 1;
-                } else {
-                    break;
-                }
-            }
-
-            if consecutive_count >= window_count {
-                info!("Using empty workspace sequence starting at {}", start_id);
-                return Ok(start_id);
-            }
-        }
-
-        // Fall back to finding any available sequence
-        self.find_workspace_sequence(window_count).await
+        // Default strategy: start from workspace index 1 and place sequentially
+        // This allows spacers to coexist with regular windows
+        info!("Using sequential workspace placement starting at index 1");
+        Ok(1)
     }
 
-    /// Validate that target workspaces are available for spacer placement
+    /// Validate that target workspace indices are available for spacer placement
     pub async fn validate_workspace_availability(
         &mut self,
-        starting_workspace_id: u64,
+        starting_workspace_idx: u8,
         count: u32,
     ) -> Result<()> {
         let workspaces = self.get_workspaces().await?;
-        let existing_ids: std::collections::HashSet<u64> =
-            workspaces.into_iter().map(|w| w.id).collect();
+        let existing_indices: std::collections::HashSet<u8> =
+            workspaces.into_iter().map(|w| w.idx).collect();
 
         for i in 0..count {
-            let workspace_id = starting_workspace_id + u64::from(i);
-            if existing_ids.contains(&workspace_id) {
-                warn!(
-                    "Workspace {} already exists and may contain other windows",
-                    workspace_id
+            let workspace_idx = starting_workspace_idx + i as u8;
+            if existing_indices.contains(&workspace_idx) {
+                debug!(
+                    "Workspace index {} already exists - spacers will coexist with existing windows",
+                    workspace_idx
                 );
-                // Note: We don't fail here as niri allows multiple windows per workspace
-                // We just warn that the workspace isn't empty
+                // Note: This is expected behavior - spacers can share workspaces with regular windows
             }
         }
 
         debug!(
-            "Workspace availability validated for sequence starting at {}",
-            starting_workspace_id
+            "Workspace availability validated for sequence starting at index {}",
+            starting_workspace_idx
         );
         Ok(())
     }

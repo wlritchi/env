@@ -80,10 +80,10 @@ pub enum ResponseData {
 /// niri workspace information - matches actual niri response format
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
-    pub id: u64,
-    pub idx: u64,
+    pub id: u64, // Unique internal identifier (non-sequential)
+    pub idx: u8, // Position index (1, 2, 3, etc.) - corrected type
     pub name: Option<String>,
-    pub output: String,
+    pub output: Option<String>, // Can be None per niri-ipc spec
     pub is_urgent: bool,
     pub is_active: bool,
     pub is_focused: bool,
@@ -221,15 +221,15 @@ impl NiriClient {
         }
     }
 
-    /// Move a window to a specific workspace
-    pub async fn move_window_to_workspace(
+    /// Move a window to a specific workspace by index (position)
+    pub async fn move_window_to_workspace_index(
         &mut self,
         window_id: u64,
-        workspace_id: u64,
+        workspace_idx: u8,
     ) -> Result<()> {
         let action = NiriAction::MoveWindowToWorkspace {
             window_id: Some(window_id),
-            reference: WorkspaceReferenceArg::Index(workspace_id),
+            reference: WorkspaceReferenceArg::Index(workspace_idx as u64),
             focus: false,
         };
         let response = self.request(NiriRequest::Action(action)).await?;
@@ -262,10 +262,10 @@ impl NiriClient {
         }
     }
 
-    /// Focus a specific workspace
-    pub async fn focus_workspace(&mut self, workspace_id: u64) -> Result<()> {
+    /// Focus a specific workspace by index (position)
+    pub async fn focus_workspace_index(&mut self, workspace_idx: u8) -> Result<()> {
         let action = NiriAction::FocusWorkspace {
-            reference: WorkspaceReferenceArg::Index(workspace_id),
+            reference: WorkspaceReferenceArg::Index(workspace_idx as u64),
         };
         let response = self.request(NiriRequest::Action(action)).await?;
 

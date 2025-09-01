@@ -75,7 +75,7 @@ impl WindowManager {
         debug!("Moving window {} to workspace {}", window_id, workspace_id);
 
         self.client
-            .move_window_to_workspace(window_id, workspace_id)
+            .move_window_to_workspace_index(window_id, workspace_id as u8)
             .await?;
 
         // Small delay to ensure the move operation completes
@@ -96,7 +96,9 @@ impl WindowManager {
         );
 
         // First, focus the target workspace
-        self.client.focus_workspace(workspace_id).await?;
+        self.client
+            .focus_workspace_index(workspace_id as u8)
+            .await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
 
         // Focus the target window

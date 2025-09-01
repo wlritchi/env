@@ -102,20 +102,20 @@ impl NiriSpacer {
         // Get workspace statistics before starting
         let initial_stats = self.workspace_manager.get_workspace_stats().await?;
 
-        // Find optimal starting workspace
-        let starting_workspace_id = self
+        // Find optimal starting workspace index
+        let starting_workspace_idx = self
             .workspace_manager
             .suggest_starting_workspace(window_count)
             .await?;
 
         // Validate workspace availability
         self.workspace_manager
-            .validate_workspace_availability(starting_workspace_id, window_count)
+            .validate_workspace_availability(starting_workspace_idx, window_count)
             .await?;
 
         // Create the spacer windows
         let spacers = self
-            .create_spacer_batch_persistent(window_count, starting_workspace_id)
+            .create_spacer_batch_persistent(window_count, starting_workspace_idx)
             .await?;
 
         // Validate the results
@@ -129,10 +129,10 @@ impl NiriSpacer {
 
         // Log the results
         tracing::info!(
-            "Created {} spacer windows in workspaces {}-{}",
+            "Created {} spacer windows in workspace indices {}-{}",
             spacers.len(),
-            starting_workspace_id,
-            starting_workspace_id + window_count as u64 - 1
+            starting_workspace_idx,
+            starting_workspace_idx + window_count as u8 - 1
         );
         tracing::info!("Before: {}", initial_stats.summary());
         tracing::info!("After: {}", final_stats.summary());
@@ -235,12 +235,12 @@ impl NiriSpacer {
     async fn create_spacer_batch_persistent(
         &mut self,
         window_count: u32,
-        starting_workspace_id: u64,
+        starting_workspace_idx: u8,
     ) -> Result<Vec<SpacerWindow>> {
         tracing::info!(
-            "Creating batch of {} spacer windows starting from workspace {} (persistent mode)",
+            "Creating batch of {} spacer windows starting from workspace index {} (persistent mode)",
             window_count,
-            starting_workspace_id
+            starting_workspace_idx
         );
 
         let mut spacers = Vec::with_capacity(window_count as usize);
@@ -253,30 +253,28 @@ impl NiriSpacer {
 
         for i in 0..window_count {
             let window_number = i + 1;
-            let workspace_id = starting_workspace_id + u64::from(i);
+            let workspace_idx = starting_workspace_idx + i as u8;
 
             match native_manager
-                .create_spacer(window_number, workspace_id)
+                .create_spacer_by_index(window_number, workspace_idx)
                 .await
             {
                 Ok(spacer) => {
                     spacers.push(spacer);
                     tracing::info!(
-                        "Successfully created and configured spacer window {} in workspace {}",
+                        "Successfully created and configured spacer window {} in workspace index {}",
                         window_number,
-                        workspace_id
+                        workspace_idx
                     );
 
-                    // Delay between spawns to avoid overwhelming niri
-                    if i < window_count - 1 {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                    }
+                    // No need for arbitrary delays - the create_spacer_by_index method
+                    // already includes confirmation that the window is properly positioned
                 },
                 Err(e) => {
                     tracing::error!(
-                        "Failed to create spacer window {} for workspace {}: {}",
+                        "Failed to create spacer window {} for workspace index {}: {}",
                         window_number,
-                        workspace_id,
+                        workspace_idx,
                         e
                     );
                     return Err(e);

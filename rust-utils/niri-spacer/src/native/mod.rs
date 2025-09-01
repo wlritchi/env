@@ -64,7 +64,9 @@ pub async fn create_spacer_with_strategy(
     workspace_id: u64,
 ) -> Result<SpacerWindow> {
     let mut manager = create_native_manager(config.clone()).await?;
-    manager.create_spacer(window_number, workspace_id).await
+    manager
+        .create_spacer_by_index(window_number, workspace_id as u8)
+        .await
 }
 
 #[cfg(test)]
