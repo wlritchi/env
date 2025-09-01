@@ -1,0 +1,77 @@
+[package]
+name = "niri-spacer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["niri-spacer contributors"]
+description = "A utility to spawn placeholder windows in niri workspaces for improved tiling behavior"
+documentation = "https://docs.rs/niri-spacer"
+repository = "https://github.com/YaLTeR/niri-spacer"
+license = "MIT OR Apache-2.0"
+keywords = ["niri", "wayland", "tiling", "window-manager", "workspace"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# JSON handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI parsing
+clap = { version = "4.5", features = ["derive", "color", "suggestions"] }
+
+# Error handling
+color-eyre = "0.6"
+eyre = "0.6"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "tracing-log"] }
+
+# Unix socket communication
+tokio-stream = { version = "0.1", features = ["net"] }
+futures-util = { version = "0.3", features = ["sink"] }
+
+# Additional dependencies
+thiserror = "1.0"
+which = "6.0"
+tokio-util = { version = "0.7", features = ["codec"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+[dev-dependencies]
+# Testing framework
+tokio-test = "0.4"
+serial_test = "3.1"
+tempfile = "3.8"
+
+# Property-based testing
+proptest = "1.5"
+
+# Mock framework
+mockall = "0.13"
+
+# Test utilities
+assert_matches = "1.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bin]]
+name = "niri-spacer"
+path = "src/main.rs"
+
+[[bench]]
+name = "window_creation"
+harness = false

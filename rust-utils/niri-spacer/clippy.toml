@@ -1,0 +1,20 @@
+# Clippy configuration for niri-spacer
+
+# Complexity thresholds
+cognitive-complexity-threshold = 30
+too-many-arguments-threshold = 8
+too-many-lines-threshold = 150
+type-complexity-threshold = 250
+
+# Naming thresholds
+min-ident-chars-threshold = 1
+max-struct-bools = 5
+
+# Documentation
+missing-docs-in-crate-items = false
+
+# Safety and correctness
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true

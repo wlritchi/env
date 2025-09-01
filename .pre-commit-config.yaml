@@ -7,20 +7,79 @@ repos:
     hooks:
       - id: uv-lock
         require_serial: true
+
+  # Rust hooks
   - repo: local
     hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Format Rust code with rustfmt
+        entry: bin/cargo-pre-commit-wrapper.sh
+        language: system
+        types: [rust]
+        pass_filenames: false
+        args: [fmt]
+
+      - id: cargo-clippy
+        name: cargo clippy
+        description: Lint Rust code with clippy
+        entry: bin/cargo-pre-commit-wrapper.sh
+        language: system
+        types: [rust]
+        pass_filenames: false
+        args: [clippy, --all-targets, --all-features, --, -D, warnings]
+
+      - id: cargo-test
+        name: cargo test
+        description: Run Rust tests
+        entry: bin/cargo-pre-commit-wrapper.sh
+        language: system
+        types: [rust]
+        pass_filenames: false
+        args: [test]
+
+      - id: cargo-audit
+        name: cargo audit
+        description: Check for security vulnerabilities
+        entry: bin/cargo-pre-commit-wrapper.sh
+        language: system
+        files: ^rust-utils/.*/Cargo\.(toml|lock)$
+        pass_filenames: false
+        args: [audit]
+
+      - id: cargo-deny
+        name: cargo deny
+        description: Check licenses and banned dependencies
+        entry: bin/cargo-pre-commit-wrapper.sh
+        language: system
+        args: [deny, check]
+        files: ^rust-utils/.*/(Cargo\.(toml|lock)|deny\.toml)$
+        pass_filenames: false
+
+      - id: cargo-build
+        name: cargo build
+        description: Build the project
+        entry: bin/cargo-pre-commit-wrapper.sh
+        language: system
+        types: [rust]
+        pass_filenames: false
+        args: [build]
+
+      # Python/Nix/Lua hooks
       - id: yamllint
         name: yamllint
         entry: uv run yamllint
         language: system
         types_or: [yaml]
         require_serial: true
+
       - id: ruff-format
         name: ruff-format
         entry: uv run ruff format --force-exclude
         language: system
         types_or: [python, pyi, jupyter]
         require_serial: true
+
       - id: ruff
         name: ruff
         entry: uv run ruff check --fix --force-exclude
@@ -28,21 +87,44 @@ repos:
         types_or: [python, pyi, jupyter]
         require_serial: true
         fail_fast: true
+
       - id: nixfmt
         name: nixfmt
         entry: nixfmt
         language: system
         files: \.nix$
         require_serial: true
+
       - id: stylua
         name: stylua
         entry: stylua
         language: system
         files: \.lua$
         require_serial: true
+
   - repo: https://github.com/wlritchi/pre-commit-via-uv
     rev: 1.0.0
     hooks:
       # disabled until python utils are rewritten as proper modules
       # - id: mypy-all-files
       - id: pyright-all-files
+
+  # General hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+        exclude: '\.md$'
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: mixed-line-ending
+
+ci:
+  autoupdate_schedule: monthly
+  skip: [cargo-audit, cargo-deny]  # Skip these in CI as they're covered by GitHub Actions
