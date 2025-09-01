@@ -1,7 +1,8 @@
 use crate::error::{NiriSpacerError, Result};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::{debug, trace, warn};
@@ -57,6 +58,7 @@ pub enum NiriAction {
     FocusWorkspace {
         reference: WorkspaceReferenceArg,
     },
+    FocusColumnRight {},
 }
 
 /// niri IPC response message - wrapped in Ok/Err as per niri protocol
@@ -103,27 +105,22 @@ pub struct Window {
     pub is_urgent: bool,
 }
 
-/// niri event types
+/// niri event types - matches actual niri event format like {"WindowFocusChanged":{"id":123}}
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
 pub enum NiriEvent {
-    #[serde(rename = "window-opened")]
-    WindowOpened { window: Window },
-
-    #[serde(rename = "window-closed")]
-    WindowClosed { window_id: u64 },
-
-    #[serde(rename = "window-focus-changed")]
-    WindowFocusChanged { window_id: Option<u64> },
-
-    #[serde(rename = "workspace-opened")]
-    WorkspaceOpened { workspace: Workspace },
-
-    #[serde(rename = "workspace-closed")]
-    WorkspaceClosed { workspace_id: u64 },
-
-    #[serde(rename = "workspace-focus-changed")]
-    WorkspaceFocusChanged { workspace_id: u64 },
+    WindowOpened {
+        window: Window,
+    },
+    WindowClosed {
+        window_id: u64,
+    },
+    WindowFocusChanged {
+        id: u64,
+    },
+    WorkspaceActiveWindowChanged {
+        workspace_id: u64,
+        active_window_id: u64,
+    },
 }
 
 /// niri IPC client for communication with niri compositor
@@ -260,6 +257,69 @@ impl NiriClient {
             NiriResponse::Ok(_) => Ok(()),
             NiriResponse::Err(msg) => Err(NiriSpacerError::WindowMove(msg)),
         }
+    }
+
+    /// Focus the column to the right
+    pub async fn focus_column_right(&mut self) -> Result<()> {
+        let action = NiriAction::FocusColumnRight {};
+        let response = self.request(NiriRequest::Action(action)).await?;
+
+        match response {
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowFocus(msg)),
+        }
+    }
+
+    /// Subscribe to niri events and return an async stream
+    pub async fn subscribe_to_events(mut self) -> Result<impl Stream<Item = Result<NiriEvent>>> {
+        use futures_util::stream::StreamExt;
+        use tokio_util::codec::FramedRead;
+
+        // Send event stream request
+        let request = NiriRequest::EventStream;
+        let request_json = serde_json::to_string(&request)?;
+
+        self.stream.write_all(request_json.as_bytes()).await?;
+        self.stream.write_all(b"\n").await?;
+
+        // Create a stream from the socket
+        let reader = FramedRead::new(self.stream, LinesCodec::new());
+
+        Ok(reader.filter_map(move |line_result| async move {
+            match line_result {
+                Ok(line) => {
+                    // Skip the initial response confirmation (e.g., {"Ok":null})
+                    // Events can be in format like {"WindowFocusChanged":{"id":123}} or {"Ok":null}
+                    match serde_json::from_str::<serde_json::Value>(&line) {
+                        Ok(value) => {
+                            // Skip confirmation responses like {"Ok":null}
+                            if value.get("Ok").is_some() || value.get("Err").is_some() {
+                                debug!("Skipping IPC response confirmation: {}", line);
+                                None
+                            } else {
+                                // Try to parse as event - events have keys like "WindowFocusChanged", etc.
+                                debug!("Processing potential event: {}", line);
+                                match serde_json::from_str::<NiriEvent>(&line) {
+                                    Ok(event) => Some(Ok(event)),
+                                    Err(e) => {
+                                        debug!(
+                                            "Failed to parse as event, skipping: {} - Error: {}",
+                                            line, e
+                                        );
+                                        None // Skip lines we can't parse as events
+                                    },
+                                }
+                            }
+                        },
+                        Err(_) => {
+                            // If we can't parse as JSON, skip it
+                            None
+                        },
+                    }
+                },
+                Err(e) => Some(Err(NiriSpacerError::IpcError(e.to_string()))),
+            }
+        }))
     }
 
     /// Focus a specific workspace by index (position)

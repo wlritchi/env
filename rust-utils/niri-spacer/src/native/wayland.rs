@@ -147,8 +147,8 @@ impl WaylandApp {
         window.set_app_id(app_id.clone());
         window.set_title(title);
 
-        // Use 1px minimum width - niri doesn't properly handle 0px wide windows
-        window.set_min_size(Some((1, 1)));
+        // Remove all size constraints to let niri fully control window sizing
+        // The initial surface size will still be small, but niri will resize via configure events
 
         // Commit the surface to trigger initial configure
         surface.commit();
@@ -160,8 +160,8 @@ impl WaylandApp {
             app_id: app_id.clone(),
             window,
             background_color,
-            width: 1,    // 1px minimum width - niri doesn't handle 0px properly
-            height: 100, // Initial height, niri will auto-size to fill screen
+            width: 1,     // 1px minimum width
+            height: 2000, // Large initial height to encourage niri to make it full screen
             configured: false,
             buffer_attached: false,
         };
@@ -615,7 +615,7 @@ impl WaylandEventLoop {
                             );
                             // Use default dimensions if not configured yet
                             app.windows[i].width = 1;
-                            app.windows[i].height = 100;
+                            app.windows[i].height = 2000;
                             app.windows[i].configured = true; // Mark as configured to proceed
                             app.draw_window_background(i, &qh);
                         }

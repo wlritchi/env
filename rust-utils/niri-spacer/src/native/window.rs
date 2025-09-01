@@ -6,7 +6,7 @@
 use crate::error::{NiriSpacerError, Result};
 use crate::native::wayland::{WaylandEvent, WaylandEventLoop};
 use crate::native::NativeConfig;
-use crate::niri::NiriClient;
+use crate::niri::{NiriClient, NiriEvent};
 use crate::window::SpacerWindow;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -110,11 +110,7 @@ impl NativeWindowManager {
         // Short delay to allow workspace move to register
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Resize to minimum width
-        self.niri_client
-            .resize_window_to_minimum(niri_window_id)
-            .await?;
-        // No delay needed - resize is immediate
+        // Don't resize - let niri auto-size to full height while keeping 1px width from min constraints
 
         // Position at leftmost column
         self.position_window_leftmost_by_index(niri_window_id, workspace_idx)
@@ -434,6 +430,105 @@ impl NativeWindowManager {
     /// Get the number of active windows
     pub fn window_count(&self) -> usize {
         self.windows.len()
+    }
+
+    /// Start focus event monitoring to automatically redirect focus away from spacer windows
+    pub async fn start_focus_monitoring(self) -> Result<()> {
+        use futures_util::StreamExt;
+
+        info!("Starting focus monitoring for spacer windows");
+
+        // Create a separate niri client for event monitoring
+        let event_client = NiriClient::connect().await?;
+        let event_stream = event_client.subscribe_to_events().await?;
+
+        // Create another client for sending focus commands
+        let mut action_client = NiriClient::connect().await?;
+
+        // Get the IDs of our spacer windows for comparison
+        let spacer_window_ids: Vec<u64> = self
+            .windows
+            .iter()
+            .filter_map(|w| w.niri_window_id)
+            .collect();
+
+        info!(
+            "🔍 FOCUS MONITORING: Starting to monitor {} spacer windows for focus events",
+            spacer_window_ids.len()
+        );
+        info!("🔍 SPACER WINDOW IDs: {:?}", spacer_window_ids);
+
+        // Pin the stream for async operations
+        tokio::pin!(event_stream);
+
+        // Monitor events
+        while let Some(event_result) = event_stream.next().await {
+            match event_result {
+                Ok(event) => {
+                    debug!("Received focus event: {:?}", event);
+                    if let NiriEvent::WindowFocusChanged {
+                        id: focused_window_id,
+                    } = event
+                    {
+                        debug!("Focus changed to window ID: {}", focused_window_id);
+                        debug!("Spacer window IDs: {:?}", spacer_window_ids);
+
+                        // Check if a spacer window was focused
+                        if spacer_window_ids.contains(&focused_window_id) {
+                            info!(
+                                "🎯 DETECTED: Spacer window {} was focused, sending focus-column-right command",
+                                focused_window_id
+                            );
+
+                            // Try to focus the next column to the right
+                            debug!("📤 SENDING: focus-column-right command to niri");
+                            match action_client.focus_column_right().await {
+                                Ok(()) => {
+                                    info!(
+                                        "✅ SUCCESS: Redirected focus from spacer window {}",
+                                        focused_window_id
+                                    );
+                                },
+                                Err(e) => {
+                                    warn!(
+                                        "❌ FAILED: Could not redirect focus from spacer window {}: {}",
+                                        focused_window_id, e
+                                    );
+                                },
+                            }
+                        } else {
+                            debug!(
+                                "Focus change to non-spacer window {}, ignoring",
+                                focused_window_id
+                            );
+                        }
+                    } else {
+                        debug!("Received non-window-focus event or focus cleared, ignoring");
+                    }
+                },
+                Err(e) => {
+                    warn!("Error in focus event stream: {}", e);
+                    // Try to reconnect
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    match NiriClient::connect().await {
+                        Ok(new_client) => match new_client.subscribe_to_events().await {
+                            Ok(new_stream) => {
+                                event_stream.set(new_stream);
+                                debug!("Reconnected to focus event stream");
+                            },
+                            Err(e) => {
+                                warn!("Failed to resubscribe to events: {}", e);
+                            },
+                        },
+                        Err(e) => {
+                            warn!("Failed to reconnect to niri for events: {}", e);
+                        },
+                    }
+                },
+            }
+        }
+
+        Ok(())
     }
 
     /// Shutdown the window manager

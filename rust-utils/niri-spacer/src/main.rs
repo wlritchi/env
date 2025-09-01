@@ -378,6 +378,12 @@ async fn run_persistent_mode(spacer: &mut NiriSpacer) -> Result<()> {
     // Initial status report
     print_persistent_status(spacer).await;
 
+    // Start focus monitoring to auto-redirect focus away from spacer windows
+    if let Err(e) = spacer.start_focus_monitoring().await {
+        warn!("Failed to start focus monitoring: {}", e);
+        warn!("Focus redirection will not be available");
+    }
+
     // Main event loop
     let mut maintenance_interval = tokio::time::interval(Duration::from_secs(30));
     let mut status_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes

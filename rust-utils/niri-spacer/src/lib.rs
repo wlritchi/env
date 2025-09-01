@@ -211,6 +211,28 @@ impl NiriSpacer {
         Ok(())
     }
 
+    /// Start focus monitoring to automatically redirect focus away from spacer windows
+    pub async fn start_focus_monitoring(&mut self) -> Result<()> {
+        if let Some(native_manager) = self.native_manager.take() {
+            tracing::info!("Starting focus event monitoring for spacer windows");
+
+            // Start focus monitoring in a background task
+            let focus_task = tokio::spawn(async move {
+                if let Err(e) = native_manager.start_focus_monitoring().await {
+                    tracing::error!("Focus monitoring failed: {}", e);
+                }
+            });
+
+            // Store the task handle (could be stored in struct if we need to manage it)
+            drop(focus_task);
+
+            tracing::info!("Focus monitoring started");
+            Ok(())
+        } else {
+            Err(NiriSpacerError::NativeNotSupported)
+        }
+    }
+
     /// Clean up all active spacer windows and resources
     pub async fn cleanup(&mut self) -> Result<()> {
         tracing::info!(
