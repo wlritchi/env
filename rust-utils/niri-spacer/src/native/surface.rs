@@ -134,8 +134,8 @@ pub struct SurfaceConfig {
 impl Default for SurfaceConfig {
     fn default() -> Self {
         Self {
-            initial_width: 200,
-            initial_height: 100,
+            initial_width: 1,    // 1px minimum width - niri doesn't handle 0px properly
+            initial_height: 100, // Reasonable initial height before niri auto-sizing
             background_color: (128, 128, 128),
         }
     }
@@ -145,20 +145,20 @@ impl Default for SurfaceConfig {
 pub fn calculate_optimal_size(output_info: Option<&OutputInfo>) -> (u32, u32) {
     if let Some(info) = output_info {
         // Use logical_size if available, otherwise fallback to defaults
-        if let Some((logical_width, logical_height)) = info.logical_size {
-            // Use a small fraction of the screen size
-            let width = (logical_width as f32 * 0.1) as u32;
+        if let Some((_logical_width, logical_height)) = info.logical_size {
+            // For spacer windows, use 1px width and let niri handle height
+            let width = 1; // 1px minimum width - niri doesn't handle 0px properly
             let height = (logical_height as f32 * 0.1) as u32;
 
-            // Ensure minimum size
-            (width.max(100), height.max(60))
+            // Ensure reasonable minimum height
+            (width, height.max(60))
         } else {
             // Default size when logical size not available
-            (200, 100)
+            (1, 100)
         }
     } else {
-        // Default size when no output info available
-        (200, 100)
+        // Default size when no output info available - 1px width, reasonable height
+        (1, 100)
     }
 }
 
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn test_surface_config_default() {
         let config = SurfaceConfig::default();
-        assert_eq!(config.initial_width, 200);
+        assert_eq!(config.initial_width, 1);
         assert_eq!(config.initial_height, 100);
         assert_eq!(config.background_color, (128, 128, 128));
     }
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn test_calculate_optimal_size_no_output() {
         let (width, height) = calculate_optimal_size(None);
-        assert_eq!((width, height), (200, 100));
+        assert_eq!((width, height), (1, 100));
     }
 
     #[test]
