@@ -489,37 +489,40 @@ impl NativeWindowManager {
                                         focused_window_id
                                     );
 
-                                    // Fix 1px layout shift using center + maximize toggle hack
-                                    debug!("📤 SENDING: center-column + maximize toggle to fix layout positioning");
-
-                                    // Step 1: Center the column (moves to screen center)
-                                    if let Err(e) = action_client.center_column().await {
-                                        warn!("⚠️  WARNING: Failed to center column: {}", e);
-                                    } else {
-                                        // Small delay to let centering complete
-                                        tokio::time::sleep(tokio::time::Duration::from_millis(50))
-                                            .await;
-
-                                        // Step 2: Maximize column (should expand to fill screen)
-                                        if let Err(e) = action_client.maximize_column().await {
-                                            warn!("⚠️  WARNING: Failed to maximize column: {}", e);
-                                        } else {
-                                            // Small delay to let maximize complete
-                                            tokio::time::sleep(tokio::time::Duration::from_millis(
-                                                10,
-                                            ))
-                                            .await;
-
-                                            // Step 3: Maximize again to toggle back to original layout
-                                            if let Err(e) = action_client.maximize_column().await {
-                                                warn!(
-                                                    "⚠️  WARNING: Failed to toggle maximize: {}",
-                                                    e
-                                                );
+                                    // Check if we have enough windows to safely apply layout fixes
+                                    match Self::count_workspace_windows(
+                                        &mut action_client,
+                                        focused_window_id,
+                                    )
+                                    .await
+                                    {
+                                        Ok(window_count) => {
+                                            if window_count < 3 {
+                                                debug!("Only {} windows in workspace, skipping layout fix to avoid focus loops", window_count);
                                             } else {
-                                                debug!("✅ SUCCESS: Applied center + maximize toggle layout fix");
+                                                debug!("Found {} windows in workspace, applying layout fix", window_count);
+                                                // Try alternative focus-shift hack first
+                                                if let Err(e) = Self::apply_focus_shift_layout_fix(
+                                                    &mut action_client,
+                                                )
+                                                .await
+                                                {
+                                                    warn!("Focus-shift layout fix failed: {}, trying maximize toggle hack", e);
+                                                    // Fallback to maximize toggle hack
+                                                    if let Err(e2) =
+                                                        Self::apply_maximize_toggle_layout_fix(
+                                                            &mut action_client,
+                                                        )
+                                                        .await
+                                                    {
+                                                        warn!("Both layout fixes failed: focus-shift({}), maximize-toggle({})", e, e2);
+                                                    }
+                                                }
                                             }
-                                        }
+                                        },
+                                        Err(e) => {
+                                            warn!("Could not count workspace windows: {}, skipping layout fix", e);
+                                        },
                                     }
                                 },
                                 Err(e) => {
@@ -569,6 +572,81 @@ impl NativeWindowManager {
         self.close_all_windows()?;
         self.wayland_loop.shutdown()?;
         Ok(())
+    }
+
+    /// Count the number of windows in the workspace containing the given window
+    async fn count_workspace_windows(
+        action_client: &mut NiriClient,
+        window_id: u64,
+    ) -> Result<usize> {
+        let windows = action_client.get_windows().await?;
+
+        // Find the workspace ID of the given window
+        let target_workspace_id = windows
+            .iter()
+            .find(|w| w.id == window_id)
+            .map(|w| w.workspace_id)
+            .ok_or(NiriSpacerError::WindowNotFound(window_id))?;
+
+        // Count windows in that workspace
+        let window_count = windows
+            .iter()
+            .filter(|w| w.workspace_id == target_workspace_id)
+            .count();
+
+        Ok(window_count)
+    }
+
+    /// Apply focus-shift layout fix: move focus right then left to reset positioning
+    async fn apply_focus_shift_layout_fix(action_client: &mut NiriClient) -> Result<()> {
+        debug!("📤 APPLYING: focus-shift layout fix (focus right → focus left)");
+
+        // Move focus one more column to the right
+        action_client.focus_column_right().await?;
+
+        // Small delay to let focus change register
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Move focus back to the left to original position
+        match action_client.focus_column_left().await {
+            Ok(()) => {
+                debug!("✅ SUCCESS: Applied focus-shift layout fix");
+                Ok(())
+            },
+            Err(e) => {
+                warn!("❌ FAILED: Focus-shift layout fix failed: {}", e);
+                Err(e)
+            },
+        }
+    }
+
+    /// Apply maximize toggle layout fix: center + double maximize to reset positioning
+    async fn apply_maximize_toggle_layout_fix(action_client: &mut NiriClient) -> Result<()> {
+        debug!("📤 APPLYING: maximize toggle layout fix (center + double maximize)");
+
+        // Step 1: Center the column (moves to screen center)
+        action_client.center_column().await?;
+
+        // Small delay to let centering complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Step 2: Maximize column (should expand to fill screen)
+        action_client.maximize_column().await?;
+
+        // Small delay to let maximize complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Step 3: Maximize again to toggle back to original layout
+        match action_client.maximize_column().await {
+            Ok(()) => {
+                debug!("✅ SUCCESS: Applied maximize toggle layout fix");
+                Ok(())
+            },
+            Err(e) => {
+                warn!("❌ FAILED: Maximize toggle layout fix failed: {}", e);
+                Err(e)
+            },
+        }
     }
 }
 

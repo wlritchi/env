@@ -59,6 +59,7 @@ pub enum NiriAction {
         reference: WorkspaceReferenceArg,
     },
     FocusColumnRight {},
+    FocusColumnLeft {},
     CenterColumn {},
     SetColumnWidth {
         change: SizeChange,
@@ -267,6 +268,17 @@ impl NiriClient {
     /// Focus the column to the right
     pub async fn focus_column_right(&mut self) -> Result<()> {
         let action = NiriAction::FocusColumnRight {};
+        let response = self.request(NiriRequest::Action(action)).await?;
+
+        match response {
+            NiriResponse::Ok(_) => Ok(()),
+            NiriResponse::Err(msg) => Err(NiriSpacerError::WindowFocus(msg)),
+        }
+    }
+
+    /// Focus the column to the left
+    pub async fn focus_column_left(&mut self) -> Result<()> {
+        let action = NiriAction::FocusColumnLeft {};
         let response = self.request(NiriRequest::Action(action)).await?;
 
         match response {
