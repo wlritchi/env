@@ -23,7 +23,9 @@ end
 function setSpeed(val)
     currentSpeed = val
     mp.set_property("speed", val)
-    log("set speed to " .. val)
+    if (currentSpeed > 1.01 or currentSpeed < 0.99) then
+        log("set speed to " .. val)
+    end
 end
 
 function onLoad()
