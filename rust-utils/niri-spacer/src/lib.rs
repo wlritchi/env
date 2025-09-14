@@ -199,6 +199,11 @@ impl NiriSpacer {
             tracing::warn!("Spacer validation failed during maintenance: {}", e);
         }
 
+        // Check and correct spacer window positions
+        if let Err(e) = self.check_and_correct_spacer_positions().await {
+            tracing::warn!("Spacer position correction failed: {}", e);
+        }
+
         // Get current stats for logging
         if let Ok(stats) = self.get_stats().await {
             tracing::debug!("Maintenance check: {}", stats.summary());
@@ -211,14 +216,210 @@ impl NiriSpacer {
         Ok(())
     }
 
+    /// Check and correct the position of all active spacer windows
+    pub async fn check_and_correct_spacer_positions(&mut self) -> Result<()> {
+        if self.active_spacers.is_empty() {
+            return Ok(());
+        }
+
+        tracing::debug!(
+            "Checking positions of {} active spacer windows",
+            self.active_spacers.len()
+        );
+
+        // Get all current windows to check positions
+        let current_windows = self.window_manager.get_windows().await?;
+        let mut mispositioned_spacers = Vec::new();
+
+        // Check each active spacer window
+        for spacer in &self.active_spacers {
+            // Find the window in current windows list
+            let window = current_windows.iter().find(|w| w.id == spacer.id);
+
+            match window {
+                Some(window) => {
+                    // Check if window is in the correct column position
+                    let is_in_leftmost_column = match &window.layout {
+                        Some(layout) => match layout.pos_in_scrolling_layout {
+                            Some((column_index, _tile_index)) => column_index == 1, // 1-based indexing
+                            None => {
+                                tracing::debug!(
+                                    "Spacer window {} is floating, cannot position check",
+                                    spacer.id
+                                );
+                                false // Floating windows can't be positioned
+                            },
+                        },
+                        None => {
+                            tracing::debug!("No layout info for spacer window {}, assuming correctly positioned", spacer.id);
+                            true // Assume correct if no layout info
+                        },
+                    };
+
+                    if !is_in_leftmost_column {
+                        tracing::warn!(
+                            "Spacer window {} (workspace {}) is mispositioned - not in leftmost column",
+                            spacer.id, spacer.workspace_id
+                        );
+                        mispositioned_spacers.push(spacer.clone());
+                    } else {
+                        tracing::debug!("Spacer window {} is correctly positioned", spacer.id);
+                    }
+                },
+                None => {
+                    tracing::warn!(
+                        "Spacer window {} not found in current windows list",
+                        spacer.id
+                    );
+                    // Window might have been closed, will be handled by validate_active_spacers
+                },
+            }
+        }
+
+        // Correct mispositioned windows
+        if !mispositioned_spacers.is_empty() {
+            tracing::info!(
+                "Found {} mispositioned spacer windows, attempting correction",
+                mispositioned_spacers.len()
+            );
+
+            for spacer in mispositioned_spacers {
+                tracing::info!(
+                    "Repositioning spacer window {} to leftmost column",
+                    spacer.id
+                );
+
+                // Get the workspace index from the workspace manager
+                let workspaces = self.workspace_manager.get_workspaces().await?;
+                let workspace_idx = workspaces.iter()
+                    .find(|w| w.id == spacer.workspace_id)
+                    .map(|w| w.idx)
+                    .unwrap_or_else(|| {
+                        tracing::warn!("Could not find workspace {} for spacer {}, using stored value as fallback", spacer.workspace_id, spacer.id);
+                        spacer.workspace_id as u8 // Fallback - this might not be accurate
+                    });
+
+                // Reposition directly using niri IPC (don't depend on native manager)
+                if let Err(e) = self
+                    .reposition_spacer_to_leftmost(spacer.id, workspace_idx)
+                    .await
+                {
+                    tracing::error!("Failed to reposition spacer window {}: {}", spacer.id, e);
+                } else {
+                    tracing::info!("Successfully repositioned spacer window {}", spacer.id);
+                }
+            }
+        } else {
+            tracing::debug!("All spacer windows are correctly positioned");
+        }
+
+        Ok(())
+    }
+
+    /// Reposition a spacer window to the leftmost column of its workspace
+    async fn reposition_spacer_to_leftmost(
+        &mut self,
+        window_id: u64,
+        workspace_idx: u8,
+    ) -> Result<()> {
+        // Connect to niri for positioning operations
+        let mut niri_client = crate::niri::NiriClient::connect().await?;
+
+        // Remember the originally focused workspace to restore it later
+        let original_focused_workspace = match self.workspace_manager.get_focused_workspace().await
+        {
+            Ok(workspace) => Some(workspace.idx),
+            Err(e) => {
+                tracing::warn!("Could not determine currently focused workspace: {}", e);
+                None
+            },
+        };
+
+        tracing::debug!(
+            "Repositioning spacer on workspace {} (original focus: {:?})",
+            workspace_idx,
+            original_focused_workspace
+        );
+
+        // Focus the target workspace
+        niri_client.focus_workspace_index(workspace_idx).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Focus the target window
+        niri_client.focus_window(window_id).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Move column to first position
+        match niri_client.move_column_to_first().await {
+            Ok(()) => {
+                tracing::debug!("Moved column to first position using move_column_to_first");
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            },
+            Err(e) => {
+                // Fall back to the old method
+                tracing::debug!(
+                    "move_column_to_first failed ({}), falling back to move_column_to_left loop",
+                    e
+                );
+                for i in 0..10 {
+                    match niri_client.move_column_to_left().await {
+                        Ok(()) => {
+                            tracing::debug!("Moved column left (attempt {})", i + 1);
+                            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                        },
+                        Err(e) => {
+                            tracing::debug!(
+                                "Column reached leftmost position after {} moves: {}",
+                                i,
+                                e
+                            );
+                            break;
+                        },
+                    }
+                }
+            },
+        }
+
+        // Restore the original workspace focus if it was different
+        if let Some(original_idx) = original_focused_workspace {
+            if original_idx != workspace_idx {
+                tracing::debug!("Restoring focus to original workspace {}", original_idx);
+                match niri_client.focus_workspace_index(original_idx).await {
+                    Ok(()) => {
+                        tracing::debug!(
+                            "Successfully restored focus to workspace {}",
+                            original_idx
+                        );
+                    },
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to restore focus to original workspace {}: {}",
+                            original_idx,
+                            e
+                        );
+                    },
+                }
+            } else {
+                tracing::debug!(
+                    "Spacer was on the originally focused workspace, no focus restoration needed"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Start focus monitoring to automatically redirect focus away from spacer windows
     pub async fn start_focus_monitoring(&mut self) -> Result<()> {
-        if let Some(native_manager) = self.native_manager.take() {
+        if self.native_manager.is_some() {
             tracing::info!("Starting focus event monitoring for spacer windows");
 
-            // Start focus monitoring in a background task
+            // Clone the spacer window IDs for the background task
+            let spacer_window_ids: Vec<u64> = self.active_spacers.iter().map(|s| s.id).collect();
+
+            // Start focus monitoring in a background task without consuming the native_manager
             let focus_task = tokio::spawn(async move {
-                if let Err(e) = native_manager.start_focus_monitoring().await {
+                if let Err(e) = Self::run_focus_monitoring(spacer_window_ids).await {
                     tracing::error!("Focus monitoring failed: {}", e);
                 }
             });
@@ -231,6 +432,240 @@ impl NiriSpacer {
         } else {
             Err(NiriSpacerError::NativeNotSupported)
         }
+    }
+
+    /// Run focus monitoring without consuming the native manager
+    async fn run_focus_monitoring(spacer_window_ids: Vec<u64>) -> Result<()> {
+        use futures_util::StreamExt;
+
+        tracing::info!(
+            "🔍 FOCUS MONITORING: Starting to monitor {} spacer windows for focus events",
+            spacer_window_ids.len()
+        );
+        tracing::info!("🔍 SPACER WINDOW IDs: {:?}", spacer_window_ids);
+
+        // Create a niri client for event monitoring
+        let event_client = crate::niri::NiriClient::connect().await?;
+        let event_stream = event_client.subscribe_to_events().await?;
+
+        // Create another client for sending focus commands
+        let mut action_client = crate::niri::NiriClient::connect().await?;
+
+        // Pin the stream for async operations
+        tokio::pin!(event_stream);
+
+        // Monitor events
+        while let Some(event_result) = event_stream.next().await {
+            match event_result {
+                Ok(event) => {
+                    tracing::debug!("Received focus event: {:?}", event);
+                    if let crate::niri::NiriEvent::WindowFocusChanged {
+                        id: focused_window_id,
+                    } = event
+                    {
+                        tracing::debug!("Focus changed to window ID: {}", focused_window_id);
+
+                        // Check if a spacer window was focused
+                        if spacer_window_ids.contains(&focused_window_id) {
+                            tracing::info!(
+                                "🎯 DETECTED: Spacer window {} was focused, checking position and redirecting focus",
+                                focused_window_id
+                            );
+
+                            // First, check and fix position if needed (before redirecting focus)
+                            if let Err(e) =
+                                Self::check_and_fix_single_spacer_position(focused_window_id).await
+                            {
+                                tracing::warn!(
+                                    "Failed to check/fix position for spacer window {}: {}",
+                                    focused_window_id,
+                                    e
+                                );
+                            }
+
+                            // Then redirect focus away from the spacer window
+                            match action_client.focus_column_right().await {
+                                Ok(()) => {
+                                    tracing::info!(
+                                        "✅ SUCCESS: Redirected focus from spacer window {}",
+                                        focused_window_id
+                                    );
+                                },
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "❌ FAILED: Could not redirect focus from spacer window {}: {}",
+                                        focused_window_id, e
+                                    );
+                                },
+                            }
+                        } else {
+                            tracing::debug!(
+                                "Focus change to non-spacer window {}, ignoring",
+                                focused_window_id
+                            );
+                        }
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("Error in focus event stream: {}", e);
+                    // Try to reconnect
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                },
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check and fix position of a single spacer window (used during focus events)
+    async fn check_and_fix_single_spacer_position(window_id: u64) -> Result<()> {
+        // Create niri client for window operations
+        let mut niri_client = crate::niri::NiriClient::connect().await?;
+
+        // Get window information
+        let windows = niri_client.get_windows().await?;
+        let window = windows
+            .iter()
+            .find(|w| w.id == window_id)
+            .ok_or(NiriSpacerError::WindowNotFound(window_id))?;
+
+        // Check if window is in the correct column position
+        let is_in_leftmost_column = match &window.layout {
+            Some(layout) => match layout.pos_in_scrolling_layout {
+                Some((column_index, _tile_index)) => column_index == 1, // 1-based indexing
+                None => {
+                    tracing::debug!(
+                        "Spacer window {} is floating, cannot position check",
+                        window_id
+                    );
+                    return Ok(()); // Floating windows can't be positioned, skip
+                },
+            },
+            None => {
+                tracing::debug!(
+                    "No layout info for spacer window {}, assuming correctly positioned",
+                    window_id
+                );
+                return Ok(()); // Assume correct if no layout info
+            },
+        };
+
+        if !is_in_leftmost_column {
+            tracing::warn!(
+                "🚨 IMMEDIATE FIX: Spacer window {} is mispositioned - not in leftmost column, fixing now",
+                window_id
+            );
+
+            // Get workspace information for repositioning
+            let workspaces = niri_client.get_workspaces().await?;
+            let workspace_idx = workspaces
+                .iter()
+                .find(|w| w.id == window.workspace_id)
+                .map(|w| w.idx)
+                .ok_or_else(|| {
+                    NiriSpacerError::IpcError(format!(
+                        "Workspace with ID {} not found",
+                        window.workspace_id
+                    ))
+                })?;
+
+            // Reposition the window directly
+            if let Err(e) = Self::reposition_single_spacer_direct(workspace_idx).await {
+                tracing::error!(
+                    "Failed to immediately reposition spacer window {}: {}",
+                    window_id,
+                    e
+                );
+                return Err(e);
+            } else {
+                tracing::info!(
+                    "✅ IMMEDIATE SUCCESS: Repositioned spacer window {} to leftmost column",
+                    window_id
+                );
+            }
+        } else {
+            tracing::debug!("Spacer window {} is correctly positioned", window_id);
+        }
+
+        Ok(())
+    }
+
+    /// Reposition a single spacer window directly (streamlined version for immediate fixes)
+    async fn reposition_single_spacer_direct(workspace_idx: u8) -> Result<()> {
+        let mut niri_client = crate::niri::NiriClient::connect().await?;
+
+        // Remember the originally focused workspace to restore it later
+        let workspaces = niri_client.get_workspaces().await?;
+        let original_focused_workspace = workspaces.iter().find(|w| w.is_focused).map(|w| w.idx);
+
+        tracing::debug!(
+            "Immediate repositioning: spacer on workspace {} (original focus: {:?})",
+            workspace_idx,
+            original_focused_workspace
+        );
+
+        // Focus the target workspace (window is already focused, but we need the right workspace)
+        if original_focused_workspace != Some(workspace_idx) {
+            niri_client.focus_workspace_index(workspace_idx).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await; // Shorter delay for immediate response
+        }
+
+        // Move column to first position (window is already focused)
+        match niri_client.move_column_to_first().await {
+            Ok(()) => {
+                tracing::debug!("Moved column to first position using move_column_to_first");
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            },
+            Err(e) => {
+                // Fall back to the old method
+                tracing::debug!(
+                    "move_column_to_first failed ({}), falling back to move_column_to_left loop",
+                    e
+                );
+                for i in 0..5 {
+                    // Fewer attempts for immediate response
+                    match niri_client.move_column_to_left().await {
+                        Ok(()) => {
+                            tracing::debug!("Moved column left (attempt {})", i + 1);
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                            // Shorter delay
+                        },
+                        Err(e) => {
+                            tracing::debug!(
+                                "Column reached leftmost position after {} moves: {}",
+                                i,
+                                e
+                            );
+                            break;
+                        },
+                    }
+                }
+            },
+        }
+
+        // Restore the original workspace focus if it was different
+        if let Some(original_idx) = original_focused_workspace {
+            if original_idx != workspace_idx {
+                tracing::debug!("Restoring focus to original workspace {}", original_idx);
+                match niri_client.focus_workspace_index(original_idx).await {
+                    Ok(()) => {
+                        tracing::debug!(
+                            "Successfully restored focus to workspace {}",
+                            original_idx
+                        );
+                    },
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to restore focus to original workspace {}: {}",
+                            original_idx,
+                            e
+                        );
+                    },
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Clean up all active spacer windows and resources
