@@ -155,260 +155,6 @@ impl NiriSpacer {
         &self.active_spacers
     }
 
-    /// Validate that all active spacer windows are still present
-    pub async fn validate_active_spacers(&mut self) -> Result<()> {
-        if self.active_spacers.is_empty() {
-            return Ok(());
-        }
-
-        let result = self
-            .window_manager
-            .validate_spacers(&self.active_spacers)
-            .await;
-
-        if let Err(ref e) = result {
-            tracing::warn!("Some spacer windows may have been lost: {}", e);
-            // Update our list by removing invalid windows
-            self.refresh_active_spacers().await?;
-        }
-
-        result
-    }
-
-    /// Refresh the list of active spacers by checking which ones still exist
-    pub async fn refresh_active_spacers(&mut self) -> Result<()> {
-        let current_windows = self.window_manager.get_windows().await?;
-
-        // Keep only spacers that still exist
-        self.active_spacers
-            .retain(|spacer| current_windows.iter().any(|w| w.id == spacer.id));
-
-        tracing::info!(
-            "Refreshed active spacers list: {} windows remain",
-            self.active_spacers.len()
-        );
-        Ok(())
-    }
-
-    /// Perform periodic maintenance tasks for persistent mode
-    pub async fn perform_maintenance(&mut self) -> Result<()> {
-        tracing::debug!("Performing maintenance tasks");
-
-        // Validate active spacers
-        if let Err(e) = self.validate_active_spacers().await {
-            tracing::warn!("Spacer validation failed during maintenance: {}", e);
-        }
-
-        // Check and correct spacer window positions
-        if let Err(e) = self.check_and_correct_spacer_positions().await {
-            tracing::warn!("Spacer position correction failed: {}", e);
-        }
-
-        // Get current stats for logging
-        if let Ok(stats) = self.get_stats().await {
-            tracing::debug!("Maintenance check: {}", stats.summary());
-
-            if !stats.has_good_tiling_layout() {
-                tracing::debug!("Workspace layout could be improved");
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Check and correct the position of all active spacer windows
-    pub async fn check_and_correct_spacer_positions(&mut self) -> Result<()> {
-        if self.active_spacers.is_empty() {
-            return Ok(());
-        }
-
-        tracing::debug!(
-            "Checking positions of {} active spacer windows",
-            self.active_spacers.len()
-        );
-
-        // Get all current windows to check positions
-        let current_windows = self.window_manager.get_windows().await?;
-        let mut mispositioned_spacers = Vec::new();
-
-        // Check each active spacer window
-        for spacer in &self.active_spacers {
-            // Find the window in current windows list
-            let window = current_windows.iter().find(|w| w.id == spacer.id);
-
-            match window {
-                Some(window) => {
-                    // Check if window is in the correct column position
-                    let is_in_leftmost_column = match &window.layout {
-                        Some(layout) => match layout.pos_in_scrolling_layout {
-                            Some((column_index, _tile_index)) => column_index == 1, // 1-based indexing
-                            None => {
-                                tracing::debug!(
-                                    "Spacer window {} is floating, cannot position check",
-                                    spacer.id
-                                );
-                                false // Floating windows can't be positioned
-                            },
-                        },
-                        None => {
-                            tracing::debug!("No layout info for spacer window {}, assuming correctly positioned", spacer.id);
-                            true // Assume correct if no layout info
-                        },
-                    };
-
-                    if !is_in_leftmost_column {
-                        tracing::warn!(
-                            "Spacer window {} (workspace {}) is mispositioned - not in leftmost column",
-                            spacer.id, spacer.workspace_id
-                        );
-                        mispositioned_spacers.push(spacer.clone());
-                    } else {
-                        tracing::debug!("Spacer window {} is correctly positioned", spacer.id);
-                    }
-                },
-                None => {
-                    tracing::warn!(
-                        "Spacer window {} not found in current windows list",
-                        spacer.id
-                    );
-                    // Window might have been closed, will be handled by validate_active_spacers
-                },
-            }
-        }
-
-        // Correct mispositioned windows
-        if !mispositioned_spacers.is_empty() {
-            tracing::info!(
-                "Found {} mispositioned spacer windows, attempting correction",
-                mispositioned_spacers.len()
-            );
-
-            for spacer in mispositioned_spacers {
-                tracing::info!(
-                    "Repositioning spacer window {} to leftmost column",
-                    spacer.id
-                );
-
-                // Get the workspace index from the workspace manager
-                let workspaces = self.workspace_manager.get_workspaces().await?;
-                let workspace_idx = workspaces.iter()
-                    .find(|w| w.id == spacer.workspace_id)
-                    .map(|w| w.idx)
-                    .unwrap_or_else(|| {
-                        tracing::warn!("Could not find workspace {} for spacer {}, using stored value as fallback", spacer.workspace_id, spacer.id);
-                        spacer.workspace_id as u8 // Fallback - this might not be accurate
-                    });
-
-                // Reposition directly using niri IPC (don't depend on native manager)
-                if let Err(e) = self
-                    .reposition_spacer_to_leftmost(spacer.id, workspace_idx)
-                    .await
-                {
-                    tracing::error!("Failed to reposition spacer window {}: {}", spacer.id, e);
-                } else {
-                    tracing::info!("Successfully repositioned spacer window {}", spacer.id);
-                }
-            }
-        } else {
-            tracing::debug!("All spacer windows are correctly positioned");
-        }
-
-        Ok(())
-    }
-
-    /// Reposition a spacer window to the leftmost column of its workspace
-    async fn reposition_spacer_to_leftmost(
-        &mut self,
-        window_id: u64,
-        workspace_idx: u8,
-    ) -> Result<()> {
-        // Connect to niri for positioning operations
-        let mut niri_client = crate::niri::NiriClient::connect().await?;
-
-        // Remember the originally focused workspace to restore it later
-        let original_focused_workspace = match self.workspace_manager.get_focused_workspace().await
-        {
-            Ok(workspace) => Some(workspace.idx),
-            Err(e) => {
-                tracing::warn!("Could not determine currently focused workspace: {}", e);
-                None
-            },
-        };
-
-        tracing::debug!(
-            "Repositioning spacer on workspace {} (original focus: {:?})",
-            workspace_idx,
-            original_focused_workspace
-        );
-
-        // Focus the target workspace
-        niri_client.focus_workspace_index(workspace_idx).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Focus the target window
-        niri_client.focus_window(window_id).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Move column to first position
-        match niri_client.move_column_to_first().await {
-            Ok(()) => {
-                tracing::debug!("Moved column to first position using move_column_to_first");
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            },
-            Err(e) => {
-                // Fall back to the old method
-                tracing::debug!(
-                    "move_column_to_first failed ({}), falling back to move_column_to_left loop",
-                    e
-                );
-                for i in 0..10 {
-                    match niri_client.move_column_to_left().await {
-                        Ok(()) => {
-                            tracing::debug!("Moved column left (attempt {})", i + 1);
-                            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-                        },
-                        Err(e) => {
-                            tracing::debug!(
-                                "Column reached leftmost position after {} moves: {}",
-                                i,
-                                e
-                            );
-                            break;
-                        },
-                    }
-                }
-            },
-        }
-
-        // Restore the original workspace focus if it was different
-        if let Some(original_idx) = original_focused_workspace {
-            if original_idx != workspace_idx {
-                tracing::debug!("Restoring focus to original workspace {}", original_idx);
-                match niri_client.focus_workspace_index(original_idx).await {
-                    Ok(()) => {
-                        tracing::debug!(
-                            "Successfully restored focus to workspace {}",
-                            original_idx
-                        );
-                    },
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to restore focus to original workspace {}: {}",
-                            original_idx,
-                            e
-                        );
-                    },
-                }
-            } else {
-                tracing::debug!(
-                    "Spacer was on the originally focused workspace, no focus restoration needed"
-                );
-            }
-        }
-
-        Ok(())
-    }
-
     /// Start focus monitoring to automatically redirect focus away from spacer windows
     pub async fn start_focus_monitoring(&mut self) -> Result<()> {
         if self.native_manager.is_some() {
@@ -490,6 +236,57 @@ impl NiriSpacer {
                                         "✅ SUCCESS: Redirected focus from spacer window {}",
                                         focused_window_id
                                     );
+
+                                    // Apply realign strategy if workspace has enough windows
+                                    match Self::count_workspace_windows(
+                                        &mut action_client,
+                                        focused_window_id,
+                                    )
+                                    .await
+                                    {
+                                        Ok(window_count) => {
+                                            if window_count < 3 {
+                                                tracing::debug!(
+                                                    "Only {} windows in workspace, skipping layout fix to avoid focus loops",
+                                                    window_count
+                                                );
+                                            } else {
+                                                tracing::debug!(
+                                                    "Found {} windows in workspace, applying layout fix (right→left)",
+                                                    window_count
+                                                );
+
+                                                // Try focus-shift fix first; fallback to maximize-toggle
+                                                if let Err(e) = Self::apply_focus_shift_layout_fix(
+                                                    &mut action_client,
+                                                )
+                                                .await
+                                                {
+                                                    tracing::warn!(
+                                                        "Focus-shift layout fix failed: {}, trying maximize toggle hack",
+                                                        e
+                                                    );
+                                                    if let Err(e2) =
+                                                        Self::apply_maximize_toggle_layout_fix(
+                                                            &mut action_client,
+                                                        )
+                                                        .await
+                                                    {
+                                                        tracing::warn!(
+                                                            "Both layout fixes failed: focus-shift({}), maximize-toggle({})",
+                                                            e, e2
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Could not count workspace windows: {}, skipping layout fix",
+                                                e
+                                            );
+                                        },
+                                    }
                                 },
                                 Err(e) => {
                                     tracing::warn!(
@@ -510,11 +307,104 @@ impl NiriSpacer {
                     tracing::warn!("Error in focus event stream: {}", e);
                     // Try to reconnect
                     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    match crate::niri::NiriClient::connect().await {
+                        Ok(new_client) => match new_client.subscribe_to_events().await {
+                            Ok(new_stream) => {
+                                event_stream.set(new_stream);
+                                tracing::debug!("Reconnected to focus event stream");
+                            },
+                            Err(e) => {
+                                tracing::warn!("Failed to resubscribe to events: {}", e);
+                            },
+                        },
+                        Err(e) => {
+                            tracing::warn!("Failed to reconnect to niri for events: {}", e);
+                        },
+                    }
                 },
             }
         }
 
         Ok(())
+    }
+
+    /// Count the number of windows in the workspace containing the given window
+    async fn count_workspace_windows(
+        action_client: &mut crate::niri::NiriClient,
+        window_id: u64,
+    ) -> Result<usize> {
+        let windows = action_client.get_windows().await?;
+
+        // Find the workspace ID of the given window
+        let target_workspace_id = windows
+            .iter()
+            .find(|w| w.id == window_id)
+            .map(|w| w.workspace_id)
+            .ok_or(NiriSpacerError::WindowNotFound(window_id))?;
+
+        // Count windows in that workspace
+        let window_count = windows
+            .iter()
+            .filter(|w| w.workspace_id == target_workspace_id)
+            .count();
+
+        Ok(window_count)
+    }
+
+    /// Apply focus-shift layout fix: move focus right then left to reset positioning
+    async fn apply_focus_shift_layout_fix(
+        action_client: &mut crate::niri::NiriClient,
+    ) -> Result<()> {
+        tracing::debug!("📤 APPLYING: focus-shift layout fix (focus right → focus left)");
+
+        // Move focus one more column to the right
+        action_client.focus_column_right().await?;
+
+        // Small delay to let focus change register
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // Move focus back to the left to original position
+        match action_client.focus_column_left().await {
+            Ok(()) => {
+                tracing::debug!("✅ SUCCESS: Applied focus-shift layout fix");
+                Ok(())
+            },
+            Err(e) => {
+                tracing::warn!("❌ FAILED: Focus-shift layout fix failed: {}", e);
+                Err(e)
+            },
+        }
+    }
+
+    /// Apply maximize toggle layout fix: center + double maximize to reset positioning
+    async fn apply_maximize_toggle_layout_fix(
+        action_client: &mut crate::niri::NiriClient,
+    ) -> Result<()> {
+        tracing::debug!("📤 APPLYING: maximize toggle layout fix (center + double maximize)");
+
+        // Step 1: Center the column (moves to screen center)
+        action_client.center_column().await?;
+
+        // Small delay to let centering complete
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Step 2: Maximize column (should expand to fill screen)
+        action_client.maximize_column().await?;
+
+        // Small delay to let maximize complete
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // Step 3: Maximize again to toggle back to original layout
+        match action_client.maximize_column().await {
+            Ok(()) => {
+                tracing::debug!("✅ SUCCESS: Applied maximize toggle layout fix");
+                Ok(())
+            },
+            Err(e) => {
+                tracing::warn!("❌ FAILED: Maximize toggle layout fix failed: {}", e);
+                Err(e)
+            },
+        }
     }
 
     /// Check and fix position of a single spacer window (used during focus events)

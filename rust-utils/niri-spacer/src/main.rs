@@ -385,7 +385,6 @@ async fn run_persistent_mode(spacer: &mut NiriSpacer) -> Result<()> {
     }
 
     // Main event loop
-    let mut maintenance_interval = tokio::time::interval(Duration::from_secs(30));
     let mut status_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
 
     loop {
@@ -394,13 +393,6 @@ async fn run_persistent_mode(spacer: &mut NiriSpacer) -> Result<()> {
             _ = signal_handler.wait_for_shutdown() => {
                 info!("Shutdown signal received, starting graceful shutdown...");
                 break;
-            }
-
-            // Perform periodic maintenance
-            _ = maintenance_interval.tick() => {
-                if let Err(e) = spacer.perform_maintenance().await {
-                    warn!("Maintenance failed: {}", e);
-                }
             }
 
             // Print status update
