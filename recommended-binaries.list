@@ -1,6 +1,6 @@
 # <binary> <common package name>
 bat                     # cat replacement (auto-pager, line numbers)
-colordiff               # diff with coloured output (though latest GNU diff supports --color=auto which is probably equivalent)
+delta                   # syntax-highlighting pager for git, diff, and grep output
 eza                     # ls replacement (fast, git status integration)
 fnm                     # node environment manager
 fzf                     # interactive selection utility

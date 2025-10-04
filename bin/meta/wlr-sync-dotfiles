@@ -2,8 +2,8 @@
 set -euo pipefail
 
 print_diff() {
-    if command -v colordiff >/dev/null 2>&1; then
-        colordiff "$@" || true
+    if command -v delta >/dev/null 2>&1; then
+        delta "$@" || true
     else
         diff "$@" || true
     fi
