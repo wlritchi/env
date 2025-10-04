@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v nix >/dev/null 2>&1; then
+    wlr-err "Nix not installed"
+    exit 1
+fi
+
+cd "$WLR_ENV_PATH"
+
+export NIX_CONFIG="experimental-features = nix-command flakes"
+home_manager=(
+    nix
+    run
+    home-manager/release-25.05
+    --
+)
+
+# Try user@hostname first, fallback to just username
+CONFIG="${USER}@$(hostname -s)"
+if "${home_manager[@]}" switch --flake ".#${CONFIG}" 2>/dev/null; then
+    exit 0
+fi
+
+"${home_manager[@]}" switch --flake ".#${USER}"

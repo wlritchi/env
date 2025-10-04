@@ -12,7 +12,8 @@ if command -v tmux >/dev/null 2>&1; then
 
     # reload tmux config
     tmux source-file "$HOME/.tmux.conf"
-    "$HOME/.tmux/plugins/tpm/bin/install_plugins"
+    "$HOME/.tmux/plugins/tpm/bin/install_plugins" || echo "Failed to connect to tmux"
 fi
 
+"$WLR_ENV_PATH/bin/meta/wlr-nix-rebuild" || true
 "$WLR_ENV_PATH/bin/meta/wlr-check-env"
