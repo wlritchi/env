@@ -71,45 +71,6 @@ try_source() {
 }
 
 
-ensurevar() {
-    var=
-    require_dir=
-    require_file=
-    require_exists=
-    head=
-    while [ "$#" -gt 0 ]; do
-        shift
-        if [ "$1" == '--head' ]; then
-            head=y
-        elif [ "$1" == '--require-dir' ]; then
-            require_dir=y
-        elif [ "$1" == '--require-file' ]; then
-            require_file=y
-        elif [ "$1" == '--require-exists' ]; then
-            require_exists=y
-        elif [ "$1" == '' ]; then
-            continue
-        elif [ -z "$var" ]; then
-            var="$1"
-        elif [ -n "$require_exists" ] && ! [ -e "$1" ]; then
-            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to %s, but it does not exist\n' "$1" "$var" >&2
-        elif [ -n "$require_dir" ] && ! [ -d "$1" ]; then
-            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to %s, but it is not a directory\n' "$1" "$var" >&2
-        elif [ -n "$require_file" ] && ! [ -f "$1" ]; then
-            [ -n "$wlr_interactive" ] && printf 'Warning: tried to add %s to %s, but it is not a file\n' "$1" "$var" >&2
-        elif ! echo "${!var}" | grep -Eq "(^|:)$1($|:)"; then
-            if [ -n "$head" ]; then
-                printf -v "$var" '%s' "$1:${!var}"
-            else
-                printf -v "$var" '%s' "${!var}:$1"
-            fi
-            export "$var"
-        fi
-    done
-}
-
-
-# TODO when confident in ensurevar, rewrite this as ensurevar PATH "$@"
 ensurepath() {
     head=
     if [ "$1" == "--head" ]; then
@@ -277,14 +238,6 @@ while IFS=$'\n' read wlr_env_subdir; do
 done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
 unset wlr_env_subdir
 
-
-# initialize env shims
-wlr_check_env_shim() {
-    if ! [ -f "$HOME/.$1/shims/$2" ]; then
-        warnings+=("$1: $2 shim is missing ($1 install <version> and/or $1 rehash to fix)")
-        return 1
-    fi
-}
 
 # set up fnm
 if command -v fnm >/dev/null 2>&1 && eval "$(fnm env --version-file-strategy=recursive --resolve-engines=false --shell bash)"; then
@@ -464,4 +417,3 @@ unset try_source
 unset ensurepath
 unset wlr_detect_ssh
 unset wlr_suspect_tty
-unset wlr_check_env_shim
