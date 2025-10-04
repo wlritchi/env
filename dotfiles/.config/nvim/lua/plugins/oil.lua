@@ -9,11 +9,11 @@ return {
           show_hidden = false,
         },
       })
-      
+
       -- Key mappings
       vim.keymap.set("n", "-", "<CMD>Oil<CR>", { desc = "Open parent directory" })
       vim.keymap.set("n", "<leader>o", "<CMD>Oil .<CR>", { desc = "Open current directory" })
-      
+
       -- Auto-open oil and nvim-tree when opening a directory
       vim.api.nvim_create_autocmd("VimEnter", {
         callback = function()
@@ -21,15 +21,15 @@ return {
             local args = vim.fn.argv()
             if #args == 1 then
               local arg = args[1]
-              
+
               -- Handle oil:// prefix if present
               local clean_path = vim.startswith(arg, "oil://") and string.sub(arg, 7) or arg
-              
+
               if vim.fn.isdirectory(clean_path) == 1 then
                 vim.cmd("cd " .. vim.fn.fnameescape(clean_path))
                 require("oil").open(clean_path)
-                
-                -- Open tree but keep focus on oil  
+
+                -- Open tree but keep focus on oil
                 vim.defer_fn(function()
                   local current_win = vim.api.nvim_get_current_win()
                   require("nvim-tree.api").tree.open()

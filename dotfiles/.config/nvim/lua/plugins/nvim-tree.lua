@@ -3,7 +3,7 @@ return {
     "nvim-tree/nvim-tree.lua",
     lazy = false,
     dependencies = {
-      "nvim-tree/nvim-web-devicons",  -- File icons
+      "nvim-tree/nvim-web-devicons", -- File icons
     },
     config = function()
       require("nvim-tree").setup({
@@ -12,10 +12,10 @@ return {
         filters = { dotfiles = false },
         git = { ignore = false },
       })
-      
+
       -- Key mappings
       vim.keymap.set("n", "<leader>e", "<cmd>NvimTreeToggle<cr>", { desc = "Toggle file explorer" })
-      
+
       -- Sync command
       vim.api.nvim_create_user_command("NvimTreeSyncWithOil", function()
         local oil = require("oil")
@@ -26,7 +26,7 @@ return {
           vim.cmd("NvimTreeOpen")
         end
       end, { desc = "Sync nvim-tree with oil's current directory" })
-      
+
       vim.keymap.set("n", "<leader>E", "<cmd>NvimTreeSyncWithOil<cr>", { desc = "Sync tree with oil directory" })
     end,
   },

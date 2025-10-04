@@ -34,6 +34,12 @@ repos:
         language: system
         files: \.nix$
         require_serial: true
+      - id: stylua
+        name: stylua
+        entry: stylua
+        language: system
+        files: \.lua$
+        require_serial: true
   - repo: https://github.com/wlritchi/pre-commit-via-uv
     rev: 1.0.0
     hooks:

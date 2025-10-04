@@ -18,6 +18,7 @@
     nixfmt
     ripgrep
     rustup
+    stylua
     tmux
     zoxide
   ];
