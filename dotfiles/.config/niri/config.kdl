@@ -550,3 +550,4 @@ environment {
 
 spawn-at-startup "wlr-restore-moshen-sessions"
 spawn-at-startup "bash" "-c" "command -v tmux && wlr-fix-tmux-resurrect && wlr-ensure-tmux-running && wlr-open-tmux-sessions"
+spawn-at-startup "bash" "-c" "[ -x ~/niri-spacer/target/release/niri-spacer ] && ~/niri-spacer/target/release/niri-spacer"

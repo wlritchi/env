@@ -4,7 +4,6 @@
 -o '%(uploader_id)s/%(uploader)s - %(title).60s (%(id)s).%(ext)s'
 --all-subs
 --write-all-thumbnails
---write-annotations
 --write-auto-sub
 --write-description
 --write-info-json

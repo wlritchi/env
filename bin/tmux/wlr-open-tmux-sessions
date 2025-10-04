@@ -9,8 +9,29 @@ if ! command -v "$term" >/dev/null 2>&1; then
     exit 1
 fi
 
+# Helper function to spawn session on specific workspace
+spawn_on_workspace() {
+    local session="$1"
+    local workspace="$2"
+
+    # Spawn terminal
+    "$term" -e tmux attach-session -t "$session" &
+    local alacritty_pid=$!
+
+    # If workspace is specified and not default, move window to target workspace
+    if [ -n "$workspace" ] && [ "$workspace" != "1" ]; then
+        # Only try to move if niri helper is available
+        if command -v wlr-niri-move-window-to-workspace >/dev/null 2>&1; then
+            wlr-niri-move-window-to-workspace "$alacritty_pid" "$workspace" 2>/dev/null || true
+        fi
+    fi
+}
+
 for session in "${detached_sessions[@]}"; do
+    # Skip temporary sessions (git commit hashes)
     if ! echo "$session" | grep -Eq '^[0-9a-f]{7}$'; then
-        "$term" -e tmux attach-session -t "$session" &
+        # Get saved workspace (default to 1 if not set)
+        workspace=$(tmux show-options -t "$session" -v @niri-workspace 2>/dev/null || echo "1")
+        spawn_on_workspace "$session" "$workspace"
     fi
 done

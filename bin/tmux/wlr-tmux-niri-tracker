@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Track which niri workspace each tmux session is on
+# This script queries niri for Alacritty windows, finds their tmux sessions,
+# and stores the workspace mapping in tmux user options
+
+if ! command -v niri >/dev/null 2>&1; then
+    echo "niri not found" >&2
+    exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq not found" >&2
+    exit 1
+fi
+
+if [ -z "${NIRI_SOCKET:-}" ]; then
+    echo "NIRI_SOCKET not set" >&2
+    exit 1
+fi
+
+# Get all Alacritty windows with their PIDs and workspace IDs
+niri msg --json windows | jq -r '.[] | select(.app_id == "Alacritty") | "\(.pid)\t\(.workspace_id)"' | \
+while IFS=$'\t' read -r alacritty_pid workspace_id; do
+    # Find child processes of this alacritty
+    children=$(pgrep -P "$alacritty_pid" 2>/dev/null || true)
+
+    for child_pid in $children; do
+        # Check if this child is a tmux client
+        comm=$(ps -o comm= -p "$child_pid" 2>/dev/null || true)
+
+        if [ "$comm" = "tmux" ] || [ "$comm" = "tmux: client" ]; then
+            # Get the full command line to extract session name
+            args=$(ps -o args= -p "$child_pid" 2>/dev/null || true)
+
+            # Parse session name from: tmux attach-session -t <session>
+            if [[ "$args" =~ -t[[:space:]]+([^[:space:]]+) ]]; then
+                session="${BASH_REMATCH[1]}"
+
+                # Set the workspace option for this session
+                if tmux has-session -t "$session" 2>/dev/null; then
+                    tmux set-option -t "$session" @niri-workspace "$workspace_id" 2>/dev/null || true
+                fi
+            fi
+        fi
+    done
+done

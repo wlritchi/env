@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# tmux-resurrect post-save-layout hook
+# Appends niri workspace mappings to the resurrect save file
+
+save_file="$1"
+
+if [ -z "$save_file" ] || [ ! -f "$save_file" ]; then
+    echo "Invalid save file: $save_file" >&2
+    exit 1
+fi
+
+# Append workspace data for each session that has it
+tmux list-sessions -F '#{session_name}' 2>/dev/null | while read -r session; do
+    workspace=$(tmux show-options -t "$session" -v @niri-workspace 2>/dev/null || true)
+
+    if [ -n "$workspace" ]; then
+        # Tab-delimited format: niri_workspace<TAB>session_name<TAB>workspace_id
+        printf "niri_workspace\t%s\t%s\n" "$session" "$workspace" >> "$save_file"
+    fi
+done

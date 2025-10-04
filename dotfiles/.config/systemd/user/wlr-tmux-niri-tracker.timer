@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically track tmux sessions to niri workspaces every 30 seconds
+Documentation=file://%h/.wlrenv/TMUX_NIRI_WORKSPACE_TRACKING.md
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+Unit=wlr-tmux-niri-tracker.service
+
+[Install]
+WantedBy=timers.target

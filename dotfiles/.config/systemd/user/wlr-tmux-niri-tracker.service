@@ -1,0 +1,9 @@
+[Unit]
+Description=Track tmux sessions to niri workspaces
+Documentation=file://%h/.wlrenv/TMUX_NIRI_WORKSPACE_TRACKING.md
+# Only run when NIRI_SOCKET is set (i.e., running under niri)
+ConditionEnvironment=NIRI_SOCKET
+
+[Service]
+Type=oneshot
+ExecStart=%h/.wlrenv/bin/tmux/wlr-tmux-niri-tracker
