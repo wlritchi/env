@@ -74,6 +74,7 @@ def _setup() -> None:
     def prepare_packages() -> None:
         for xontrib in (
             'argcomplete',
+            'autovox',
             'avox_poetry',
             'jedi',
             'pipeliner',
@@ -82,7 +83,11 @@ def _setup() -> None:
             'fzf-widgets',
             'zoxide',
         ):
-            xontribs_load(xontrib)
+            stdout, stderr, _ecode = xontribs_load([xontrib])
+            if stdout:
+                print(stdout, end='')
+            if stderr:
+                print(stderr, end='', file=sys.stderr)
 
     def setup_colors() -> None:
         if not XSH.env:
