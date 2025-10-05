@@ -82,7 +82,12 @@ ensurepath() {
             warnings+=("Warning: tried to add $t to PATH, but it is not a directory")
             continue
         fi
-        if ! echo "$PATH" | grep -Eq "(^|:)$t($|:)"; then
+        if echo "$PATH" | grep -Eq "(^|:)$t($|:)"; then
+            # Remove from PATH first if using --head (to move it to the front)
+            if [ -n "$head" ]; then
+                export PATH="$t:$(echo "$PATH" | sed -re "s#(^|:)$t(:|$)#\1#g;s/^://;s/:$//")"
+            fi
+        else
             if [ -n "$head" ]; then
                 export PATH="$t:$PATH"
             else
@@ -114,6 +119,12 @@ if command -v brew >/dev/null 2>&1; then
     done
 fi
 
+
+# Nix
+
+if command -v nix >/dev/null 2>&1; then
+    ensurepath --head "$HOME/.nix-profile/bin"
+fi
 
 
 # early environment setup
@@ -175,6 +186,7 @@ wlr_suspect_tty() {
     esac
     return 1
 }
+
 
 # invoke zellij/tmux, if applicable
 
