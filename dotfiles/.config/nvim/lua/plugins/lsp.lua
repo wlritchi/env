@@ -7,8 +7,6 @@ return {
       "mason-lspconfig.nvim",
     },
     config = function()
-      local lspconfig = require("lspconfig")
-
       -- Set up keymaps when LSP attaches
       vim.api.nvim_create_autocmd("LspAttach", {
         group = vim.api.nvim_create_augroup("UserLspConfig", {}),
@@ -29,10 +27,10 @@ return {
       })
 
       -- Configure specific language servers
-      lspconfig.lua_ls.setup({})
-      lspconfig.pyright.setup({})
-      lspconfig.ts_ls.setup({})
-      lspconfig.rust_analyzer.setup({})
+      vim.lsp.config("lua_ls", {})
+      vim.lsp.config("pyright", {})
+      vim.lsp.config("ts_ls", {})
+      vim.lsp.config("rust_analyzer", {})
     end,
   },
 
