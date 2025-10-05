@@ -35,7 +35,7 @@ key-mapping.preset = 'dvorak'
 [exec]                   # Again, you don't need to copy all config sections to your config.
 inherit-env-vars = true  # If you don't touch "exec" section,
 [exec.env-vars]          # it will fallback to "default-config.toml"
-PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}'
+PATH = '~/.nix-profile/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}'
 
 [mode.main.binding]
 
@@ -56,8 +56,7 @@ PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}'
 
 alt-space = 'layout h_tiles h_accordion'
 alt-shift-enter = 'exec-and-forget open -n -a Alacritty.app --args --working-directory ~'
-alt-slash = 'exec-and-forget open -n -a Alacritty.app --args -e sh -c ". ~/.config/env_secret && ~/.local/bin/elia"'
-alt-backtick = 'exec-and-forget open -n -a Alacritty.app --args -e sh -c "~/.wlrenv/bin/k8s/k9sx"'
+alt-backtick = 'exec-and-forget open -n -a Alacritty.app --args -e sh -c "~/.nix-profile/bin/k9s"'
 
 alt-j = 'focus left --boundaries-action wrap-around-the-workspace'
 alt-k = 'focus right --boundaries-action wrap-around-the-workspace'
