@@ -16,6 +16,7 @@
     moreutils
     neovim
     nixfmt
+    onefetch
     ripgrep
     rustup
     stylua

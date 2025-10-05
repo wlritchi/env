@@ -180,6 +180,26 @@ wheels = [
 ]
 
 [[package]]
+name = "hyfetch"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "psutil", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/f2/8b24d32c63110d3ba7e5e4c88827827cb05eb4e3d14c6652304c546b0e71/hyfetch-2.0.2.tar.gz", hash = "sha256:d11eed4b6082095a9e41272fb846e9ed029b172847c9d30e8646eabee9da2b12", size = 4203016, upload-time = "2025-09-04T11:16:17.145Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/be/a0fd7d52cddd93b2e52e8ec70a4d03d21e162512ffd817235fff5496a0b8/HyFetch-2.0.2-py3-none-any.whl", hash = "sha256:b89d91896e706d605f1a3cb5caea58da618f51d220ed8de646490ff0e4c31339", size = 9146523, upload-time = "2025-09-04T11:15:53.662Z" },
+    { url = "https://files.pythonhosted.org/packages/55/71/4aa944c4c69e351449f88db0d850d972ff09f94387c40ce8a0336a0eddc9/HyFetch-2.0.2-py3-none-macosx_11_0_arm64.whl", hash = "sha256:95180b57de56627cba112c28ec726adbba92b6918d481d8f13f3f8524b9a74e3", size = 29000432, upload-time = "2025-09-04T11:15:56.094Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/52/3a5c5f7bb1c0bba1d5a240407a6c9c724f03ac2b1990bdb9e01b00595738/HyFetch-2.0.2-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:08e6c47da770af695e4532b160e0a82680f4eef6ce9ad8599b3a3e7c34a58c75", size = 29041571, upload-time = "2025-09-04T11:15:58.791Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/1b/12517a172c4e1a6186d6d0f2952fa7b4397152ec67b2e2c99eef345d9443/HyFetch-2.0.2-py3-none-manylinux_2_31_aarch64.whl", hash = "sha256:39731cf7ace91e522ce0ec888e72fe0685f94b9944ea5866b70c947e8fdaf223", size = 34247815, upload-time = "2025-09-04T11:16:02.01Z" },
+    { url = "https://files.pythonhosted.org/packages/46/72/5824e13b44385c1044b960cff575f7a21bb9bdee5d0c171cc3b10a5778f5/HyFetch-2.0.2-py3-none-manylinux_2_31_armv7l.whl", hash = "sha256:ba69d85c6de22e48cac483a4b48d81ab8c31c37641979bdd26f3e6c578b00c9a", size = 34139125, upload-time = "2025-09-04T11:16:05.131Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/75/ec340c3577218aa238de9a07f90fbc98f181d67e633ab8b6e9e60d7d7ca4/HyFetch-2.0.2-py3-none-manylinux_2_31_x86_64.whl", hash = "sha256:c9a915827f285f1562ecda72bfda64632617d57cd88ac6330933d246552b3dbf", size = 34638445, upload-time = "2025-09-04T11:16:08.588Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/bc/67b5bffb9a9bcaa030727a16c72f06cb350b2bb155893047133140cfa3e8/HyFetch-2.0.2-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:1ffc70802c5d26be27e88233f8b3d417fb7cef690ef8a918db51580e77294375", size = 33852747, upload-time = "2025-09-04T11:16:11.557Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/8a/eae634743f45185572ef1d101b4ca64b5f4abc0443f873a72412265e73b3/HyFetch-2.0.2-py3-none-win_amd64.whl", hash = "sha256:f9315039b5631e01a5a4499022faf4fa3bc3406c348d62ff0ac12c519f152bff", size = 31379797, upload-time = "2025-09-04T11:16:14.525Z" },
+]
+
+[[package]]
 name = "identify"
 version = "2.6.15"
 source = { registry = "https://pypi.org/simple" }
@@ -551,6 +571,17 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a1/96/06e01a7b38dce6fe1db213e061a4602dd6032a8a97ef6c1a862537732421/prompt_toolkit-3.0.52.tar.gz", hash = "sha256:28cde192929c8e7321de85de1ddbe736f1375148b02f2e17edd840042b1be855", size = 434198, upload-time = "2025-08-27T15:24:02.057Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/84/03/0d3ce49e2505ae70cf43bc5bb3033955d2fc9f932163e84dc0779cc47f48/prompt_toolkit-3.0.52-py3-none-any.whl", hash = "sha256:9aac639a3bbd33284347de5ad8d68ecc044b91a762dc39b7c21095fcd6a19955", size = 391431, upload-time = "2025-08-27T15:23:59.498Z" },
+]
+
+[[package]]
+name = "psutil"
+version = "7.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/31/4723d756b59344b643542936e37a31d1d3204bcdc42a7daa8ee9eb06fb50/psutil-7.1.0.tar.gz", hash = "sha256:655708b3c069387c8b77b072fc429a57d0e214221d01c0a772df7dfedcb3bcd2", size = 497660, upload-time = "2025-09-17T20:14:52.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/87/157c8e7959ec39ced1b11cc93c730c4fb7f9d408569a6c59dbd92ceb35db/psutil-7.1.0-cp37-abi3-win32.whl", hash = "sha256:09ad740870c8d219ed8daae0ad3b726d3bf9a028a198e7f3080f6a1888b99bca", size = 244812, upload-time = "2025-09-17T20:15:07.462Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/e9/b44c4f697276a7a95b8e94d0e320a7bf7f3318521b23de69035540b39838/psutil-7.1.0-cp37-abi3-win_amd64.whl", hash = "sha256:57f5e987c36d3146c0dd2528cd42151cf96cd359b9d67cfff836995cc5df9a3d", size = 247965, upload-time = "2025-09-17T20:15:09.673Z" },
+    { url = "https://files.pythonhosted.org/packages/26/65/1070a6e3c036f39142c2820c4b52e9243246fcfc3f96239ac84472ba361e/psutil-7.1.0-cp37-abi3-win_arm64.whl", hash = "sha256:6937cb68133e7c97b6cc9649a570c9a18ba0efebed46d8c5dae4c07fa1b67a07", size = 244971, upload-time = "2025-09-17T20:15:12.262Z" },
 ]
 
 [[package]]
@@ -1154,6 +1185,7 @@ dependencies = [
     { name = "anyio" },
     { name = "catppuccin" },
     { name = "certifi" },
+    { name = "hyfetch" },
     { name = "jedi" },
     { name = "numpy" },
     { name = "openai" },
@@ -1192,6 +1224,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.8.0,<5.0.0" },
     { name = "catppuccin", specifier = ">=2.3.4,<3.0.0" },
     { name = "certifi", specifier = ">=2024.12.14" },
+    { name = "hyfetch", specifier = ">=2.0.0,<3.0.0" },
     { name = "jedi", specifier = ">=0.19.2,<0.20.0" },
     { name = "numpy", specifier = ">=2.2.3,<3.0.0" },
     { name = "openai", specifier = ">=1.63.0,<2.0.0" },
