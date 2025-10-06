@@ -4,7 +4,7 @@ let
   hostModule = ./hosts + "/${hostname}.nix";
   hostImports = lib.optional (builtins.pathExists hostModule) hostModule;
 in {
-  imports = [ ./common.nix ] ++ hostImports;
+  imports = [ ./common.nix ./systemd-services.nix ] ++ hostImports;
 
   home.username = "wlritchi";
   home.homeDirectory = "/home/wlritchi";

@@ -1,6 +1,0 @@
-[Unit]
-Description=Run rclone copy on configured directories
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/bash -c 'ecode=0; shuf %E/rclone-copy.list | while read line; do rclone --bwlimit 750k copy $line; ecode=$?; [ $ecode -ne 0 ] && break; done; exit $ecode'

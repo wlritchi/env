@@ -8,6 +8,7 @@
     fnm
     fzf
     gh
+    git-sync
     go
     gopls
     jq
@@ -17,6 +18,7 @@
     neovim
     nixfmt
     onefetch
+    rclone
     ripgrep
     rustup
     stylua

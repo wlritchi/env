@@ -1,6 +1,0 @@
-[Unit]
-Description=Back up tmux-resurrect pane contents
-
-[Service]
-Type=oneshot
-ExecStart=%h/.config/systemd/user/tmux-pane-backup.sh

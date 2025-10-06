@@ -12,7 +12,7 @@ let
     sha256 = "1gah09dhlzarv0v95q60mpqpi1qal5sl0n0zwjf2lv2pwbzs3302";
   }) { system = pkgs.system; };
 in {
-  imports = [ ./common.nix ];
+  imports = [ ./common.nix ./launchd-services.nix ];
 
   home.username = "luc.ritchie";
   home.homeDirectory = "/Users/luc.ritchie";
