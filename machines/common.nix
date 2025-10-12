@@ -13,6 +13,7 @@
     gopls
     jq
     k9s
+    krew
     kubectl
     moreutils
     neovim
@@ -33,5 +34,11 @@
   nix = {
     package = pkgs.nix;
     settings.experimental-features = [ "nix-command" "flakes" ];
+  };
+
+  programs.krewfile = {
+    enable = true;
+    krewPackage = pkgs.krew;
+    plugins = [ "ctx" "ns" "rabbitmq" "rook-ceph" ];
   };
 }

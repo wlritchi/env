@@ -282,24 +282,6 @@ wlr_setup_conda() {
 [ -n "$WLR_CONDA" ] && wlr_setup_conda
 unset wlr_setup_conda
 
-wlr_setup_krew() {
-    if ! command -v kubectl >/dev/null 2>&1; then
-        err_steps+=('kubectl')
-        return
-    elif ! command -v kubectl-krew >/dev/null 2>&1; then
-        err_steps+=('kubectl-krew')
-        return
-    elif ! [ -d "$HOME/.krew/bin" ]; then
-        warnings+=('kubectl-krew is installed, but bin dir is missing')
-        return
-    else
-        ensurepath "$HOME/.krew/bin"
-        good_steps+=('kubectl-krew')
-    fi
-}
-wlr_setup_krew
-unset wlr_setup_krew
-
 
 # push env into dbus and systemd
 if [ -n "$wlr_interactive" ]; then
