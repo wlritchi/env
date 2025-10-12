@@ -191,10 +191,8 @@ wlr_suspect_tty() {
 # invoke zellij/tmux, if applicable
 
 if [ -n "$wlr_interactive" ]; then
-    if [ -n "$ZELLIJ" ]; then
-        good_steps+=('zellij')
-    elif [ -n "$TMUX" ]; then
-        good_steps+=('tmux')
+    if [ -n "$ZELLIJ" ] || [ -n "$TMUX" ]; then
+        true
     elif [ "$WLR_TMUX" == 'n' ]; then
         warnings+=('tmux - skipping (disabled)')
     elif term="$(wlr_detect_named_term)"; then
@@ -253,7 +251,7 @@ unset wlr_env_subdir
 
 # set up fnm
 if command -v fnm >/dev/null 2>&1 && eval "$(fnm env --version-file-strategy=recursive --resolve-engines=false --shell bash)"; then
-    good_steps+=('fnm')
+    true
 else
     err_steps+=('fnm')
 fi
@@ -308,7 +306,6 @@ if [ -n "$wlr_interactive" ]; then
         warnings+=('xonsh - skipping')
     elif command -v uv >/dev/null 2>&1; then
         print_status
-        wlr-working 'xonsh'
         uv tool install "$WLR_ENV_PATH/" --quiet
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
         export XONSHRC="$WLR_ENV_PATH/xonshrc.py"
