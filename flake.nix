@@ -6,27 +6,33 @@
       url = "github:nix-community/home-manager/release-25.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    krewfile = {
-      url = "github:brumhard/krewfile";
+    krew2nix = {
+      url = "github:eigengrau/krew2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = { nixpkgs, home-manager, krewfile, ... }: {
+  outputs = { nixpkgs, home-manager, krew2nix, ... }: {
     homeConfigurations = {
       wlritchi = home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
-        modules = [ ./machines/linux.nix krewfile.homeManagerModules.krewfile ];
-        extraSpecialArgs = { hostname = "default"; };
+        modules = [ ./machines/linux.nix ];
+        extraSpecialArgs = {
+          hostname = "default";
+          inherit krew2nix;
+        };
       };
       "wlritchi@amygdalin" = home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
-        modules = [ ./machines/linux.nix krewfile.homeManagerModules.krewfile ];
-        extraSpecialArgs = { hostname = "amygdalin"; };
+        modules = [ ./machines/linux.nix ];
+        extraSpecialArgs = {
+          hostname = "amygdalin";
+          inherit krew2nix;
+        };
       };
       "luc.ritchie" = home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.aarch64-darwin;
-        modules =
-          [ ./machines/darwin.nix krewfile.homeManagerModules.krewfile ];
+        modules = [ ./machines/darwin.nix ];
+        extraSpecialArgs = { inherit krew2nix; };
       };
     };
   };

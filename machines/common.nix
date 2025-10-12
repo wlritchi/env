@@ -1,7 +1,7 @@
-{ config, pkgs, ... }:
+{ config, pkgs, krew2nix, ... }:
 
 {
-  home.packages = with pkgs; [
+  home.packages = (with pkgs; [
     bat
     delta
     eza
@@ -13,8 +13,6 @@
     gopls
     jq
     k9s
-    krew
-    kubectl
     moreutils
     neovim
     nixfmt
@@ -27,6 +25,9 @@
     tmux
     watchexec
     zoxide
+  ]) ++ [
+    (krew2nix.packages.${pkgs.system}.kubectl.withKrewPlugins
+      (plugins: [ plugins.ctx plugins.ns plugins.rabbitmq plugins.rook-ceph ]))
   ];
 
   programs.home-manager.enable = true;
@@ -34,11 +35,5 @@
   nix = {
     package = pkgs.nix;
     settings.experimental-features = [ "nix-command" "flakes" ];
-  };
-
-  programs.krewfile = {
-    enable = true;
-    krewPackage = pkgs.krew;
-    plugins = [ "ctx" "ns" "rabbitmq" "rook-ceph" ];
   };
 }
