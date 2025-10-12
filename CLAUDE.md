@@ -5,7 +5,6 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
 
 ## Core Commands
 - Sync dotfiles: `wlr-sync-dotfiles`
-- Check environment: `wlr-check-env`
 - Check for updates: `wlr-check-update`
 - Message formatting: `wlr-err`, `wlr-warn`, `wlr-ask`, `wlr-good`
 - tmux helpers: `wlr-ensure-tmux-running`, `wlr-fix-tmux-resurrect`, `wlr-open-tmux-sessions`

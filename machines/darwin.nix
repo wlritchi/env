@@ -28,7 +28,6 @@ in {
     openssh
     pinentry_mac
     teleport
-    watchexec
     pinDevspace.devspace
     pinOllama.ollama
   ];

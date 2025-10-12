@@ -321,9 +321,6 @@ fi
 
 
 if [ -n "$wlr_interactive" ]; then
-    # print env report
-    wlr-check-env
-
     # invoke xonsh, if applicable
     if [ "$WLR_XONSH" == 'n' ] || [ "$POETRY_ACTIVE" == '1' ]; then
         warnings+=('xonsh - skipping')

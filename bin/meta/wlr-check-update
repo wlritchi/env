@@ -12,7 +12,6 @@ force=
 
 if [ -z "$force" ]; then
     if [ -e "$WLR_ENV_PATH/.last-update-check" ] && [ -z "$(find "$WLR_ENV_PATH/.last-update-check" -mmin +60 -print -quit)" ]; then
-        wlr-good 'update check skipped'
         exit 1
     fi
 fi

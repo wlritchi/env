@@ -17,12 +17,14 @@
     moreutils
     neovim
     nixfmt
+    nnn
     onefetch
     rclone
     ripgrep
     rustup
     stylua
     tmux
+    watchexec
     zoxide
   ];
 
