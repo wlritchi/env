@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Updates all lockfiles within current channel constraints
+# Lockfiles: flake.lock, uv.lock, Cargo.lock (when present)
+
+cd "$WLR_ENV_PATH"
+
+wlr-working 'updating flake.lock (within current nixpkgs channel)'
+nix flake update
+
+if [[ -f uv.lock ]]; then
+    wlr-working 'updating uv.lock'
+    uv lock --upgrade
+fi
+
+# Find and update Cargo.lock files
+while IFS= read -r cargo_lock; do
+    cargo_dir=$(dirname "$cargo_lock")
+    wlr-working "updating $(realpath --relative-to="$WLR_ENV_PATH" "$cargo_lock")"
+    cargo update --manifest-path="$cargo_dir/Cargo.toml"
+done < <(find . -name "Cargo.lock" -not -path "*/target/*" -not -path "*/.git/*")
+
+wlr-good 'all lockfiles updated!'
+wlr-warn "don't forget to test and commit changes"
