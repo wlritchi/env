@@ -65,6 +65,15 @@ repos:
         pass_filenames: false
         args: [build]
 
+      # Dotfile patch verification
+      - id: verify-patches
+        name: verify patches
+        description: Verify that all dotfile patches apply successfully
+        entry: bin/meta/wlr-verify-patches
+        language: system
+        files: ^(patches/.*\.patch|dotfiles/.*)$
+        pass_filenames: false
+
       # Python/Nix/Lua hooks
       - id: yamllint
         name: yamllint

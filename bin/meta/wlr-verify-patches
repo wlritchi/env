@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Verify that all patches in the repository apply successfully
+# This script tests patches for all hosts and architectures
+
+# Color output helpers
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+FAILED=0
+TESTED=0
+
+echo "Verifying all patches..."
+echo
+
+# Find all patch files and verify them
+while IFS= read -r patch_file; do
+    TESTED=$((TESTED + 1))
+
+    # Extract the relative path from patches/host/HOSTNAME/ or patches/uname/UNAME/
+    if [[ "$patch_file" =~ patches/host/([^/]+)/(.+)\.patch$ ]]; then
+        hostname="${BASH_REMATCH[1]}"
+        relative_path="${BASH_REMATCH[2]}"
+        patch_type="host/$hostname"
+    elif [[ "$patch_file" =~ patches/uname/([^/]+)/(.+)\.patch$ ]]; then
+        uname="${BASH_REMATCH[1]}"
+        relative_path="${BASH_REMATCH[2]}"
+        patch_type="uname/$uname"
+    else
+        echo -e "${RED}✗${NC} Failed to parse patch path: $patch_file"
+        FAILED=$((FAILED + 1))
+        continue
+    fi
+
+    # The source file should be in dotfiles/
+    source_file="$WLR_ENV_PATH/dotfiles/$relative_path"
+
+    if [ ! -f "$source_file" ]; then
+        echo -e "${RED}✗${NC} Source file not found for patch: $patch_file"
+        echo "   Expected: $source_file"
+        FAILED=$((FAILED + 1))
+        continue
+    fi
+
+    # Try to apply the patch to a temporary file
+    tmp_file="$(mktemp)"
+    trap "rm -f '$tmp_file'" EXIT
+
+    if patch "$source_file" "$patch_file" -o "$tmp_file" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC} $patch_type/$relative_path"
+        rm "$tmp_file"
+    else
+        echo -e "${RED}✗${NC} $patch_type/$relative_path"
+        echo "   Patch file: $patch_file"
+        echo "   Source file: $source_file"
+        echo "   This patch may not apply cleanly to the current version of the file."
+        FAILED=$((FAILED + 1))
+        rm -f "$tmp_file"
+    fi
+done < <(find "$WLR_ENV_PATH/patches" -type f -name "*.patch" | sort)
+
+echo
+if [ $FAILED -eq 0 ]; then
+    echo -e "${GREEN}All $TESTED patches verified successfully!${NC}"
+    exit 0
+else
+    echo -e "${RED}$FAILED out of $TESTED patches failed to apply.${NC}"
+    exit 1
+fi
