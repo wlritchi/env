@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Builds all Rust utilities in rust-utils/ directory
+# Installs them to ~/.local/bin via cargo install
+
+if ! command -v cargo >/dev/null 2>&1; then
+    wlr-warn "cargo not found, skipping rust utilities build"
+    exit 0
+fi
+
+if [ ! -d "$WLR_ENV_PATH/rust-utils" ]; then
+    wlr-warn "no rust-utils directory found"
+    exit 0
+fi
+
+built_any=false
+for util in "$WLR_ENV_PATH/rust-utils/"*/; do
+    if [ -f "$util/Cargo.toml" ]; then
+        util_name=$(basename "$util")
+        wlr-working "building rust utility: $util_name"
+        if cargo install --path "$util" --root "$HOME/.local" --force --quiet; then
+            wlr-good "built $util_name"
+            built_any=true
+        else
+            wlr-err "failed to build $util_name"
+        fi
+    fi
+done
+
+if [ "$built_any" = false ]; then
+    wlr-warn "no rust utilities found to build"
+fi
