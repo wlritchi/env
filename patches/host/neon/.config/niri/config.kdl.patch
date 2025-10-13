@@ -1,0 +1,14 @@
+diff --git a/dotfiles/.config/niri/config.kdl b/dotfiles/.config/niri/config.kdl
+index 469eef8..24459f6 100644
+--- a/dotfiles/.config/niri/config.kdl
++++ b/dotfiles/.config/niri/config.kdl
+@@ -99,9 +99,7 @@ output "Apple Computer Inc Color LCD Unknown" {
+ }
+ 
+ output "Acer Technologies XZ242Q Unknown" {
+-    off
+     mode "1920x1080"
+-    scale 0.5
+     transform "normal"
+     position x=1850 y=-2160
+     background-color "#181926"  // crust
