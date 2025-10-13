@@ -16,10 +16,33 @@ home_manager=(
     --
 )
 
+# Get short hostname with fallback chain
+get_short_hostname() {
+    local hn
+    # Try hostname -s first (most traditional)
+    if command -v hostname >/dev/null 2>&1; then
+        hn=$(hostname -s 2>/dev/null) && [ -n "$hn" ] && echo "$hn" && return 0
+    fi
+    # Fall back to uname -n (POSIX-compliant, very portable)
+    if hn=$(uname -n 2>/dev/null) && [ -n "$hn" ]; then
+        # Strip domain if present to get short hostname
+        echo "${hn%%.*}"
+        return 0
+    fi
+    # Fall back to /proc/sys/kernel/hostname on Linux
+    if [ -f /proc/sys/kernel/hostname ]; then
+        hn=$(cat /proc/sys/kernel/hostname 2>/dev/null) && [ -n "$hn" ] && echo "${hn%%.*}" && return 0
+    fi
+    return 1
+}
+
 # Try user@hostname first, fallback to just username
-CONFIG="${USER}@$(hostname -s)"
-if "${home_manager[@]}" switch --flake ".#${CONFIG}" 2>/dev/null; then
-    exit 0
+if SHORT_HOSTNAME=$(get_short_hostname); then
+    CONFIG="${USER}@${SHORT_HOSTNAME}"
+    if "${home_manager[@]}" switch --flake ".#${CONFIG}"; then
+        exit 0
+    fi
+    wlr-warn "Config for ${CONFIG} not found, falling back to ${USER}"
 fi
 
 "${home_manager[@]}" switch --flake ".#${USER}"
