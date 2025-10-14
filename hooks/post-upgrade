@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# sync dotfiles
+"$WLR_ENV_PATH/bin/meta/wlr-sync-dotfiles"
+
 # set up git config for env
 git -C "$WLR_ENV_PATH" config --local gpg.ssh.allowedSignersFile "$WLR_ENV_PATH/.allowed_signers"
 
