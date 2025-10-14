@@ -24,6 +24,7 @@
     stylua
     tmux
     watchexec
+    zellij
     zoxide
   ]) ++ [
     (krew2nix.packages.${pkgs.system}.kubectl.withKrewPlugins

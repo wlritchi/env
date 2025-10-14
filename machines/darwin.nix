@@ -27,6 +27,7 @@ in {
     docker
     openssh
     pinentry_mac
+    procps # for the watch command
     teleport
     pinDevspace.devspace
     pinOllama.ollama
