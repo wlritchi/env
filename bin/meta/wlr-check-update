@@ -59,8 +59,11 @@ if ! git -C "$WLR_ENV_PATH" -c gpg.program=/dev/null -c gpg.ssh.allowedSignersFi
 fi
 
 git -C "$WLR_ENV_PATH" merge --ff-only "$remote_commit"
+new_local_commit="$(git -C "$WLR_ENV_PATH" rev-parse HEAD)"
 
-"$WLR_ENV_PATH/hooks/post-upgrade"
+if [ "$local_commit" != "$new_local_commit" ]; then
+    "$WLR_ENV_PATH/hooks/post-upgrade"
+fi
 
 touch "$WLR_ENV_PATH/.last-update-check"
 wlr-good 'update succeeded'
