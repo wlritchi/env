@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Restore Librewolf windows to their saved workspaces
+# Supports dry-run mode to preview changes without applying them
+
+# Source common niri functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WLR_ENV_PATH="${WLR_ENV_PATH:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+# shellcheck source=bin/wayland/wlr-niri-common.bash
+source "$WLR_ENV_PATH/bin/wayland/wlr-niri-common.bash"
+
+# Configuration
+STATE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/librewolf"
+STATE_FILE="$STATE_DIR/workspace-mappings.json"
+
+# Parse arguments
+DRY_RUN=false
+VERBOSE=false
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --verbose|-v)
+            VERBOSE=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $(basename "$0") [--dry-run] [--verbose]"
+            echo ""
+            echo "Restore Librewolf windows to their saved workspaces"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run    Show what would be done without making changes"
+            echo "  --verbose    Show detailed matching information"
+            echo "  --help       Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            echo "Use --help for usage information" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Check dependencies
+if ! wlr_niri_check_available; then
+    exit 1
+fi
+
+# Check if state file exists
+if [ ! -f "$STATE_FILE" ]; then
+    echo "No state file found at $STATE_FILE" >&2
+    echo "Run wlr-librewolf-track-workspaces first to capture workspace mappings" >&2
+    exit 1
+fi
+
+# Function to sanitize window title (must match tracker logic)
+sanitize_title() {
+    local title="$1"
+    echo "$title" | sed 's/ — LibreWolf$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+# Function to calculate title similarity score (0-100)
+# Simple heuristic: longer common prefix = better match
+calculate_similarity() {
+    local title1="$1"
+    local title2="$2"
+    local len1=${#title1}
+    local len2=${#title2}
+    local common_prefix=0
+
+    # Find common prefix length
+    for ((i=0; i<len1 && i<len2; i++)); do
+        if [ "${title1:$i:1}" = "${title2:$i:1}" ]; then
+            ((common_prefix++))
+        else
+            break
+        fi
+    done
+
+    # Score: common prefix as percentage of shorter title
+    local shorter=$((len1 < len2 ? len1 : len2))
+    if [ "$shorter" -eq 0 ]; then
+        echo 0
+    else
+        echo $(( (common_prefix * 100) / shorter ))
+    fi
+}
+
+# Function to find best match for a current window
+# Returns: "saved_index:score" or "none:0"
+find_best_match() {
+    local current_title="$1"
+    local saved_mappings="$2"
+    local best_index=-1
+    local best_score=0
+    local index=0
+
+    while IFS= read -r mapping; do
+        saved_title=$(echo "$mapping" | jq -r '.window_title')
+
+        # Calculate similarity
+        local score
+        score=$(calculate_similarity "$current_title" "$saved_title")
+
+        if $VERBOSE; then
+            echo "    Comparing with saved: \"$saved_title\" (score: $score)" >&2
+        fi
+
+        # Check for exact match first (score 100)
+        if [ "$current_title" = "$saved_title" ]; then
+            echo "$index:100"
+            return
+        fi
+
+        # Check for substring match
+        if [[ "$current_title" == *"$saved_title"* ]] || [[ "$saved_title" == *"$current_title"* ]]; then
+            # Substring match, boost score
+            score=$((score + 20))
+            if [ $score -gt 100 ]; then score=100; fi
+        fi
+
+        # Track best match
+        if [ $score -gt $best_score ]; then
+            best_score=$score
+            best_index=$index
+        fi
+
+        ((index++))
+    done < <(echo "$saved_mappings" | jq -c '.[]')
+
+    # Require minimum score of 50 for a match
+    if [ $best_score -ge 50 ]; then
+        echo "$best_index:$best_score"
+    else
+        echo "none:0"
+    fi
+}
+
+# Print header
+if $DRY_RUN; then
+    echo "=== DRY RUN MODE ===" >&2
+    echo "No changes will be made" >&2
+    echo "" >&2
+fi
+
+# Load saved mappings
+echo "Loading saved mappings from $STATE_FILE..." >&2
+saved_mappings=$(jq -r '.mappings' "$STATE_FILE")
+saved_count=$(echo "$saved_mappings" | jq 'length')
+last_updated=$(jq -r '.last_updated' "$STATE_FILE")
+
+echo "Found $saved_count saved mapping(s) from $last_updated" >&2
+echo "" >&2
+
+# Query current Librewolf windows
+echo "Querying current Librewolf windows..." >&2
+current_windows=$(wlr_niri_get_windows_by_app_id "librewolf")
+current_count=$(echo "$current_windows" | jq 'length')
+
+echo "Found $current_count current window(s)" >&2
+echo "" >&2
+
+if [ "$current_count" -eq 0 ]; then
+    echo "No Librewolf windows currently open" >&2
+    exit 0
+fi
+
+# Track statistics
+moved_count=0
+skipped_count=0
+unmatched_count=0
+
+# Process each current window
+while read -r window; do
+    id=$(echo "$window" | jq -r '.id')
+    pid=$(echo "$window" | jq -r '.pid')
+    raw_title=$(echo "$window" | jq -r '.title')
+    current_workspace=$(echo "$window" | jq -r '.workspace_id')
+
+    title=$(sanitize_title "$raw_title")
+
+    echo "Processing: Window $id (PID $pid)" >&2
+    echo "  Title: \"$title\"" >&2
+    echo "  Current workspace: $current_workspace" >&2
+
+    # Find best match in saved mappings
+    match_result=$(find_best_match "$title" "$saved_mappings")
+    match_index="${match_result%%:*}"
+    match_score="${match_result##*:}"
+
+    if [ "$match_index" = "none" ]; then
+        echo "  [UNMATCHED] No saved mapping found" >&2
+        ((unmatched_count++))
+        echo "" >&2
+        continue
+    fi
+
+    # Get matched mapping details
+    matched_mapping=$(echo "$saved_mappings" | jq ".[$match_index]")
+    saved_title=$(echo "$matched_mapping" | jq -r '.window_title')
+    target_workspace=$(echo "$matched_mapping" | jq -r '.workspace_id')
+
+    if $VERBOSE; then
+        echo "  Matched with: \"$saved_title\" (score: $match_score)" >&2
+    fi
+
+    # Check if move is needed
+    if [ "$current_workspace" -eq "$target_workspace" ]; then
+        echo "  [SKIP] Already on correct workspace $target_workspace" >&2
+        ((skipped_count++))
+    else
+        if $DRY_RUN; then
+            echo "  [DRY-RUN] Would move from workspace $current_workspace → $target_workspace" >&2
+            ((moved_count++))
+        else
+            echo "  [MOVING] workspace $current_workspace → $target_workspace" >&2
+            if wlr_niri_move_window "$id" "$target_workspace" false; then
+                echo "  [SUCCESS] Moved to workspace $target_workspace" >&2
+                ((moved_count++))
+            else
+                echo "  [ERROR] Failed to move window" >&2
+            fi
+        fi
+    fi
+
+    echo "" >&2
+done < <(echo "$current_windows" | jq -c '.[]') || true
+
+# Check for obsolete mappings (saved windows that don't match any current window)
+# TODO: Optimize this check - currently simplified for POC
+obsolete_count=0
+echo "Skipping obsolete mapping check (future enhancement)" >&2
+
+echo "" >&2
+
+# Print summary
+echo "=== Summary ===" >&2
+if $DRY_RUN; then
+    echo "Would move: $moved_count window(s)" >&2
+else
+    echo "Moved: $moved_count window(s)" >&2
+fi
+echo "Skipped (already correct): $skipped_count window(s)" >&2
+echo "Unmatched (no saved mapping): $unmatched_count window(s)" >&2
+echo "Obsolete mappings: $obsolete_count" >&2
+
+if $DRY_RUN && [ "$moved_count" -gt 0 ]; then
+    echo "" >&2
+    echo "Run without --dry-run to apply changes" >&2
+fi

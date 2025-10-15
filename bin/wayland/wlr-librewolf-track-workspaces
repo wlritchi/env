@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Track which niri workspace each Librewolf window is on
+# This script queries niri for Librewolf windows and stores workspace mappings
+
+# Source common niri functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WLR_ENV_PATH="${WLR_ENV_PATH:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+# shellcheck source=bin/wayland/wlr-niri-common.bash
+source "$WLR_ENV_PATH/bin/wayland/wlr-niri-common.bash"
+
+# Configuration
+STATE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/librewolf"
+STATE_FILE="$STATE_DIR/workspace-mappings.json"
+BACKUP_FILE="$STATE_FILE.bak"
+
+# Check dependencies
+if ! wlr_niri_check_available; then
+    exit 1
+fi
+
+# Ensure state directory exists
+mkdir -p "$STATE_DIR"
+
+# Backup existing state file
+if [ -f "$STATE_FILE" ]; then
+    cp "$STATE_FILE" "$BACKUP_FILE"
+fi
+
+# Function to sanitize window title (remove common suffixes)
+sanitize_title() {
+    local title="$1"
+    # Remove "— LibreWolf" suffix and trim
+    echo "$title" | sed 's/ — LibreWolf$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+# Get current timestamp in ISO 8601 format
+get_timestamp() {
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+# Query niri for all Librewolf windows
+echo "Querying niri for Librewolf windows..." >&2
+
+windows_json=$(wlr_niri_get_windows_by_app_id "librewolf")
+window_count=$(echo "$windows_json" | jq 'length')
+
+if [ "$window_count" -eq 0 ]; then
+    echo "No Librewolf windows found" >&2
+    # Still create/update state file with empty mappings
+    jq -n \
+        --arg timestamp "$(get_timestamp)" \
+        '{
+            version: 1,
+            last_updated: $timestamp,
+            mappings: []
+        }' > "$STATE_FILE"
+    exit 0
+fi
+
+echo "Found $window_count Librewolf window(s)" >&2
+
+# Build mappings array
+mappings=$(echo "$windows_json" | jq -c '.[]' | while read -r window; do
+    id=$(echo "$window" | jq -r '.id')
+    pid=$(echo "$window" | jq -r '.pid')
+    raw_title=$(echo "$window" | jq -r '.title')
+    workspace_id=$(echo "$window" | jq -r '.workspace_id')
+
+    # Sanitize title for better matching
+    title=$(sanitize_title "$raw_title")
+    timestamp=$(get_timestamp)
+
+    echo "  Window $id (PID $pid): \"$title\" on workspace $workspace_id" >&2
+
+    # Output JSON object for this mapping
+    jq -n \
+        --arg title "$title" \
+        --arg raw_title "$raw_title" \
+        --argjson workspace_id "$workspace_id" \
+        --argjson pid "$pid" \
+        --argjson niri_window_id "$id" \
+        --arg timestamp "$timestamp" \
+        '{
+            window_title: $title,
+            raw_title: $raw_title,
+            workspace_id: $workspace_id,
+            pid: $pid,
+            niri_window_id: $niri_window_id,
+            timestamp: $timestamp
+        }'
+done | jq -s '.')
+
+# Create final state file
+jq -n \
+    --arg timestamp "$(get_timestamp)" \
+    --argjson mappings "$mappings" \
+    '{
+        version: 1,
+        last_updated: $timestamp,
+        mappings: $mappings
+    }' > "$STATE_FILE"
+
+echo "Saved $window_count mapping(s) to $STATE_FILE" >&2
+echo "Backup saved to $BACKUP_FILE" >&2
