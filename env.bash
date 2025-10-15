@@ -382,7 +382,10 @@ __cd() {
     fi
     [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
 }
-alias cd='__cd'
+# Only replace cd with pushd wrapper if not in IDE/tool environments
+if [ -z "$INTELLIJ_ENVIRONMENT_READER" ] && [ -z "$VSCODE_RESOLVING_ENVIRONMENT" ] && [ -z "$CLAUDECODE" ]; then
+    alias cd='__cd'
+fi
 
 mkcd() {
     if [ $# -ne 1 ]; then
