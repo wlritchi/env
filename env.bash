@@ -250,8 +250,20 @@ unset wlr_env_subdir
 
 
 # set up fnm
-if command -v fnm >/dev/null 2>&1 && eval "$(fnm env --version-file-strategy=recursive --resolve-engines=false --shell bash)"; then
-    true
+if command -v fnm >/dev/null 2>&1; then
+    if [ -n "$FNM_MULTISHELL_PATH" ]; then
+        # fnm already set up, we could replace it but Claude Code will clobber our path with the old one and break things
+        # so just use the old multishell
+        fnm use --silent-if-unchanged
+    else
+        export PATH="$(echo "$PATH" | tr ':' '\n' | grep -v 'fnm_multishells' | tr '\n' ':' | sed 's/:$//')"
+
+        if eval "$(fnm env --version-file-strategy=recursive --resolve-engines=false --shell bash)"; then
+            [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
+        else
+            err_steps+=('fnm')
+        fi
+    fi
 else
     err_steps+=('fnm')
 fi
@@ -374,18 +386,22 @@ command -v sshx > /dev/null 2>&1 && alias ssh='sshx'
 command -v sshfsx > /dev/null 2>&1 && alias sshfs='sshfsx'
 command -v moshx > /dev/null 2>&1 && alias mosh='moshx'
 
-__cd() {
-    if [ $# -eq 0 ]; then
-        popd >/dev/null 2>&1
-    else
-        pushd "$1" >/dev/null
-    fi
-    [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
-}
 # Only replace cd with pushd wrapper if not in IDE/tool environments
 if [ -z "$INTELLIJ_ENVIRONMENT_READER" ] && [ -z "$VSCODE_RESOLVING_ENVIRONMENT" ] && [ -z "$CLAUDECODE" ]; then
-    alias cd='__cd'
+    __cd() {
+        if [ $# -eq 0 ]; then
+            popd >/dev/null 2>&1
+        else
+            pushd "$1" >/dev/null
+        fi
+        [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
+    }
+else
+    __cd() {
+        [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
+    }
 fi
+alias cd='__cd'
 
 mkcd() {
     if [ $# -ne 1 ]; then
