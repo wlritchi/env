@@ -1,0 +1,31 @@
+{
+  "manifest_version": 2,
+  "name": "LibreWolf niri Workspace Tracker",
+  "version": "0.1.0",
+  "description": "Track LibreWolf windows across niri workspaces and restore them on startup",
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "librewolf-workspace-tracker@wlrenv",
+      "strict_min_version": "115.0"
+    }
+  },
+
+  "permissions": [
+    "tabs",
+    "nativeMessaging"
+  ],
+
+  "background": {
+    "scripts": [
+      "native-messaging.js",
+      "background.js",
+      "restoration.js"
+    ]
+  },
+
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png"
+  }
+}

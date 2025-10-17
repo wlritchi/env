@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# Test helper for LibreWolf native messaging host
+# Sends properly formatted messages with 4-byte length prefix
+#
+# Usage: wlr-librewolf-native-host-test '{"request_id": "test", "action": "ping"}'
+
+set -euo pipefail
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <json-message>" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  $0 '{\"request_id\": \"test\", \"action\": \"ping\"}'" >&2
+    echo "  $0 '{\"request_id\": \"test2\", \"action\": \"get_workspace\", \"window_id\": 123, \"tabs\": []}'" >&2
+    exit 1
+fi
+
+MESSAGE="$1"
+LENGTH=${#MESSAGE}
+
+# Send 4-byte length prefix (little-endian) + JSON message
+{
+    printf "\\x$(printf '%02x' $((LENGTH & 0xFF)))"
+    printf "\\x$(printf '%02x' $(((LENGTH >> 8) & 0xFF)))"
+    printf "\\x$(printf '%02x' $(((LENGTH >> 16) & 0xFF)))"
+    printf "\\x$(printf '%02x' $(((LENGTH >> 24) & 0xFF)))"
+    printf "%s" "$MESSAGE"
+} | ~/.wlrenv/bin/wayland/wlr-librewolf-native-host 2>&1 | {
+    # Read the response (skip the first 4 bytes - length prefix)
+    dd bs=1 skip=4 2>/dev/null || true
+}
+
+echo ""  # Add newline for readability

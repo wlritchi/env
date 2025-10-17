@@ -99,36 +99,6 @@
       Install = { WantedBy = [ "timers.target" ]; };
     };
 
-    # Librewolf/Niri workspace tracker service + timer
-    services.wlr-librewolf-niri-tracker = {
-      Unit = {
-        Description = "Track Librewolf windows to niri workspaces";
-        Documentation =
-          "file://${config.home.homeDirectory}/.wlrenv/LIBREWOLF_NIRI_WORKSPACE_TRACKING.md";
-        ConditionEnvironment = "NIRI_SOCKET";
-      };
-      Service = {
-        Type = "oneshot";
-        ExecStart =
-          "${config.home.homeDirectory}/.wlrenv/bin/wayland/wlr-librewolf-track-workspaces";
-      };
-    };
-
-    timers.wlr-librewolf-niri-tracker = {
-      Unit = {
-        Description =
-          "Periodically track Librewolf windows to niri workspaces every 30 seconds";
-        Documentation =
-          "file://${config.home.homeDirectory}/.wlrenv/LIBREWOLF_NIRI_WORKSPACE_TRACKING.md";
-      };
-      Timer = {
-        OnBootSec = "30s";
-        OnUnitActiveSec = "30s";
-        Unit = "wlr-librewolf-niri-tracker.service";
-      };
-      Install = { WantedBy = [ "timers.target" ]; };
-    };
-
     # Tmux pane backup service + timer
     services.tmux-pane-backup = {
       Unit = { Description = "Back up tmux-resurrect pane contents"; };

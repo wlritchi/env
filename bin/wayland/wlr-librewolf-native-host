@@ -1,0 +1,545 @@
+#!/usr/bin/env -S uv run -qs
+# vim: filetype=python
+
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
+
+"""
+LibreWolf niri Workspace Tracker - Native Messaging Host
+
+This script acts as a bridge between the LibreWolf extension and niri IPC.
+It implements the WebExtensions Native Messaging protocol.
+
+Protocol: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging
+"""
+
+import json
+import logging
+import os
+import subprocess
+import sys
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+
+# Configure logging to stderr (stdout is reserved for native messaging protocol)
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stderr,
+)
+logger = logging.getLogger(__name__)
+
+# State file location
+STATE_DIR = Path.home() / ".local" / "state" / "librewolf"
+STATE_FILE = STATE_DIR / "workspace-mappings.json"
+
+
+# ========================================
+# Native Messaging Protocol
+# ========================================
+
+
+def read_message() -> dict[str, Any] | None:
+    """Read a message from stdin using native messaging protocol."""
+    # Read 4-byte length header (little-endian)
+    length_bytes = sys.stdin.buffer.read(4)
+    if len(length_bytes) < 4:
+        return None
+
+    # Unpack as little-endian unsigned int
+    message_length = int.from_bytes(length_bytes, byteorder="little", signed=False)
+
+    # Read JSON message
+    message_bytes = sys.stdin.buffer.read(message_length)
+    if len(message_bytes) < message_length:
+        return None
+
+    # Parse JSON
+    try:
+        return json.loads(message_bytes.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON message: {e}")
+        return None
+
+
+def write_message(message: dict[str, Any]) -> None:
+    """Write a message to stdout using native messaging protocol."""
+    # Encode message as JSON
+    message_json = json.dumps(message, separators=(",", ":"))
+    message_bytes = message_json.encode("utf-8")
+    message_length = len(message_bytes)
+
+    # Write 4-byte length header (little-endian)
+    sys.stdout.buffer.write(message_length.to_bytes(4, byteorder="little", signed=False))
+
+    # Write JSON message
+    sys.stdout.buffer.write(message_bytes)
+    sys.stdout.buffer.flush()
+
+
+def send_success(request_id: str, **extra_data: Any) -> None:
+    """Send a success response."""
+    response = {"success": True, "request_id": request_id, **extra_data}
+    write_message(response)
+
+
+def send_error(request_id: str, error_message: str) -> None:
+    """Send an error response."""
+    response = {"success": False, "error": error_message, "request_id": request_id}
+    write_message(response)
+
+
+# ========================================
+# State File Management
+# ========================================
+
+
+def init_state_file() -> None:
+    """Initialize state file if it doesn't exist."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not STATE_FILE.exists():
+        state = {
+            "version": 2,
+            "last_updated": datetime.now().isoformat(),
+            "mappings": [],
+        }
+        # Use atomic save for initialization too
+        save_state(state)
+        logger.info(f"Initialized state file: {STATE_FILE}")
+
+
+def load_state() -> dict[str, Any]:
+    """Load state from file."""
+    init_state_file()
+    try:
+        return json.loads(STATE_FILE.read_text())
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        logger.error(f"Failed to load state file: {e}")
+        return {"version": 2, "last_updated": datetime.now().isoformat(), "mappings": []}
+
+
+def save_state(state: dict[str, Any]) -> None:
+    """Save state to file atomically using write + rename."""
+    state["last_updated"] = datetime.now().isoformat()
+    json_data = json.dumps(state, indent=2)
+
+    # Write to temporary file in the same directory to ensure atomic rename
+    # (rename is only atomic if source and dest are on the same filesystem)
+    fd, temp_path_str = tempfile.mkstemp(
+        dir=STATE_DIR,
+        prefix=".workspace-mappings-",
+        suffix=".json.tmp",
+        text=True,
+    )
+    temp_path = Path(temp_path_str)
+
+    try:
+        # Write JSON data to temp file
+        with os.fdopen(fd, "w") as f:
+            f.write(json_data)
+            f.flush()
+            # Ensure data is written to disk before rename
+            os.fsync(f.fileno())
+
+        # Atomically replace the target file
+        temp_path.replace(STATE_FILE)
+        logger.debug(f"State file updated atomically: {STATE_FILE}")
+
+    except Exception as e:
+        # Clean up temp file on error
+        temp_path.unlink(missing_ok=True)
+        logger.error(f"Failed to save state file atomically: {e}")
+        raise
+
+
+# ========================================
+# niri IPC Integration
+# ========================================
+
+
+def get_niri_windows() -> list[dict[str, Any]]:
+    """Query niri for all windows."""
+    try:
+        result = subprocess.run(
+            ["niri", "msg", "--json", "windows"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(result.stdout)
+    except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError) as e:
+        logger.error(f"Failed to query niri windows: {e}")
+        return []
+
+
+def get_librewolf_windows() -> list[dict[str, Any]]:
+    """Get all LibreWolf windows from niri."""
+    all_windows = get_niri_windows()
+    return [
+        w
+        for w in all_windows
+        if w.get("app_id") in ("librewolf", "LibreWolf")
+    ]
+
+
+def move_window(window_id: int, workspace_id: int) -> bool:
+    """Move a window to a specific workspace."""
+    try:
+        subprocess.run(
+            [
+                "niri",
+                "msg",
+                "action",
+                "move-window-to-workspace",
+                "--window-id",
+                str(window_id),
+                str(workspace_id),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to move window {window_id} to workspace {workspace_id}: {e}")
+        return False
+
+
+# ========================================
+# Command Handlers
+# ========================================
+
+
+def handle_ping(request_id: str) -> None:
+    """Handle ping command."""
+    logger.info("Ping received")
+    send_success(request_id)
+
+
+def handle_store_mappings_batch(request_id: str, message: dict[str, Any]) -> None:
+    """Handle store_mappings_batch command - efficiently process multiple windows at once."""
+    windows_data = message.get("windows", [])
+    timestamp = message.get("timestamp", datetime.now().isoformat())
+
+    if not windows_data:
+        logger.warning("Received empty batch")
+        send_success(request_id, stored_count=0)
+        return
+
+    logger.info(f"Processing batch of {len(windows_data)} window(s)")
+
+    # Check if we're running under niri
+    if not os.environ.get("NIRI_SOCKET"):
+        logger.warning("Not running under niri - cannot determine workspaces")
+        send_error(request_id, "Not running under niri")
+        return
+
+    # Query niri once for all LibreWolf windows
+    niri_windows = get_librewolf_windows()
+    if not niri_windows:
+        logger.warning("No LibreWolf windows found in niri")
+        send_error(request_id, "No LibreWolf windows found in niri")
+        return
+
+    # Load current state
+    state = load_state()
+
+    # Process each browser window
+    matched_count = 0
+    new_mappings = []
+
+    for window_data in windows_data:
+        window_id = window_data.get("window_id")
+        fingerprint = window_data.get("fingerprint")
+        tabs = window_data.get("tabs", [])
+        tab_count = window_data.get("tab_count", len(tabs))
+        window_title = window_data.get("window_title", tabs[0]["title"] if tabs else "Unknown")
+
+        # Try to match by window title (sanitize both sides)
+        sanitized_browser_title = window_title.replace(" — LibreWolf", "").strip()
+        workspace_id = None
+
+        for niri_window in niri_windows:
+            niri_title = niri_window.get("title", "")
+            sanitized_niri_title = niri_title.replace(" — LibreWolf", "").strip()
+
+            # Check for substring match in either direction
+            if sanitized_browser_title in sanitized_niri_title or sanitized_niri_title in sanitized_browser_title:
+                workspace_id = niri_window.get("workspace_id")
+                logger.info(f"  Window {window_id}: '{sanitized_browser_title[:50]}...' -> workspace {workspace_id}")
+                matched_count += 1
+                break
+
+        if workspace_id is None:
+            logger.warning(f"  Window {window_id}: Could not match title '{window_title[:50]}...'")
+            continue
+
+        # Create new mapping
+        new_mapping = {
+            "window_id": window_id,
+            "workspace_id": workspace_id,
+            "fingerprint": fingerprint,
+            "window_title": window_title,
+            "tab_urls": tabs,
+            "tab_count": tab_count,
+            "timestamp": timestamp,
+        }
+
+        # Remove old mapping for same fingerprint if it exists
+        if fingerprint:
+            state["mappings"] = [
+                m for m in state["mappings"] if m.get("fingerprint") != fingerprint
+            ]
+
+        new_mappings.append(new_mapping)
+
+    # Add all new mappings
+    state["mappings"].extend(new_mappings)
+
+    # Save state once
+    save_state(state)
+
+    logger.info(f"Batch complete: {matched_count}/{len(windows_data)} windows matched and stored")
+    send_success(request_id, stored_count=matched_count, total_count=len(windows_data))
+
+
+def find_best_match_by_fingerprint(
+    current_fingerprint: str, saved_mappings: list[dict[str, Any]]
+) -> tuple[int, str] | None:
+    """
+    Find saved mapping by fingerprint match.
+    Returns: (index, "fingerprint") or None if no match
+    """
+    if not current_fingerprint or current_fingerprint == "null":
+        return None
+
+    for idx, mapping in enumerate(saved_mappings):
+        saved_fingerprint = mapping.get("fingerprint")
+        if saved_fingerprint and current_fingerprint == saved_fingerprint:
+            logger.debug(f"  [FINGERPRINT MATCH] Found exact match at index {idx}")
+            return (idx, "fingerprint")
+
+    return None
+
+
+def find_best_match_by_title(
+    current_title: str, saved_mappings: list[dict[str, Any]]
+) -> tuple[int, int] | None:
+    """
+    Find saved mapping by title similarity.
+    Returns: (index, similarity_score) or None if no good match (score < 50)
+    """
+    # Sanitize title (remove LibreWolf suffix)
+    sanitized_current = current_title.replace(" — LibreWolf", "").strip()
+
+    best_index = -1
+    best_score = 0
+
+    for idx, mapping in enumerate(saved_mappings):
+        saved_title = mapping.get("window_title", "")
+        sanitized_saved = saved_title.replace(" — LibreWolf", "").strip()
+
+        # Check for exact match
+        if sanitized_current == sanitized_saved:
+            return (idx, 100)
+
+        # Check for substring match (bidirectional)
+        if sanitized_current in sanitized_saved or sanitized_saved in sanitized_current:
+            # Boost score for substring match
+            score = 80
+            if score > best_score:
+                best_score = score
+                best_index = idx
+            continue
+
+        # Calculate prefix similarity
+        common_prefix = 0
+        for i in range(min(len(sanitized_current), len(sanitized_saved))):
+            if sanitized_current[i] == sanitized_saved[i]:
+                common_prefix += 1
+            else:
+                break
+
+        # Score based on common prefix
+        shorter = min(len(sanitized_current), len(sanitized_saved))
+        if shorter > 0:
+            score = (common_prefix * 100) // shorter
+            if score > best_score:
+                best_score = score
+                best_index = idx
+
+    # Require minimum score of 50
+    if best_score >= 50 and best_index >= 0:
+        return (best_index, best_score)
+
+    return None
+
+
+def handle_restore_workspaces(request_id: str, message: dict[str, Any]) -> None:
+    """Handle restore_workspaces command with fingerprint-based matching."""
+    logger.info("Restoring workspaces...")
+
+    # Check if we're running under niri
+    if not os.environ.get("NIRI_SOCKET"):
+        logger.warning("Not running under niri - cannot restore workspaces")
+        send_error(request_id, "Not running under niri")
+        return
+
+    # Get current windows from extension
+    current_windows = message.get("windows", [])
+    if not current_windows:
+        logger.warning("No windows provided by extension")
+        send_error(request_id, "No windows provided")
+        return
+
+    logger.info(f"Received {len(current_windows)} current window(s) from extension")
+
+    # Load saved mappings
+    state = load_state()
+    saved_mappings = state.get("mappings", [])
+
+    if not saved_mappings:
+        logger.warning("No saved mappings found")
+        send_success(request_id, moved_count=0, skipped_count=0, unmatched_count=len(current_windows))
+        return
+
+    logger.info(f"Loaded {len(saved_mappings)} saved mapping(s)")
+
+    # Query niri for current LibreWolf windows to get actual workspace IDs
+    niri_windows = get_librewolf_windows()
+    if not niri_windows:
+        logger.warning("No LibreWolf windows found in niri")
+        send_error(request_id, "No LibreWolf windows found in niri")
+        return
+
+    # Build a map: window_title -> niri window info
+    # (We need to match extension windows to niri windows)
+    niri_by_title = {}
+    for nw in niri_windows:
+        title = nw.get("title", "")
+        sanitized = title.replace(" — LibreWolf", "").strip()
+        niri_by_title[sanitized] = nw
+
+    # Track statistics
+    moved_count = 0
+    skipped_count = 0
+    unmatched_count = 0
+
+    # Process each current window
+    for window_data in current_windows:
+        browser_window_id = window_data.get("window_id")
+        fingerprint = window_data.get("fingerprint")
+        title = window_data.get("window_title", "Unknown")
+        sanitized_title = title.replace(" — LibreWolf", "").strip()
+
+        logger.info(f"Processing: Browser window {browser_window_id}")
+        logger.info(f"  Title: \"{sanitized_title[:60]}...\"")
+        logger.info(f"  Fingerprint: {fingerprint[:16] if fingerprint else 'None'}...")
+
+        # Match to niri window (by title)
+        niri_window = niri_by_title.get(sanitized_title)
+        if not niri_window:
+            logger.warning(f"  [SKIP] Could not find niri window for browser window")
+            unmatched_count += 1
+            continue
+
+        niri_window_id = niri_window.get("id")
+        current_workspace = niri_window.get("workspace_id")
+        logger.info(f"  Current workspace: {current_workspace}")
+
+        # Try fingerprint match first
+        match_result = find_best_match_by_fingerprint(fingerprint, saved_mappings)
+
+        # Fall back to title match
+        if match_result is None:
+            match_result = find_best_match_by_title(title, saved_mappings)
+
+        if match_result is None:
+            logger.warning(f"  [UNMATCHED] No saved mapping found")
+            unmatched_count += 1
+            continue
+
+        match_index, match_info = match_result
+        matched_mapping = saved_mappings[match_index]
+        saved_title = matched_mapping.get("window_title", "")
+        target_workspace = matched_mapping.get("workspace_id")
+
+        if isinstance(match_info, str) and match_info == "fingerprint":
+            logger.info(f"  [FINGERPRINT] Matched by fingerprint to: \"{saved_title[:40]}...\"")
+        else:
+            logger.info(f"  [TITLE] Matched by title (score: {match_info}) to: \"{saved_title[:40]}...\"")
+
+        logger.info(f"  Target workspace: {target_workspace}")
+
+        # Check if move is needed
+        if current_workspace == target_workspace:
+            logger.info(f"  [SKIP] Already on correct workspace")
+            skipped_count += 1
+        else:
+            logger.info(f"  [MOVING] workspace {current_workspace} → {target_workspace}")
+            if move_window(niri_window_id, target_workspace):
+                logger.info(f"  [SUCCESS] Moved to workspace {target_workspace}")
+                moved_count += 1
+            else:
+                logger.error(f"  [ERROR] Failed to move window")
+
+    logger.info(f"Restoration complete: moved={moved_count}, skipped={skipped_count}, unmatched={unmatched_count}")
+    send_success(
+        request_id,
+        moved_count=moved_count,
+        skipped_count=skipped_count,
+        unmatched_count=unmatched_count,
+    )
+
+
+# ========================================
+# Main Message Loop
+# ========================================
+
+
+def main() -> None:
+    """Main message processing loop."""
+    logger.info("Native messaging host started")
+
+    while True:
+        # Read message from stdin
+        message = read_message()
+        if message is None:
+            logger.info("Connection closed or read error")
+            break
+
+        # Log message (truncated)
+        message_str = json.dumps(message)
+        logger.info(f"Received message: {message_str[:200]}...")
+
+        # Parse message
+        action = message.get("action", "unknown")
+        request_id = message.get("request_id", "")
+
+        # Dispatch to handler
+        try:
+            if action == "ping":
+                handle_ping(request_id)
+            elif action == "store_mappings_batch":
+                handle_store_mappings_batch(request_id, message)
+            elif action == "restore_workspaces":
+                handle_restore_workspaces(request_id, message)
+            else:
+                logger.error(f"Unknown action: {action}")
+                send_error(request_id, f"Unknown action: {action}")
+
+        except Exception as e:
+            logger.exception(f"Error handling {action}: {e}")
+            send_error(request_id, f"Internal error: {e}")
+
+    logger.info("Native messaging host exiting")
+
+
+if __name__ == "__main__":
+    main()
