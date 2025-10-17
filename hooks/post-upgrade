@@ -18,6 +18,5 @@ if command -v tmux >/dev/null 2>&1; then
     "$HOME/.tmux/plugins/tpm/bin/install_plugins" || echo "Failed to connect to tmux"
 fi
 
-"$WLR_ENV_PATH/bin/meta/wlr-build-rust-utils"
-
+# Rebuild Nix environment (includes niri-spacer and other Rust utilities)
 "$WLR_ENV_PATH/bin/meta/wlr-nix-rebuild"

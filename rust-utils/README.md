@@ -20,18 +20,29 @@ rust-utils/
 
 ## Building
 
-### Automatic build on updates
-All utilities are automatically built when running:
-- `wlr-check-update` (via `hooks/post-upgrade`)
-- `wlr-build-rust-utils` (directly)
+### Deployment (Nix)
+All utilities are built and installed via Nix derivations defined in `machines/pkgs/`:
+- Automatically built when running `wlr-check-update` (via `hooks/post-upgrade` → `wlr-nix-rebuild`)
+- Binaries installed to `~/.nix-profile/bin/` (takes precedence in PATH)
+- System dependencies (Wayland libraries, etc.) are automatically provided
 
-Binaries are installed to `~/.local/bin/`.
+### Development
+For local development and testing:
+```bash
+cd rust-utils/niri-spacer
+cargo build
+cargo test
+cargo run -- --help
+```
 
-### Manual build
-Each utility can be built independently:
+Standard Rust tooling works as expected. Changes won't be deployed until you run `wlr-nix-rebuild`.
+
+### Manual installation (without Nix)
+Each utility can be built independently with cargo:
 ```bash
 cargo install --path rust-utils/niri-spacer --root ~/.local
 ```
+Note: System dependencies must be manually installed (see each utility's README).
 
 ### Updating dependencies
 Run `wlr-update-locks` to update all `Cargo.lock` files.

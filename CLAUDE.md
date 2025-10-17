@@ -43,19 +43,21 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
 - `dotfiles/`: Configuration files to be symlinked to home directory
 - `patches/`: Host and OS-specific patches for dotfiles
 - `rust-utils/`: Standalone Rust utilities (see rust-utils/README.md for details)
-  - Built with `wlr-build-rust-utils` or `cargo install --path rust-utils/<tool> --root ~/.local`
-  - Binaries are installed to `~/.local/bin/` (e.g., `niri-spacer` → `~/.local/bin/niri-spacer`)
-  - Automatically built on `wlr-check-update` via `hooks/post-upgrade`
+  - Built via Nix derivations in `machines/pkgs/`
+  - Binaries installed to `~/.nix-profile/bin/` (e.g., `niri-spacer` → `~/.nix-profile/bin/niri-spacer`)
+  - Automatically built on `wlr-check-update` via `hooks/post-upgrade` → `wlr-nix-rebuild`
+  - For development: use standard `cargo build` in the utility's directory
 
 ## Nix Integration
 This repository uses Nix Flakes with home-manager for declarative package and environment management:
 - **Flake configuration**: `flake.nix` defines home-manager configurations for different hosts
 - **Package declarations**: `machines/common.nix` declares common packages across all systems
+- **Custom packages**: `machines/pkgs/` contains Nix derivations for local packages (e.g., Rust utilities)
 - **Platform-specific configs**: `machines/linux.nix` and `machines/darwin.nix` for OS-specific settings
 - **Host-specific overrides**: `machines/hosts/{hostname}.nix` for machine-specific customizations
 - **Apply changes**: `wlr-nix-rebuild` to rebuild home-manager environment
 - **Update dependencies**: `wlr-update-locks` updates flake.lock (and other lockfiles)
-- **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash
+- **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash (takes precedence over `~/.local/bin`)
 - **Special integrations**: Uses krew2nix for declarative kubectl plugin management
 
 ## Environment Integration
