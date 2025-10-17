@@ -558,6 +558,19 @@ impl NiriSpacer {
         Ok(())
     }
 
+    /// Get the currently focused workspace index
+    async fn get_focused_workspace_idx(&mut self) -> Result<Option<u8>> {
+        let workspaces = self.workspace_manager.get_workspaces().await?;
+        Ok(workspaces.iter().find(|w| w.is_focused).map(|w| w.idx))
+    }
+
+    /// Restore focus to a specific workspace index
+    async fn restore_workspace_focus(&mut self, workspace_idx: u8) -> Result<()> {
+        let mut niri_client = NiriClient::connect().await?;
+        niri_client.focus_workspace_index(workspace_idx).await?;
+        Ok(())
+    }
+
     /// Clean up all active spacer windows and resources
     pub async fn cleanup(&mut self) -> Result<()> {
         tracing::info!(
@@ -588,6 +601,13 @@ impl NiriSpacer {
             "Creating batch of {} spacer windows starting from workspace index {} (persistent mode)",
             window_count,
             starting_workspace_idx
+        );
+
+        // Save the currently focused workspace to restore it later
+        let original_focused_workspace = self.get_focused_workspace_idx().await?;
+        tracing::debug!(
+            "Saved original focused workspace: {:?}",
+            original_focused_workspace
         );
 
         let mut spacers = Vec::with_capacity(window_count as usize);
@@ -626,6 +646,18 @@ impl NiriSpacer {
                     );
                     return Err(e);
                 },
+            }
+        }
+
+        // Restore the original focused workspace
+        if let Some(original_idx) = original_focused_workspace {
+            tracing::debug!("Restoring focus to original workspace {}", original_idx);
+            if let Err(e) = self.restore_workspace_focus(original_idx).await {
+                tracing::warn!(
+                    "Failed to restore focus to original workspace {}: {}",
+                    original_idx,
+                    e
+                );
             }
         }
 
