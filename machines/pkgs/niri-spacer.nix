@@ -1,4 +1,5 @@
-{ lib, rustPlatform, pkg-config, libxkbcommon, wayland, wayland-protocols }:
+{ lib, rustPlatform, pkg-config, libxkbcommon, wayland, wayland-protocols
+, makeWrapper }:
 
 rustPlatform.buildRustPackage rec {
   pname = "niri-spacer";
@@ -8,9 +9,15 @@ rustPlatform.buildRustPackage rec {
 
   cargoLock = { lockFile = ../../rust-utils/niri-spacer/Cargo.lock; };
 
-  nativeBuildInputs = [ pkg-config ];
+  nativeBuildInputs = [ pkg-config makeWrapper ];
 
   buildInputs = [ libxkbcommon wayland wayland-protocols ];
+
+  # Wayland applications need to find libwayland-client.so at runtime
+  postInstall = ''
+    wrapProgram $out/bin/niri-spacer \
+      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ wayland ]}"
+  '';
 
   meta = with lib; {
     description =
