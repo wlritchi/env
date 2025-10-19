@@ -424,4 +424,5 @@ unset print_status
 unset try_source
 unset ensurepath
 unset wlr_detect_ssh
+unset wlr_detect_named_term
 unset wlr_suspect_tty
