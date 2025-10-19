@@ -25,6 +25,7 @@ in {
     browserpass
     coreutils-full
     docker
+    docker-buildx
     openssh
     pinentry_mac
     procps # for the watch command
@@ -32,4 +33,8 @@ in {
     pinDevspace.devspace
     pinOllama.ollama
   ];
+
+  home.file.".docker/cli-plugins/docker-buildx" = {
+    source = "${pkgs.docker-buildx}/libexec/docker/cli-plugins/docker-buildx";
+  };
 }
