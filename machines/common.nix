@@ -13,6 +13,7 @@
     gopls
     jq
     k9s
+    mold
     moreutils
     neovim
     nixfmt
@@ -21,6 +22,7 @@
     rclone
     ripgrep
     rustup
+    sccache
     stylua
     tmux
     watchexec
@@ -35,6 +37,14 @@
 
   nix = {
     package = pkgs.nix;
-    settings.experimental-features = [ "nix-command" "flakes" ];
+    settings = {
+      experimental-features = [ "nix-command" "flakes" ];
+      # Optimize build parallelism
+      # cores = 0 means use all available cores for each build job
+      cores = 0;
+      # max-jobs = auto scales with available CPU cores
+      # Set to a reasonable number to avoid overwhelming the system
+      max-jobs = "auto";
+    };
   };
 }

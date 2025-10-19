@@ -1,5 +1,5 @@
 { lib, rustPlatform, pkg-config, libxkbcommon, wayland, wayland-protocols
-, makeWrapper }:
+, makeWrapper, sccache }:
 
 rustPlatform.buildRustPackage rec {
   pname = "niri-spacer";
@@ -12,6 +12,9 @@ rustPlatform.buildRustPackage rec {
   nativeBuildInputs = [ pkg-config makeWrapper ];
 
   buildInputs = [ libxkbcommon wayland wayland-protocols ];
+
+  # Enable sccache for faster incremental builds
+  RUSTC_WRAPPER = "${sccache}/bin/sccache";
 
   # Wayland applications need to find libwayland-client.so at runtime
   postInstall = ''
