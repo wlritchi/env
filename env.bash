@@ -398,6 +398,7 @@ if [ -z "$INTELLIJ_ENVIRONMENT_READER" ] && [ -z "$VSCODE_RESOLVING_ENVIRONMENT"
     }
 else
     __cd() {
+        [ $# -gt 0 ] && builtin cd "$@"
         [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
     }
 fi
