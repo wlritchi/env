@@ -1,5 +1,5 @@
 { lib, rustPlatform, pkg-config, libxkbcommon, wayland, wayland-protocols
-, makeWrapper, sccache }:
+, makeWrapper, sccache, mold, clang }:
 
 rustPlatform.buildRustPackage rec {
   pname = "niri-spacer";
@@ -9,7 +9,7 @@ rustPlatform.buildRustPackage rec {
 
   cargoLock = { lockFile = ../../rust-utils/niri-spacer/Cargo.lock; };
 
-  nativeBuildInputs = [ pkg-config makeWrapper ];
+  nativeBuildInputs = [ pkg-config makeWrapper clang mold ];
 
   buildInputs = [ libxkbcommon wayland wayland-protocols ];
 
