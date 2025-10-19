@@ -233,6 +233,29 @@ impl NativeWindowManager {
             window_id, workspace_idx
         );
 
+        // Check if window is already in leftmost position to avoid unnecessary focusing
+        match self.verify_window_in_column_1(window_id).await {
+            Ok(true) => {
+                debug!(
+                    "Window {} is already in leftmost position, skipping focus and repositioning",
+                    window_id
+                );
+                return Ok(());
+            },
+            Ok(false) => {
+                debug!(
+                    "Window {} is not in leftmost position, proceeding with repositioning",
+                    window_id
+                );
+            },
+            Err(e) => {
+                debug!(
+                    "Could not verify position for window {} ({}), proceeding with repositioning",
+                    window_id, e
+                );
+            },
+        }
+
         // Focus the target workspace by index
         self.niri_client
             .focus_workspace_index(workspace_idx)
