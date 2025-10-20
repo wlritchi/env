@@ -16,6 +16,9 @@ rustPlatform.buildRustPackage rec {
   # Enable sccache for faster incremental builds
   RUSTC_WRAPPER = "${sccache}/bin/sccache";
 
+  # Skip integration tests that use 'cargo run' - they don't work in Nix sandbox
+  checkFlags = [ "--skip=test_cli_help_flag" "--skip=test_cli_version_flag" ];
+
   # Wayland applications need to find libwayland-client.so at runtime
   postInstall = ''
     wrapProgram $out/bin/niri-spacer \
