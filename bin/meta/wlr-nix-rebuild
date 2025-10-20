@@ -36,13 +36,21 @@ get_short_hostname() {
     return 1
 }
 
+# Check if a config exists in the flake
+config_exists() {
+    local config="$1"
+    nix eval --json ".#homeConfigurations" --apply 'x: builtins.attrNames x' 2>/dev/null | grep -q "\"${config}\""
+}
+
 # Try user@hostname first, fallback to just username
 if SHORT_HOSTNAME=$(get_short_hostname); then
     CONFIG="${USER}@${SHORT_HOSTNAME}"
-    if "${home_manager[@]}" switch --flake ".#${CONFIG}"; then
+    if config_exists "${CONFIG}"; then
+        "${home_manager[@]}" switch --flake ".#${CONFIG}"
         exit 0
+    else
+        wlr-warn "Config for ${CONFIG} not found, falling back to ${USER}"
     fi
-    wlr-warn "Config for ${CONFIG} not found, falling back to ${USER}"
 fi
 
 "${home_manager[@]}" switch --flake ".#${USER}"
