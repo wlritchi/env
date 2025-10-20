@@ -8,7 +8,7 @@ in {
   imports = [ ./common.nix ./systemd-services.nix ./librewolf-extension.nix ]
     ++ hostImports;
 
-  home.packages = [ niri-spacer ];
+  home.packages = (with pkgs; [ mold ]) ++ [ niri-spacer ];
 
   home.username = "wlritchi";
   home.homeDirectory = "/home/wlritchi";

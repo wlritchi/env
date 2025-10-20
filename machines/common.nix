@@ -13,7 +13,6 @@
     gopls
     jq
     k9s
-    mold
     moreutils
     neovim
     nixfmt
