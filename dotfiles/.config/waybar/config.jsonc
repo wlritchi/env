@@ -13,6 +13,9 @@
     ],
     "modules-right": [
         "tray",
+        "custom/claude-usage",
+        "custom/left-arrow-light",
+        "custom/left-arrow-dark",
         "mpd",
         "pulseaudio",
         "backlight",
@@ -50,6 +53,12 @@
     "custom/right-arrow-light": {
         "format": "",
         "tooltip": false,
+    },
+    "custom/claude-usage": {
+        "format": "{} ",
+        "return-type": "json",
+        "interval": 30,
+        "exec": "$HOME/.config/waybar/ccusage.sh",
     },
     "custom/weather": {
         "format": "{}°",

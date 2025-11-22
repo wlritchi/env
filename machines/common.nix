@@ -3,6 +3,7 @@
 {
   home.packages = (with pkgs; [
     bat
+    bun
     delta
     eza
     fnm
