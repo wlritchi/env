@@ -1,0 +1,6 @@
+[include]
+	path = ~/.wlrenv/config/git/common
+	path = ~/.wlrenv/config/git/hosts/HOSTNAME
+
+[user]
+	signingKey = YOUR_SIGNING_KEY_HERE

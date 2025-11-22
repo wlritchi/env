@@ -1,0 +1,90 @@
+[user]
+	name = Luc Ritchie
+	email = luc.ritchie@gmail.com
+
+[alias]
+	rgrep = !git grep
+
+[core]
+	pager = less -R
+	attributesfile = ~/.gitattributes
+	untrackedcache = true
+	fsmonitor = true
+
+[core "whitespace"]
+	tab-in-indent = true
+	tabwidth = 2
+
+[color]
+	ui = auto
+
+[color "grep"]
+	context = normal
+	filename = green
+	linenumber = red
+	match = yellow bold
+	selected = normal
+	separator = cyan
+
+[push]
+	default = current
+
+[gitreview]
+	username = wlritchi
+
+[diff]
+	compactionHeuristic = true
+	algorithm = histogram
+
+[merge]
+	renamelimit = 5000
+
+[difftool]
+	prompt = false
+
+[mergetool]
+	prompt = false
+
+[init]
+	defaultBranch = main
+
+[feature]
+	manyFiles = true
+
+[commit]
+	gpgsign = true
+
+[filter "lfs"]
+	required = true
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+
+[lfs]
+	forceprogress = true
+
+[credential "https://github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+
+[gpg]
+	format = ssh
+
+[gpg "ssh"]
+	allowedSignersFile = ~/.wlrenv/.allowed_signers
+
+[credential "https://git.wlritchi.com"]
+	helper = store
+
+[fetch]
+	writeCommitGraph = true
+
+[include]
+	path = ~/.wlrenv/vendor/catppuccin-delta/catppuccin.gitconfig
+
+[delta]
+	features = catppuccin-macchiato

@@ -4,6 +4,14 @@ set -euo pipefail
 # sync dotfiles
 "$WLR_ENV_PATH/bin/meta/wlr-sync-dotfiles"
 
+# check gitconfig setup
+if [ ! -f ~/.gitconfig ]; then
+    cp "$WLR_ENV_PATH/config/git/local.template" ~/.gitconfig
+    wlr-warn "Created ~/.gitconfig from template - edit HOSTNAME and user.signingKey"
+elif ! grep -q 'path.*\.wlrenv/config/git/common' ~/.gitconfig; then
+    wlr-warn "~/.gitconfig missing include for common gitconfig - see config/git/local.template"
+fi
+
 # set up git config for env
 git -C "$WLR_ENV_PATH" config --local gpg.ssh.allowedSignersFile "$WLR_ENV_PATH/.allowed_signers"
 
