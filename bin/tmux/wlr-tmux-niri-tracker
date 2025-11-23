@@ -20,9 +20,20 @@ if [ -z "${NIRI_SOCKET:-}" ]; then
     exit 1
 fi
 
-# Get all Alacritty windows with their PIDs and workspace IDs
-niri msg --json windows | jq -r '.[] | select(.app_id == "Alacritty") | "\(.pid)\t\(.workspace_id)"' | \
-while IFS=$'\t' read -r alacritty_pid workspace_id; do
+# Build output width map: output_name -> logical_width
+declare -A output_widths
+while IFS=$'\t' read -r output_name width; do
+    output_widths["$output_name"]="$width"
+done < <(niri msg --json outputs | jq -r '.[] | "\(.name)\t\(.logical.width)"')
+
+# Build workspace to output map: workspace_id -> output_name
+declare -A workspace_outputs
+while IFS=$'\t' read -r ws_id output_name; do
+    workspace_outputs["$ws_id"]="$output_name"
+done < <(niri msg --json workspaces | jq -r '.[] | "\(.id)\t\(.output)"')
+
+# Get all Alacritty windows with their PIDs, workspace IDs, and tile widths
+while IFS=$'\t' read -r alacritty_pid workspace_id tile_width; do
     # Find child processes of this alacritty
     children=$(pgrep -P "$alacritty_pid" 2>/dev/null || true)
 
@@ -38,11 +49,22 @@ while IFS=$'\t' read -r alacritty_pid workspace_id; do
             if [[ "$args" =~ -t[[:space:]]+([^[:space:]]+) ]]; then
                 session="${BASH_REMATCH[1]}"
 
-                # Set the workspace option for this session
+                # Set the workspace and width options for this session
                 if tmux has-session -t "$session" 2>/dev/null; then
                     tmux set-option -t "$session" @niri-workspace "$workspace_id" 2>/dev/null || true
+
+                    # Calculate width percentage
+                    output_name="${workspace_outputs[$workspace_id]:-}"
+                    if [ -n "$output_name" ]; then
+                        monitor_width="${output_widths[$output_name]:-}"
+                        if [ -n "$monitor_width" ] && [ "$monitor_width" -gt 0 ]; then
+                            # Calculate percentage and round to nearest 10%
+                            width_percent=$(awk -v tw="$tile_width" -v mw="$monitor_width" 'BEGIN { printf "%.0f", int((tw / mw * 100 + 5) / 10) * 10 }')
+                            tmux set-option -t "$session" @niri-width "$width_percent" 2>/dev/null || true
+                        fi
+                    fi
                 fi
             fi
         fi
     done
-done
+done < <(niri msg --json windows | jq -r '.[] | select(.app_id == "Alacritty") | "\(.pid)\t\(.workspace_id)\t\(.layout.tile_size[0])"')

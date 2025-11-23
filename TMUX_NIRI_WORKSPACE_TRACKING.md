@@ -1,34 +1,38 @@
-# tmux-niri Workspace Tracking Solution
+# tmux-niri Workspace and Width Tracking Solution
 
 ## Overview
 
-This solution tracks which niri workspace each tmux session's terminal appears on, persists this information across tmux restarts, and restores sessions to their original workspaces on reboot.
+This solution tracks which niri workspace each tmux session's terminal appears on, as well as the window width (as a percentage of screen width), persists this information across tmux restarts, and restores sessions to their original workspaces and widths on reboot.
 
 ## Architecture
 
 The solution consists of **4 components**:
 
-1. **Workspace Tracker** - Monitors and records session-to-workspace mappings
-2. **tmux-resurrect Integration** - Persists workspace data across restarts
-3. **Restore Script** - Spawns sessions on correct workspaces
-4. **niri IPC Helper** - Utility for workspace operations
+1. **Workspace/Width Tracker** - Monitors and records session-to-workspace and session-to-width mappings
+2. **tmux-resurrect Integration** - Persists workspace and width data across restarts
+3. **Restore Script** - Spawns sessions on correct workspaces with correct widths
+4. **niri IPC Helper** - Utility for configuring windows (workspace, width, etc.)
 
 ---
 
-## Component 1: Workspace Tracker
+## Component 1: Workspace/Width Tracker
 
 **File:** `bin/tmux/wlr-tmux-niri-tracker`
 
-**Purpose:** Periodically map tmux sessions to niri workspaces and store in tmux user options
+**Purpose:** Periodically map tmux sessions to niri workspaces and window widths, store in tmux user options
 
 **Algorithm:**
-1. Query niri for all Alacritty windows: `niri msg --json windows`
-2. For each Alacritty window:
-   - Get: `window.pid → window.workspace_id`
+1. Query niri for output dimensions: `niri msg --json outputs`
+2. Query niri for workspace-to-output mapping: `niri msg --json workspaces`
+3. Query niri for all Alacritty windows: `niri msg --json windows`
+4. For each Alacritty window:
+   - Get: `window.pid → window.workspace_id`, `window.layout.tile_size[0]`
    - Find child tmux client: `pgrep -P <alacritty_pid>`
    - Extract tmux session from client cmdline: `ps -o args`
+   - Calculate width percentage: `tile_width / monitor_width * 100`, rounded to nearest 10%
    - Set: `tmux set-option -t <session> @niri-workspace <workspace_id>`
-3. Sleep and repeat (or run via systemd timer)
+   - Set: `tmux set-option -t <session> @niri-width <width_percent>`
+5. Sleep and repeat (or run via systemd timer)
 
 **Key Challenge:** Linking alacritty PID → tmux session
 - Alacritty spawns as: `alacritty -e tmux attach-session -t <session>`
@@ -48,7 +52,7 @@ The solution consists of **4 components**:
 
 **File:** `bin/tmux/wlr-tmux-resurrect-save-workspaces`
 
-**Purpose:** Append workspace mappings to resurrect save file
+**Purpose:** Append workspace and width mappings to resurrect save file
 
 **Configuration:** Add to `.tmux.conf`:
 ```bash
@@ -60,11 +64,15 @@ set -g @resurrect-hook-post-save-layout 'wlr-tmux-resurrect-save-workspaces'
 #!/bin/bash
 SAVE_FILE="$1"  # Passed by resurrect hook
 
-# Append custom lines for each session with workspace data
+# Append custom lines for each session with workspace and width data
 tmux list-sessions -F '#{session_name}' | while read session; do
     workspace=$(tmux show-options -t "$session" -v @niri-workspace 2>/dev/null)
+    width=$(tmux show-options -t "$session" -v @niri-width 2>/dev/null)
     if [ -n "$workspace" ]; then
         echo "niri_workspace${TAB}${session}${TAB}${workspace}" >> "$SAVE_FILE"
+    fi
+    if [ -n "$width" ]; then
+        echo "niri_width${TAB}${session}${TAB}${width}" >> "$SAVE_FILE"
     fi
 done
 ```
@@ -73,7 +81,7 @@ done
 
 **File:** `bin/tmux/wlr-tmux-resurrect-restore-workspaces`
 
-**Purpose:** Restore @niri-workspace options from save file
+**Purpose:** Restore @niri-workspace and @niri-width options from save file
 
 **Configuration:** Add to `.tmux.conf`:
 ```bash
@@ -90,6 +98,11 @@ SAVE_FILE="$HOME/.local/share/tmux/resurrect/last"
 grep "^niri_workspace" "$SAVE_FILE" | while IFS=$'\t' read _ session workspace; do
     tmux set-option -t "$session" @niri-workspace "$workspace" 2>/dev/null || true
 done
+
+# Read and restore width options
+grep "^niri_width" "$SAVE_FILE" | while IFS=$'\t' read _ session width; do
+    tmux set-option -t "$session" @niri-width "$width" 2>/dev/null || true
+done
 ```
 
 ---
@@ -98,7 +111,7 @@ done
 
 **File:** `bin/tmux/wlr-open-tmux-sessions` (modified)
 
-**Purpose:** Open detached sessions on their original workspaces
+**Purpose:** Open detached sessions on their original workspaces with original widths
 
 **Enhanced Algorithm:**
 ```bash
@@ -108,26 +121,37 @@ set -euo pipefail
 term="${TERMINAL:-alacritty}"
 readarray -t detached_sessions < <( tmux list-sessions -F '#{session_name}' -f '#{?#{session_attached},0,1}' )
 
-# Helper function to spawn on workspace
-spawn_on_workspace() {
+# Helper function to spawn and configure window
+spawn_and_configure() {
     local session="$1"
     local workspace="$2"
+    local width="$3"
 
     # Spawn terminal
     "$term" -e tmux attach-session -t "$session" &
     local alacritty_pid=$!
 
-    # Wait for window to appear and move if needed
-    if [ -n "$workspace" ] && [ "$workspace" != "1" ]; then
-        wlr-niri-move-window-to-workspace "$alacritty_pid" "$workspace"
+    # Build arguments for configure script
+    local args=()
+    if [ -n "$workspace" ]; then
+        args+=(--workspace "$workspace")
+    fi
+    if [ -n "$width" ]; then
+        args+=(--width "$width")
+    fi
+
+    # Configure window if we have any options to set
+    if [ ${#args[@]} -gt 0 ]; then
+        wlr-niri-configure-window "$alacritty_pid" "${args[@]}" 2>/dev/null || true
     fi
 }
 
 for session in "${detached_sessions[@]}"; do
     if ! echo "$session" | grep -Eq '^[0-9a-f]{7}$'; then
-        # Get saved workspace
-        workspace=$(tmux show-options -t "$session" -v @niri-workspace 2>/dev/null || echo "1")
-        spawn_on_workspace "$session" "$workspace"
+        # Get saved workspace and width
+        workspace=$(tmux show-options -t "$session" -v @niri-workspace 2>/dev/null || true)
+        width=$(tmux show-options -t "$session" -v @niri-width 2>/dev/null || true)
+        spawn_and_configure "$session" "$workspace" "$width"
     fi
 done
 ```
@@ -136,9 +160,16 @@ done
 
 ## Component 4: niri IPC Helper
 
-**File:** `bin/wayland/wlr-niri-move-window-to-workspace`
+**File:** `bin/wayland/wlr-niri-configure-window`
 
-**Purpose:** Wait for window to spawn and move it to target workspace
+**Purpose:** Wait for window to spawn and configure it (workspace, width, etc.)
+
+**Usage:**
+```bash
+wlr-niri-configure-window <pid> [--workspace <id>] [--width <percent>]
+```
+
+All options are optional; only PID is required. The script exits early if no options are provided.
 
 **Algorithm:**
 ```bash
@@ -146,7 +177,7 @@ done
 set -euo pipefail
 
 pid="$1"
-target_workspace="$2"
+# Parse --workspace and --width options
 timeout=5
 
 # Wait for window with this PID to appear
@@ -159,16 +190,22 @@ while true; do
 
     window_id=$(niri msg --json windows | jq -r ".[] | select(.pid == $pid) | .id")
     if [ -n "$window_id" ]; then
-        # Move to target workspace
-        niri msg action move-window-to-workspace --window-id "$window_id" "$target_workspace"
         break
     fi
 
     sleep 0.1
 done
-```
 
-**Note:** Need to verify exact `niri msg action` syntax for moving windows.
+# Apply workspace if specified
+if [ -n "$workspace" ]; then
+    niri msg action move-window-to-workspace --window-id "$window_id" --focus false "$workspace"
+fi
+
+# Apply width if specified
+if [ -n "$width" ]; then
+    niri msg action set-window-width --id "$window_id" "${width}%"
+fi
+```
 
 ---
 
@@ -178,7 +215,7 @@ done
    - `bin/tmux/wlr-tmux-niri-tracker`
    - `bin/tmux/wlr-tmux-resurrect-save-workspaces`
    - `bin/tmux/wlr-tmux-resurrect-restore-workspaces`
-   - `bin/wayland/wlr-niri-move-window-to-workspace`
+   - `bin/wayland/wlr-niri-configure-window`
 
 2. **Update `.tmux.conf`** with resurrect hooks:
    ```bash
@@ -215,12 +252,13 @@ done
 
    # Verify options set
    tmux show-options -t <session> @niri-workspace
+   tmux show-options -t <session> @niri-width
 
    # Force resurrect save
    tmux run-shell ~/.tmux/plugins/tmux-resurrect/scripts/save.sh
 
-   # Check workspace lines in save file
-   grep niri_workspace ~/.local/share/tmux/resurrect/last
+   # Check workspace and width lines in save file
+   grep -E 'niri_(workspace|width)' ~/.local/share/tmux/resurrect/last
 
    # Kill and restore tmux
    tmux kill-server
@@ -251,11 +289,12 @@ Run as background systemd service.
 
 ## Key Design Decisions
 
-1. **Storage:** tmux user options (@niri-workspace) - ephemeral but restored by hooks
-2. **Persistence:** Custom line type in resurrect save file
+1. **Storage:** tmux user options (@niri-workspace, @niri-width) - ephemeral but restored by hooks
+2. **Persistence:** Custom line types in resurrect save file (niri_workspace, niri_width)
 3. **Tracking:** PID-based linking (alacritty → tmux client → session)
-4. **Restoration:** niri IPC to spawn and move windows
+4. **Restoration:** niri IPC to spawn windows, move to workspace, and set width
 5. **Timing:** Tracker runs periodically or on events; restore after continuum finishes
+6. **Width Precision:** Rounded to nearest 10% of screen width for consistency
 
 ---
 
@@ -278,8 +317,9 @@ Tab-delimited format with line types:
 - `window\t<session>\t...`
 - `state\t<client_session>`
 
-Custom line type for this solution:
+Custom line types for this solution:
 - `niri_workspace\t<session>\t<workspace_id>`
+- `niri_width\t<session>\t<width_percent>`
 
 ### Process Relationships
 

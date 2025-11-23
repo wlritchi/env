@@ -22,3 +22,9 @@ while IFS=$'\t' read -r _ session workspace; do
     # Sessions should exist now, but still fail gracefully
     tmux set-option -t "$session" @niri-workspace "$workspace" 2>/dev/null || true
 done
+
+# Read width data and restore to session options
+grep "^niri_width" "$save_file" 2>/dev/null | \
+while IFS=$'\t' read -r _ session width; do
+    tmux set-option -t "$session" @niri-width "$width" 2>/dev/null || true
+done

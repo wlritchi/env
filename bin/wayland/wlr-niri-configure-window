@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Wait for a window with a specific PID to appear in niri,
+# then configure it with the specified options
+
+usage() {
+    echo "Usage: $0 <pid> [--workspace <id>] [--width <percent>]" >&2
+    echo "" >&2
+    echo "Options:" >&2
+    echo "  --workspace <id>     Move window to specified workspace" >&2
+    echo "  --width <percent>    Set window width (e.g., 50 for 50%)" >&2
+    exit 1
+}
+
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+pid="$1"
+shift
+
+workspace=""
+width=""
+
+# Parse options
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --workspace)
+            if [ $# -lt 2 ]; then
+                echo "Error: --workspace requires a value" >&2
+                usage
+            fi
+            workspace="$2"
+            shift 2
+            ;;
+        --width)
+            if [ $# -lt 2 ]; then
+                echo "Error: --width requires a value" >&2
+                usage
+            fi
+            width="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+    esac
+done
+
+# Exit early if nothing to do
+if [ -z "$workspace" ] && [ -z "$width" ]; then
+    exit 0
+fi
+
+timeout=5
+
+if ! command -v niri >/dev/null 2>&1; then
+    echo "niri not found" >&2
+    exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "jq not found" >&2
+    exit 1
+fi
+
+if [ -z "${NIRI_SOCKET:-}" ]; then
+    echo "NIRI_SOCKET not set" >&2
+    exit 1
+fi
+
+# Wait for window with this PID to appear
+start_time=$(date +%s)
+window_id=""
+
+while true; do
+    if [ $(($(date +%s) - start_time)) -gt $timeout ]; then
+        echo "Timeout waiting for window with PID $pid" >&2
+        exit 1
+    fi
+
+    # Query for window with matching PID
+    window_id=$(niri msg --json windows | jq -r ".[] | select(.pid == $pid) | .id" | head -1)
+
+    if [ -n "$window_id" ]; then
+        break
+    fi
+
+    sleep 0.1
+done
+
+# Apply workspace if specified
+if [ -n "$workspace" ]; then
+    niri msg action move-window-to-workspace --window-id "$window_id" --focus false "$workspace"
+fi
+
+# Apply width if specified
+if [ -n "$width" ]; then
+    niri msg action set-window-width --id "$window_id" "${width}%"
+fi

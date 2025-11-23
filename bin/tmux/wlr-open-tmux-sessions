@@ -9,20 +9,29 @@ if ! command -v "$term" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Helper function to spawn session on specific workspace
-spawn_on_workspace() {
+# Helper function to spawn session and configure window
+spawn_and_configure() {
     local session="$1"
     local workspace="$2"
+    local width="$3"
 
     # Spawn terminal
     "$term" -e tmux attach-session -t "$session" &
     local alacritty_pid=$!
 
-    # If workspace is specified and not default, move window to target workspace
-    if [ -n "$workspace" ] && [ "$workspace" != "1" ]; then
-        # Only try to move if niri helper is available
-        if command -v wlr-niri-move-window-to-workspace >/dev/null 2>&1; then
-            wlr-niri-move-window-to-workspace "$alacritty_pid" "$workspace" 2>/dev/null || true
+    # Build arguments for configure script
+    local args=()
+    if [ -n "$workspace" ]; then
+        args+=(--workspace "$workspace")
+    fi
+    if [ -n "$width" ]; then
+        args+=(--width "$width")
+    fi
+
+    # Configure window if we have any options to set
+    if [ ${#args[@]} -gt 0 ]; then
+        if command -v wlr-niri-configure-window >/dev/null 2>&1; then
+            wlr-niri-configure-window "$alacritty_pid" "${args[@]}" 2>/dev/null || true
         fi
     fi
 }
@@ -30,8 +39,9 @@ spawn_on_workspace() {
 for session in "${detached_sessions[@]}"; do
     # Skip temporary sessions (git commit hashes)
     if ! echo "$session" | grep -Eq '^[0-9a-f]{7}$'; then
-        # Get saved workspace (default to 1 if not set)
-        workspace=$(tmux show-options -t "$session" -v @niri-workspace 2>/dev/null || echo "1")
-        spawn_on_workspace "$session" "$workspace"
+        # Get saved workspace and width
+        workspace=$(tmux show-options -t "$session" -v @niri-workspace 2>/dev/null || true)
+        width=$(tmux show-options -t "$session" -v @niri-width 2>/dev/null || true)
+        spawn_and_configure "$session" "$workspace" "$width"
     fi
 done
