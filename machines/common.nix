@@ -9,6 +9,7 @@
     fnm
     fzf
     gh
+    git-lfs
     git-sync
     go
     gopls
