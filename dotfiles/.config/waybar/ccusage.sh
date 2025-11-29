@@ -5,7 +5,7 @@ set -euo pipefail
 since_date=$(date +%Y%m01)
 
 # Fetch usage data
-usage=$(bunx ccusage --since "$since_date" -Oj 2>/dev/null || echo '{"daily":[],"totals":{"totalCost":0}}')
+usage=$(bunx ccusage --since "$since_date" -j 2>/dev/null || echo '{"daily":[],"totals":{"totalCost":0}}')
 
 # Extract and format costs
 today=$(date +%Y-%m-%d)
