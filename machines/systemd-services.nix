@@ -79,8 +79,7 @@
       };
       Service = {
         Type = "oneshot";
-        ExecStart =
-          "${config.home.homeDirectory}/.wlrenv/bin/tmux/wlr-tmux-niri-tracker";
+        ExecStart = "${pkgs.wlrenv}/bin/wlr-niri-track-terminals";
       };
     };
 
