@@ -36,6 +36,9 @@ dynamic = ["version"]
 
 [project.scripts]
 xonsh = 'xonsh.main:main'
+wlr-niri-track-terminals = 'wlrenv.niri.cli:track_terminals_cli'
+wlr-niri-restore-tmux = 'wlrenv.niri.cli:restore_tmux_cli'
+wlr-niri-restore-mosh = 'wlrenv.niri.cli:restore_mosh_cli'
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
