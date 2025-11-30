@@ -72,7 +72,7 @@ def restore_tmux() -> None:
     sessions = get_detached_tmux_sessions()
 
     for session in sessions:
-        # Skip temporary sessions (git commit hashes)
+        # Skip IDE embedded terminal sessions (7-char hex hash of IDE + project dir)
         if len(session) == 7 and all(c in "0123456789abcdef" for c in session):
             continue
 
