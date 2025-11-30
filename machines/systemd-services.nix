@@ -79,7 +79,8 @@
       };
       Service = {
         Type = "oneshot";
-        ExecStart = "${pkgs.wlrenv}/bin/wlr-niri-track-terminals";
+        ExecStart =
+          "${config.home.homeDirectory}/.local/bin/wlr-niri-track-terminals";
       };
     };
 
