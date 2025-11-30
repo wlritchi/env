@@ -15,7 +15,7 @@ if [ -z "$state_dir" ]; then
     state_dir="$HOME/.local/state"
 fi
 sessions_file="$state_dir/moshen/sessions"
-session_line="$(echo "$host" | base64):$(echo "$session_name" | base64)"
+session_line="$(printf '%s' "$host" | base64):$(printf '%s' "$session_name" | base64)"
 
 if command -v sponge >/dev/null; then
     (

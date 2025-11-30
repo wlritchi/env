@@ -51,8 +51,8 @@ def read_moshen_sessions() -> list[tuple[str, str]]:
                 continue
             parts = line.split(":")
             if len(parts) >= 2:
-                host = base64.b64decode(parts[0]).decode()
-                session = base64.b64decode(parts[1]).decode()
+                host = base64.b64decode(parts[0]).decode().strip()
+                session = base64.b64decode(parts[1]).decode().strip()
                 sessions.append((host, session))
 
         return sessions
