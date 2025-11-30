@@ -548,6 +548,6 @@ environment {
     DISPLAY ":0"
 }
 
-spawn-at-startup "wlr-restore-moshen-sessions"
-spawn-at-startup "bash" "-c" "command -v tmux && wlr-fix-tmux-resurrect && wlr-ensure-tmux-running && wlr-open-tmux-sessions"
 spawn-at-startup "bash" "-c" "command -v niri-spacer && niri-spacer"
+spawn-at-startup "bash" "-c" "sleep 5; wlr-niri-restore-mosh"
+spawn-at-startup "bash" "-c" "command -v tmux && wlr-fix-tmux-resurrect && wlr-ensure-tmux-running && wlr-niri-restore-tmux"
