@@ -91,7 +91,10 @@ def get_outputs() -> list[Output]:
     data = _run_niri_msg(["outputs"])
 
     outputs = []
-    for o in data:
+    for o in data.values():
+        # Skip outputs without logical info (e.g., disabled outputs)
+        if o.get("logical") is None:
+            continue
         outputs.append(
             Output(
                 name=o["name"],

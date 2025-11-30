@@ -97,13 +97,30 @@ def test_get_windows_filters_by_app_id(mock_run: MagicMock) -> None:
 
 @patch("wlrenv.niri.ipc._run_niri_msg")
 def test_get_outputs_parses_response(mock_run: MagicMock) -> None:
-    mock_run.return_value = [make_output_json(name="eDP-1", width=3072)]
+    # niri returns outputs as a dict keyed by name
+    mock_run.return_value = {"eDP-1": make_output_json(name="eDP-1", width=3072)}
 
     outputs = get_outputs()
 
     assert len(outputs) == 1
     assert outputs[0].name == "eDP-1"
     assert outputs[0].width == 3072
+
+
+@patch("wlrenv.niri.ipc._run_niri_msg")
+def test_get_outputs_skips_disabled_outputs(mock_run: MagicMock) -> None:
+    # Disabled outputs have logical: null
+    disabled = make_output_json(name="eDP-2", width=0)
+    disabled["logical"] = None
+    mock_run.return_value = {
+        "eDP-1": make_output_json(name="eDP-1", width=3072),
+        "eDP-2": disabled,
+    }
+
+    outputs = get_outputs()
+
+    assert len(outputs) == 1
+    assert outputs[0].name == "eDP-1"
 
 
 @patch("wlrenv.niri.ipc._run_niri_msg")
