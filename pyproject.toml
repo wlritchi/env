@@ -39,6 +39,7 @@ xonsh = 'xonsh.main:main'
 wlr-niri-track-terminals = 'wlrenv.niri.cli:track_terminals_cli'
 wlr-niri-restore-tmux = 'wlrenv.niri.cli:restore_tmux_cli'
 wlr-niri-restore-mosh = 'wlrenv.niri.cli:restore_mosh_cli'
+wlr-niri-librewolf-host = 'wlrenv.niri.cli:librewolf_native_host_cli'
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -94,6 +95,7 @@ dev = [
     "mypy>=1.15.0,<2.0.0",
     "pre-commit>=4.1.0,<5.0.0",
     "pyright>=1.1.393,<2.0.0",
+    "pytest>=9.0.1",
     "ruff>=0.9.6,<0.10.0",
     "types-tqdm",
     "yamllint>=1.35.1,<2.0.0",
