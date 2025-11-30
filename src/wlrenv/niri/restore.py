@@ -88,13 +88,28 @@ def restore_tmux() -> None:
 
 
 def restore_mosh() -> None:
-    """Restore mosh sessions to their saved workspaces."""
+    """Restore mosh sessions to their saved workspaces.
+
+    Spawns terminals that prompt before connecting, allowing the user
+    to handle interactive authentication (e.g., SSH key passphrase) at
+    their convenience.
+    """
     sessions = read_moshen_sessions()
 
     for host, session_name in sessions:
         identity = f"{host}:{session_name}"
         props = lookup("mosh", identity)
-        proc = spawn_terminal(["moshen", host, session_name])
+        # Prompt before connecting to allow interactive auth at user's convenience
+        proc = spawn_terminal(
+            [
+                "bash",
+                "-c",
+                'read -p "Press enter to connect to $1" && exec moshen "$1" "$2"',
+                "--",
+                host,
+                session_name,
+            ]
+        )
 
         if props:
             window_id = ipc.wait_for_window(pid=proc.pid)
