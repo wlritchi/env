@@ -80,73 +80,71 @@
     };
 
     # Aerospace ghost window cleanup - runs every 30 seconds
-    aerospace-ghost-cleanup = {
+    aerospace-ghost-cleanup = let
+      cleanupScript = pkgs.writeShellScript "aerospace-ghost-cleanup" ''
+        # Set to true to enable debug logging
+        DEBUG=''${DEBUG:-false}
+
+        [ "$DEBUG" = true ] && echo "=== Aerospace cleanup run at $(date) ==="
+
+        # Get all windows
+        output=$(${pkgs.aerospace}/bin/aerospace list-windows --all)
+        if [ "$DEBUG" = true ]; then
+          echo "All windows:"
+          echo "$output"
+          echo ""
+        fi
+
+        # If no output, exit
+        if [ -z "$output" ]; then
+          [ "$DEBUG" = true ] && echo "No windows found"
+          exit 0
+        fi
+
+        # Arrays to track windows
+        ghost_windows=()
+        has_non_ghost=false
+
+        # Parse each line (format: window_id | app_name | title)
+        while IFS='|' read -r window_id app_name title; do
+          # Trim whitespace
+          window_id=$(echo "$window_id" | xargs)
+          title=$(echo "$title" | xargs)
+
+          if [ -z "$title" ]; then
+            # This is a ghost window
+            ghost_windows+=("$window_id")
+          else
+            # This is a non-ghost window
+            has_non_ghost=true
+          fi
+        done <<< "$output"
+
+        # If only ghost windows exist (lock screen is up), exit
+        if [ "$has_non_ghost" = false ]; then
+          [ "$DEBUG" = true ] && echo "All windows appear to be ghosts - screen may be locked, skipping cleanup"
+          exit 0
+        fi
+
+        if [ ''${#ghost_windows[@]} -eq 0 ]; then
+          [ "$DEBUG" = true ] && echo "No ghost windows found"
+          exit 0
+        fi
+
+        [ "$DEBUG" = true ] && echo "Ghost windows identified: ''${#ghost_windows[@]}"
+
+        # Close each ghost window
+        for id in "''${ghost_windows[@]}"; do
+          [ "$DEBUG" = true ] && echo "Closing ghost window ID: $id"
+          ${pkgs.aerospace}/bin/aerospace close --window-id "$id"
+        done
+
+        [ "$DEBUG" = true ] && echo "Cleanup complete"
+      '';
+    in {
       enable = true;
       config = {
-        ProgramArguments = [
-          "${pkgs.bash}/bin/bash"
-          "-c"
-          ''
-            # Set to true to enable debug logging
-            DEBUG=''${DEBUG:-false}
-
-            [ "$DEBUG" = true ] && echo "=== Aerospace cleanup run at $(date) ==="
-
-            # Get all windows
-            output=$(${pkgs.aerospace}/bin/aerospace list-windows --all)
-            if [ "$DEBUG" = true ]; then
-              echo "All windows:"
-              echo "$output"
-              echo ""
-            fi
-
-            # If no output, exit
-            if [ -z "$output" ]; then
-              [ "$DEBUG" = true ] && echo "No windows found"
-              exit 0
-            fi
-
-            # Arrays to track windows
-            ghost_windows=()
-            has_non_ghost=false
-
-            # Parse each line (format: window_id | app_name | title)
-            while IFS='|' read -r window_id app_name title; do
-              # Trim whitespace
-              window_id=$(echo "$window_id" | xargs)
-              title=$(echo "$title" | xargs)
-
-              if [ -z "$title" ]; then
-                # This is a ghost window
-                ghost_windows+=("$window_id")
-              else
-                # This is a non-ghost window
-                has_non_ghost=true
-              fi
-            done <<< "$output"
-
-            # If only ghost windows exist (lock screen is up), exit
-            if [ "$has_non_ghost" = false ]; then
-              [ "$DEBUG" = true ] && echo "All windows appear to be ghosts - screen may be locked, skipping cleanup"
-              exit 0
-            fi
-
-            if [ ''${#ghost_windows[@]} -eq 0 ]; then
-              [ "$DEBUG" = true ] && echo "No ghost windows found"
-              exit 0
-            fi
-
-            [ "$DEBUG" = true ] && echo "Ghost windows identified: ''${#ghost_windows[@]}"
-
-            # Close each ghost window
-            for id in "''${ghost_windows[@]}"; do
-              [ "$DEBUG" = true ] && echo "Closing ghost window ID: $id"
-              ${pkgs.aerospace}/bin/aerospace close --window-id "$id"
-            done
-
-            [ "$DEBUG" = true ] && echo "Cleanup complete"
-          ''
-        ];
+        ProgramArguments = [ "${pkgs.bash}/bin/bash" "${cleanupScript}" ];
         RunAtLoad = true;
         StartInterval = 30; # Run every 30 seconds
         StandardOutPath =
