@@ -120,5 +120,29 @@
       };
       Install = { WantedBy = [ "timers.target" ]; };
     };
+
+    # Retainer cleanup for tmux pane backups
+    services.retainer-tmux-panes = {
+      Unit = { Description = "Clean up old tmux pane content archives"; };
+      Service = {
+        Type = "oneshot";
+        ExecStart = pkgs.writeShellScript "retainer-tmux-panes-runner" ''
+          ${config.home.homeDirectory}/.local/bin/retainer \
+            -d ${config.home.homeDirectory}/.local/share/tmux/resurrect \
+            -p 'pane_contents.(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{6})\.tar\.gz' \
+            -f '%Y-%m-%dT%H%M%S'
+        '';
+      };
+    };
+
+    timers.retainer-tmux-panes = {
+      Unit = { Description = "Clean up old tmux pane archives hourly"; };
+      Timer = {
+        OnBootSec = "10m";
+        OnUnitActiveSec = "1h";
+        RandomizedDelaySec = "5m";
+      };
+      Install = { WantedBy = [ "timers.target" ]; };
+    };
   };
 }

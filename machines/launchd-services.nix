@@ -155,5 +155,27 @@
           "${config.home.homeDirectory}/Library/Logs/aerospace-ghost-cleanup.log";
       };
     };
+
+    # Retainer cleanup for tmux pane backups - runs every hour
+    retainer-tmux-panes = {
+      enable = true;
+      config = {
+        ProgramArguments = [
+          "${config.home.homeDirectory}/.local/bin/retainer"
+          "-d"
+          "${config.home.homeDirectory}/.local/share/tmux/resurrect"
+          "-p"
+          "pane_contents.(?P<timestamp>\\d{4}-\\d{2}-\\d{2}T\\d{6})\\.tar\\.gz"
+          "-f"
+          "%Y-%m-%dT%H%M%S"
+        ];
+        RunAtLoad = true;
+        StartInterval = 3600;
+        StandardOutPath =
+          "${config.home.homeDirectory}/Library/Logs/retainer-tmux-panes.log";
+        StandardErrorPath =
+          "${config.home.homeDirectory}/Library/Logs/retainer-tmux-panes.log";
+      };
+    };
   };
 }
