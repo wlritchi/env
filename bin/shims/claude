@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Isolated Claude Code environment using Bun
+# Recovery: rm -rf ~/.claude-bun && claude
+
+# BUN_INSTALL controls where Bun puts global packages and binaries:
+#   $BUN_INSTALL/install/global/node_modules/  - packages
+#   $BUN_INSTALL/bin/                          - binaries
+export BUN_INSTALL="$HOME/.claude-bun"
+
+CLAUDE_BIN="$BUN_INSTALL/bin/claude"
+
+# Use Nix-provided Bun
+BUN="$HOME/.nix-profile/bin/bun"
+
+if ! [ -x "$BUN" ]; then
+    echo "Error: Bun not found at $BUN" >&2
+    echo "Run 'wlr-nix-rebuild' to install it" >&2
+    exit 1
+fi
+
+# Bootstrap if claude not installed
+if ! [ -x "$CLAUDE_BIN" ]; then
+    echo "Installing Claude Code..." >&2
+    "$BUN" install --global @anthropic-ai/claude-code
+fi
+
+# Execute claude with Bun
+exec "$BUN" "$CLAUDE_BIN" "$@"
