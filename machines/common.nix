@@ -4,6 +4,7 @@
   home.packages = (with pkgs; [
     bat
     bun
+    csvq
     delta
     eza
     fnm
