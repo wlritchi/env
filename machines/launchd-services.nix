@@ -106,10 +106,14 @@
         has_non_ghost=false
 
         # Parse each line (format: window_id | app_name | title)
+        shopt -s extglob
         while IFS='|' read -r window_id app_name title; do
-          # Trim whitespace
-          window_id=$(echo "$window_id" | xargs)
-          title=$(echo "$title" | xargs)
+          # Trim leading and trailing whitespace using parameter expansion
+          # (avoids xargs which fails on special characters)
+          window_id="''${window_id##+([[:space:]])}"
+          window_id="''${window_id%%+([[:space:]])}"
+          title="''${title##+([[:space:]])}"
+          title="''${title%%+([[:space:]])}"
 
           if [ -z "$title" ]; then
             # This is a ghost window
