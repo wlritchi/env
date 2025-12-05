@@ -1,59 +1,44 @@
 return {
   {
-    "hrsh7th/nvim-cmp",
-    event = "InsertEnter", -- Load only when entering insert mode
+    "saghen/blink.cmp",
+    version = "1.*",
+    event = "InsertEnter",
     dependencies = {
-      "hrsh7th/cmp-nvim-lsp", -- LSP completion source
-      "hrsh7th/cmp-buffer", -- Buffer text completion
-      "hrsh7th/cmp-path", -- File path completion
-      "hrsh7th/cmp-cmdline", -- Command line completion
-      "L3MON4D3/LuaSnip", -- Snippet engine
-      "saadparwaiz1/cmp_luasnip", -- Snippet completion source
+      "rafamadriz/friendly-snippets", -- Provides snippet collection
     },
-    config = function()
-      local cmp = require("cmp")
-      local luasnip = require("luasnip")
+    ---@module 'blink.cmp'
+    ---@type blink.cmp.Config
+    opts = {
+      keymap = {
+        preset = "none",
+        ["<Up>"] = { "select_prev", "fallback" },
+        ["<Down>"] = { "select_next", "fallback" },
+        ["<Tab>"] = { "select_and_accept", "snippet_forward", "fallback" },
+        ["<S-Tab>"] = { "snippet_backward", "fallback" },
+        ["<CR>"] = { "fallback" }, -- Always newline, never interact with blink
+        ["<Esc>"] = { "hide", "fallback" },
+        ["<C-Space>"] = { "show", "show_documentation", "hide_documentation" },
+        ["<C-b>"] = { "scroll_documentation_up", "fallback" },
+        ["<C-f>"] = { "scroll_documentation_down", "fallback" },
+      },
 
-      cmp.setup({
-        snippet = {
-          expand = function(args)
-            luasnip.lsp_expand(args.body)
-          end,
+      appearance = {
+        nerd_font_variant = "mono",
+      },
+
+      completion = {
+        documentation = {
+          auto_show = true,
+          auto_show_delay_ms = 200,
         },
-        mapping = cmp.mapping.preset.insert({
-          ["<C-b>"] = cmp.mapping.scroll_docs(-4),
-          ["<C-f>"] = cmp.mapping.scroll_docs(4),
-          ["<C-Space>"] = cmp.mapping.complete(),
-          ["<C-e>"] = cmp.mapping.abort(),
-          ["<CR>"] = cmp.mapping.confirm({ select = true }),
-          -- Tab through suggestions
-          ["<Tab>"] = cmp.mapping(function(fallback)
-            if cmp.visible() then
-              cmp.select_next_item()
-            elseif luasnip.expand_or_jumpable() then
-              luasnip.expand_or_jump()
-            else
-              fallback()
-            end
-          end, { "i", "s" }),
-          ["<S-Tab>"] = cmp.mapping(function(fallback)
-            if cmp.visible() then
-              cmp.select_previous_item()
-            elseif luasnip.jumpable(-1) then
-              luasnip.jump(-1)
-            else
-              fallback()
-            end
-          end, { "i", "s" }),
-        }),
-        sources = cmp.config.sources({
-          { name = "nvim_lsp" }, -- LSP completions (highest priority)
-          { name = "luasnip" }, -- Snippets
-        }, {
-          { name = "buffer" }, -- Buffer text (fallback)
-          { name = "path" }, -- File paths
-        }),
-      })
-    end,
+      },
+
+      sources = {
+        default = { "lsp", "path", "snippets", "buffer" },
+      },
+
+      fuzzy = { implementation = "prefer_rust_with_warning" },
+    },
+    opts_extend = { "sources.default" },
   },
 }
