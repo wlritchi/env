@@ -37,6 +37,7 @@ def make_window(
     pid: int = 1234,
     workspace_id: int = 1,
     tile_width: float = 1535.0,
+    column: int = 1,
 ) -> Window:
     return Window(
         id=id,
@@ -46,6 +47,7 @@ def make_window(
         workspace_id=workspace_id,
         tile_width=tile_width,
         tile_height=1000.0,
+        column=column,
     )
 
 
@@ -78,3 +80,39 @@ def test_track_terminals_stores_tmux_session(
     assert result is not None
     assert result["workspace"] == 2
     assert result["width"] == 50
+
+
+@patch("wlrenv.niri.track.order_storage")
+@patch("wlrenv.niri.track.get_child_processes")
+@patch("wlrenv.niri.ipc.get_workspaces")
+@patch("wlrenv.niri.ipc.get_outputs")
+@patch("wlrenv.niri.ipc.get_windows")
+def test_track_terminals_saves_column_order(
+    mock_windows: MagicMock,
+    mock_outputs: MagicMock,
+    mock_workspaces: MagicMock,
+    mock_children: MagicMock,
+    mock_order_storage: MagicMock,
+    temp_state_dir: Path,
+) -> None:
+    from wlrenv.niri.identify import ProcessInfo
+
+    # Two tmux windows in workspace 1 at columns 2 and 1
+    mock_windows.return_value = [
+        make_window(id=1, pid=1000, workspace_id=1, column=2),
+        make_window(id=2, pid=1001, workspace_id=1, column=1),
+    ]
+    mock_outputs.return_value = [Output(name="eDP-1", width=3072, height=1920)]
+    mock_workspaces.return_value = [Workspace(id=1, output="eDP-1")]
+    mock_children.side_effect = [
+        [ProcessInfo(comm="tmux", args=["tmux", "-t", "work"])],
+        [ProcessInfo(comm="tmux", args=["tmux", "-t", "scratch"])],
+    ]
+
+    track_terminals()
+
+    # Order should be saved sorted by column: scratch (col 1), work (col 2)
+    mock_order_storage.save_order.assert_called_once_with(
+        workspace_id=1,
+        order=["tmux:scratch", "tmux:work"],
+    )

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import subprocess
+from collections import defaultdict
 
-from wlrenv.niri import ipc
+from wlrenv.niri import ipc, order_storage
 from wlrenv.niri.identify import ProcessInfo, identify_mosh, identify_tmux
 from wlrenv.niri.storage import store_entry
 
@@ -60,6 +61,10 @@ def track_terminals() -> None:
     outputs = {o.name: o for o in ipc.get_outputs()}
     workspaces = {w.id: w for w in ipc.get_workspaces()}
 
+    # Track windows per workspace for ordering
+    # workspace_id -> list of (column, identity)
+    workspace_windows: dict[int, list[tuple[int, str]]] = defaultdict(list)
+
     for window in windows:
         # Get output for this window's workspace
         ws = workspaces.get(window.workspace_id)
@@ -76,7 +81,22 @@ def track_terminals() -> None:
         for child in children:
             if identity := identify_tmux(child):
                 store_entry("tmux", identity, window.workspace_id, width_percent)
+                if window.column is not None:
+                    workspace_windows[window.workspace_id].append(
+                        (window.column, f"tmux:{identity}")
+                    )
                 break
             if identity := identify_mosh(child):
                 store_entry("mosh", identity, window.workspace_id, width_percent)
+                if window.column is not None:
+                    workspace_windows[window.workspace_id].append(
+                        (window.column, f"mosh:{identity}")
+                    )
                 break
+
+    # Save column order per workspace
+    for workspace_id, entries in workspace_windows.items():
+        # Sort by column, extract identities
+        entries.sort(key=lambda x: x[0])
+        order = [identity for _, identity in entries]
+        order_storage.save_order(workspace_id=workspace_id, order=order)
