@@ -25,6 +25,8 @@ class Window:
     workspace_id: int
     tile_width: float
     tile_height: float
+    column: int | None = None  # 1-based column index, None for floating
+    row: int | None = None  # 1-based row index within column, None for floating
 
 
 @dataclass
@@ -72,6 +74,15 @@ def get_windows(app_id: str | None = None) -> list[Window]:
     for w in data:
         if app_id and w.get("app_id") != app_id:
             continue
+
+        # Parse column/row from layout
+        column = None
+        row = None
+        layout = w.get("layout", {})
+        pos = layout.get("pos_in_scrolling_layout")
+        if pos is not None:
+            column, row = pos[0], pos[1]
+
         windows.append(
             Window(
                 id=w["id"],
@@ -79,8 +90,10 @@ def get_windows(app_id: str | None = None) -> list[Window]:
                 app_id=w.get("app_id", ""),
                 pid=w["pid"],
                 workspace_id=w["workspace_id"],
-                tile_width=w["layout"]["tile_size"][0],
-                tile_height=w["layout"]["tile_size"][1],
+                tile_width=layout.get("tile_size", [0, 0])[0],
+                tile_height=layout.get("tile_size", [0, 0])[1],
+                column=column,
+                row=row,
             )
         )
     return windows

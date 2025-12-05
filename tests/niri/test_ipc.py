@@ -146,3 +146,26 @@ def test_configure_skips_none_values(mock_run: MagicMock) -> None:
     calls = mock_run.call_args_list
     assert len(calls) == 1
     assert "move-window-to-workspace" in str(calls[0])
+
+
+@patch("wlrenv.niri.ipc._run_niri_msg")
+def test_get_windows_parses_column_position(mock_run: MagicMock) -> None:
+    mock_run.return_value = [make_window_json(id=1)]
+
+    windows = get_windows()
+
+    assert windows[0].column == 1
+    assert windows[0].row == 1
+
+
+@patch("wlrenv.niri.ipc._run_niri_msg")
+def test_get_windows_handles_floating_window(mock_run: MagicMock) -> None:
+    window_json = make_window_json(id=1)
+    window_json["layout"]["pos_in_scrolling_layout"] = None
+    window_json["is_floating"] = True
+    mock_run.return_value = [window_json]
+
+    windows = get_windows()
+
+    assert windows[0].column is None
+    assert windows[0].row is None
