@@ -175,3 +175,21 @@ def configure(window_id: int, workspace: int | None, width: int | None) -> None:
             ["action", "set-window-width", "--id", str(window_id), f"{width}%"],
             json_output=False,
         )
+
+
+def focus_window(window_id: int) -> None:
+    """Focus a window by ID."""
+    _run_niri_msg(
+        ["action", "focus-window", "--id", str(window_id)],
+        json_output=False,
+    )
+
+
+def move_column_left() -> None:
+    """Move the focused window's column left."""
+    _run_niri_msg(["action", "move-column-left"], json_output=False)
+
+
+def move_column_right() -> None:
+    """Move the focused window's column right."""
+    _run_niri_msg(["action", "move-column-right"], json_output=False)

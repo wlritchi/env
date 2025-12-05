@@ -6,8 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from wlrenv.niri.ipc import (
     configure,
+    focus_window,
     get_outputs,
     get_windows,
+    move_column_left,
+    move_column_right,
 )
 
 
@@ -169,3 +172,41 @@ def test_get_windows_handles_floating_window(mock_run: MagicMock) -> None:
 
     assert windows[0].column is None
     assert windows[0].row is None
+
+
+@patch("wlrenv.niri.ipc._run_niri_msg")
+def test_focus_window_calls_correct_action(mock_run: MagicMock) -> None:
+    mock_run.return_value = None
+
+    focus_window(42)
+
+    mock_run.assert_called_once()
+    args = mock_run.call_args[0][0]
+    assert "action" in args
+    assert "focus-window" in args
+    assert "--id" in args
+    assert "42" in args
+
+
+@patch("wlrenv.niri.ipc._run_niri_msg")
+def test_move_column_left_calls_correct_action(mock_run: MagicMock) -> None:
+    mock_run.return_value = None
+
+    move_column_left()
+
+    mock_run.assert_called_once()
+    args = mock_run.call_args[0][0]
+    assert "action" in args
+    assert "move-column-left" in args
+
+
+@patch("wlrenv.niri.ipc._run_niri_msg")
+def test_move_column_right_calls_correct_action(mock_run: MagicMock) -> None:
+    mock_run.return_value = None
+
+    move_column_right()
+
+    mock_run.assert_called_once()
+    args = mock_run.call_args[0][0]
+    assert "action" in args
+    assert "move-column-right" in args
