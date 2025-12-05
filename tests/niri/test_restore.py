@@ -131,3 +131,69 @@ def test_restore_mosh_skips_wait_if_no_props(
     mock_spawn.assert_called_once()
     mock_wait.assert_not_called()
     mock_configure.assert_not_called()
+
+
+@patch("wlrenv.niri.restore.ordering")
+@patch("wlrenv.niri.restore.lookup")
+@patch("wlrenv.niri.restore.ipc")
+@patch("wlrenv.niri.restore.spawn_terminal")
+@patch("wlrenv.niri.restore.get_detached_tmux_sessions")
+def test_restore_tmux_places_window_in_order(
+    mock_sessions: MagicMock,
+    mock_spawn: MagicMock,
+    mock_ipc: MagicMock,
+    mock_lookup: MagicMock,
+    mock_ordering: MagicMock,
+) -> None:
+    mock_sessions.return_value = ["work"]
+    mock_lookup.return_value = {"workspace": 2, "width": 50}
+    mock_spawn.return_value = MagicMock(pid=1234)
+    mock_ipc.wait_for_window.return_value = 42
+
+    # Simulate window spawning at column 3
+    mock_ipc.get_windows.return_value = [
+        MagicMock(id=42, workspace_id=2, column=3),
+    ]
+
+    restore_tmux()
+
+    # Should call place_window after configure
+    mock_ordering.place_window.assert_called_once_with(
+        window_id=42,
+        identity="tmux:work",
+        workspace_id=2,
+        current_column=3,
+    )
+
+
+@patch("wlrenv.niri.restore.ordering")
+@patch("wlrenv.niri.restore.lookup")
+@patch("wlrenv.niri.restore.ipc")
+@patch("wlrenv.niri.restore.spawn_terminal")
+@patch("wlrenv.niri.restore.read_moshen_sessions")
+def test_restore_mosh_places_window_in_order(
+    mock_sessions: MagicMock,
+    mock_spawn: MagicMock,
+    mock_ipc: MagicMock,
+    mock_lookup: MagicMock,
+    mock_ordering: MagicMock,
+) -> None:
+    mock_sessions.return_value = [("server.example.com", "session1")]
+    mock_lookup.return_value = {"workspace": 3, "width": 80}
+    mock_spawn.return_value = MagicMock(pid=5678)
+    mock_ipc.wait_for_window.return_value = 99
+
+    # Simulate window spawning at column 1
+    mock_ipc.get_windows.return_value = [
+        MagicMock(id=99, workspace_id=3, column=1),
+    ]
+
+    restore_mosh()
+
+    # Should call place_window after configure
+    mock_ordering.place_window.assert_called_once_with(
+        window_id=99,
+        identity="mosh:server.example.com:session1",
+        workspace_id=3,
+        current_column=1,
+    )

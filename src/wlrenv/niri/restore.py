@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-from wlrenv.niri import ipc
+from wlrenv.niri import ipc, ordering
 from wlrenv.niri.storage import lookup
 
 
@@ -67,6 +67,15 @@ def spawn_terminal(args: list[str]) -> subprocess.Popen[bytes]:
     return subprocess.Popen([terminal, "-e", *args])  # noqa: S603
 
 
+def _get_window_column(window_id: int, workspace_id: int) -> int | None:
+    """Get the current column of a window."""
+    windows = ipc.get_windows()
+    for w in windows:
+        if w.id == window_id and w.workspace_id == workspace_id:
+            return w.column
+    return None
+
+
 def restore_tmux() -> None:
     """Restore detached tmux sessions to their saved workspaces."""
     sessions = get_detached_tmux_sessions()
@@ -82,9 +91,18 @@ def restore_tmux() -> None:
         if props:
             window_id = ipc.wait_for_window(pid=proc.pid)
             if window_id:
-                ipc.configure(
-                    window_id, workspace=props["workspace"], width=props["width"]
-                )
+                workspace_id = props["workspace"]
+                ipc.configure(window_id, workspace=workspace_id, width=props["width"])
+
+                # Place window in correct column order
+                column = _get_window_column(window_id, workspace_id)
+                if column is not None:
+                    ordering.place_window(
+                        window_id=window_id,
+                        identity=f"tmux:{session}",
+                        workspace_id=workspace_id,
+                        current_column=column,
+                    )
 
 
 def restore_mosh() -> None:
@@ -114,6 +132,15 @@ def restore_mosh() -> None:
         if props:
             window_id = ipc.wait_for_window(pid=proc.pid)
             if window_id:
-                ipc.configure(
-                    window_id, workspace=props["workspace"], width=props["width"]
-                )
+                workspace_id = props["workspace"]
+                ipc.configure(window_id, workspace=workspace_id, width=props["width"])
+
+                # Place window in correct column order
+                column = _get_window_column(window_id, workspace_id)
+                if column is not None:
+                    ordering.place_window(
+                        window_id=window_id,
+                        identity=f"mosh:{identity}",
+                        workspace_id=workspace_id,
+                        current_column=column,
+                    )
