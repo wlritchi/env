@@ -1,6 +1,8 @@
 # tests/niri/test_ordering.py
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 from wlrenv.niri.ipc import Window
 
 
@@ -123,3 +125,38 @@ def test_calculate_target_column_accounts_for_spacer() -> None:
     target = calculate_target_column("tmux:a", saved_order, current_windows)
 
     assert target == 2  # Right of spacer at column 1
+
+
+@patch("wlrenv.niri.ordering.ipc")
+def test_move_to_column_does_nothing_when_already_at_target(
+    mock_ipc: MagicMock,
+) -> None:
+    from wlrenv.niri.ordering import move_to_column
+
+    move_to_column(window_id=1, current_column=3, target_column=3)
+
+    mock_ipc.focus_window.assert_not_called()
+    mock_ipc.move_column_left.assert_not_called()
+    mock_ipc.move_column_right.assert_not_called()
+
+
+@patch("wlrenv.niri.ordering.ipc")
+def test_move_to_column_moves_left(mock_ipc: MagicMock) -> None:
+    from wlrenv.niri.ordering import move_to_column
+
+    move_to_column(window_id=1, current_column=5, target_column=3)
+
+    mock_ipc.focus_window.assert_called_once_with(1)
+    assert mock_ipc.move_column_left.call_count == 2
+    mock_ipc.move_column_right.assert_not_called()
+
+
+@patch("wlrenv.niri.ordering.ipc")
+def test_move_to_column_moves_right(mock_ipc: MagicMock) -> None:
+    from wlrenv.niri.ordering import move_to_column
+
+    move_to_column(window_id=1, current_column=2, target_column=5)
+
+    mock_ipc.focus_window.assert_called_once_with(1)
+    assert mock_ipc.move_column_right.call_count == 3
+    mock_ipc.move_column_left.assert_not_called()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from wlrenv.niri import ipc
 from wlrenv.niri.ipc import Window
 
 SPACER_IDENTITY = "__spacer__"
@@ -58,3 +59,23 @@ def calculate_target_column(
     if rightmost is None or rightmost.column is None:
         return 1
     return rightmost.column + 1
+
+
+def move_to_column(window_id: int, current_column: int, target_column: int) -> None:
+    """Move a window to the target column.
+
+    Focuses the window and moves it left or right as needed.
+    Does nothing if already at target column.
+    """
+    if current_column == target_column:
+        return
+
+    ipc.focus_window(window_id)
+
+    while current_column > target_column:
+        ipc.move_column_left()
+        current_column -= 1
+
+    while current_column < target_column:
+        ipc.move_column_right()
+        current_column += 1
