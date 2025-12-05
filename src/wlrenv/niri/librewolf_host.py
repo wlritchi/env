@@ -6,9 +6,10 @@ from __future__ import annotations
 import json
 import struct
 import sys
+from collections import defaultdict
 from typing import Any
 
-from wlrenv.niri import ipc
+from wlrenv.niri import ipc, order_storage, ordering
 from wlrenv.niri.librewolf import UrlMatcher
 from wlrenv.niri.storage import lookup, store_entry
 from wlrenv.niri.track import calculate_width_percent
@@ -53,6 +54,10 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
     matcher = UrlMatcher.load()
     stored_count = 0
 
+    # Track windows per workspace for ordering
+    # workspace_id -> list of (column, identity)
+    workspace_windows: dict[int, list[tuple[int, str]]] = defaultdict(list)
+
     for win in windows:
         urls = [t["url"] for t in win.get("tabs", [])]
         title = win.get("window_title", "")
@@ -70,6 +75,19 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
                     )
                     store_entry("librewolf", uuid, niri_window.workspace_id, width)
                     stored_count += 1
+
+                    # Track column position for ordering
+                    if niri_window.column is not None:
+                        workspace_windows[niri_window.workspace_id].append(
+                            (niri_window.column, f"librewolf:{uuid}")
+                        )
+
+    # Save column order per workspace
+    for workspace_id, entries in workspace_windows.items():
+        # Sort by column, extract identities
+        entries.sort(key=lambda x: x[0])
+        order = [identity for _, identity in entries]
+        order_storage.save_order(workspace_id=workspace_id, order=order)
 
     matcher.save()
     return {"success": True, "stored_count": stored_count, "request_id": request_id}
@@ -94,10 +112,18 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
         niri_window = ipc.find_window_by_title(title)
 
         if niri_window and props:
-            ipc.configure(
-                niri_window.id, workspace=props["workspace"], width=props["width"]
-            )
+            workspace_id = props["workspace"]
+            ipc.configure(niri_window.id, workspace=workspace_id, width=props["width"])
             moved_count += 1
+
+            # Place window in correct column order
+            if niri_window.column is not None:
+                ordering.place_window(
+                    window_id=niri_window.id,
+                    identity=f"librewolf:{uuid}",
+                    workspace_id=workspace_id,
+                    current_column=niri_window.column,
+                )
 
     matcher.save()
     return {"success": True, "moved_count": moved_count, "request_id": request_id}
