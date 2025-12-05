@@ -1,9 +1,20 @@
 # tests/niri/test_ordering.py
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from wlrenv.niri.ipc import Window
+
+
+@pytest.fixture
+def temp_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from wlrenv.niri import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    return tmp_path
 
 
 def make_test_window(
@@ -160,3 +171,54 @@ def test_move_to_column_moves_right(mock_ipc: MagicMock) -> None:
     mock_ipc.focus_window.assert_called_once_with(1)
     assert mock_ipc.move_column_right.call_count == 3
     mock_ipc.move_column_left.assert_not_called()
+
+
+@patch("wlrenv.niri.ordering.ipc")
+@patch("wlrenv.niri.ordering.order_storage")
+def test_place_window_moves_to_correct_column(
+    mock_storage: MagicMock,
+    mock_ipc: MagicMock,
+    temp_state_dir: Path,
+) -> None:
+    from wlrenv.niri.ordering import place_window
+
+    # Setup: B should come after A
+    mock_storage.get_order.return_value = ["tmux:a", "tmux:b"]
+
+    # A is present at column 2
+    win_a, _ = make_test_window(1, "tmux:a", column=2)
+    mock_ipc.get_windows.return_value = [win_a]
+
+    # B spawns at column 1, should move to column 3 (right of A)
+    place_window(
+        window_id=2,
+        identity="tmux:b",
+        workspace_id=1,
+        current_column=1,
+    )
+
+    mock_ipc.focus_window.assert_called_once_with(2)
+    assert mock_ipc.move_column_right.call_count == 2  # 1 -> 3
+
+
+@patch("wlrenv.niri.ordering.ipc")
+@patch("wlrenv.niri.ordering.order_storage")
+def test_place_window_skips_move_when_already_correct(
+    mock_storage: MagicMock,
+    mock_ipc: MagicMock,
+    temp_state_dir: Path,
+) -> None:
+    from wlrenv.niri.ordering import place_window
+
+    mock_storage.get_order.return_value = ["tmux:a"]
+    mock_ipc.get_windows.return_value = []
+
+    # A has no predecessors, target is column 1, already at column 1
+    place_window(
+        window_id=1,
+        identity="tmux:a",
+        workspace_id=1,
+        current_column=1,
+    )
+
+    mock_ipc.focus_window.assert_not_called()

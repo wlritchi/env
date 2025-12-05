@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from wlrenv.niri import ipc
+from wlrenv.niri import ipc, order_storage
 from wlrenv.niri.ipc import Window
 
 SPACER_IDENTITY = "__spacer__"
@@ -79,3 +79,54 @@ def move_to_column(window_id: int, current_column: int, target_column: int) -> N
     while current_column < target_column:
         ipc.move_column_right()
         current_column += 1
+
+
+def _build_current_windows(
+    workspace_id: int,
+    exclude_window_id: int | None = None,
+) -> dict[str, Window]:
+    """Build a mapping of identity -> Window for current windows in workspace.
+
+    Identifies windows by their title (which should contain the identity).
+    Spacer windows are mapped to SPACER_IDENTITY.
+    """
+    windows = ipc.get_windows()
+    current: dict[str, Window] = {}
+
+    for w in windows:
+        if w.workspace_id != workspace_id:
+            continue
+        if exclude_window_id is not None and w.id == exclude_window_id:
+            continue
+
+        # Check for spacer window
+        if w.title == "niri-spacer window":
+            current[SPACER_IDENTITY] = w
+        else:
+            # For now, use title as identity (will be refined in integration)
+            # In practice, the caller will provide the correct identity mapping
+            current[w.title] = w
+
+    return current
+
+
+def place_window(
+    window_id: int,
+    identity: str,
+    workspace_id: int,
+    current_column: int,
+) -> None:
+    """Place a window in the correct column based on saved order.
+
+    This is the main entry point for window ordering during restore.
+    """
+    saved_order = order_storage.get_order(workspace_id)
+
+    # Build current window state (excluding the window we're placing)
+    current_windows = _build_current_windows(workspace_id, exclude_window_id=window_id)
+
+    # Calculate target column
+    target = calculate_target_column(identity, saved_order, current_windows)
+
+    # Move if needed
+    move_to_column(window_id, current_column, target)
