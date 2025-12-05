@@ -88,3 +88,38 @@ def test_find_rightmost_predecessor_includes_spacer() -> None:
     result = find_rightmost_predecessor("tmux:a", saved_order, current_windows)
 
     assert result == spacer
+
+
+def test_calculate_target_column_returns_1_when_no_predecessors() -> None:
+    from wlrenv.niri.ordering import calculate_target_column
+
+    saved_order = ["tmux:a"]
+    current_windows: dict[str, Window] = {}
+
+    target = calculate_target_column("tmux:a", saved_order, current_windows)
+
+    assert target == 1
+
+
+def test_calculate_target_column_returns_pred_plus_1() -> None:
+    from wlrenv.niri.ordering import calculate_target_column
+
+    saved_order = ["tmux:a", "tmux:b"]
+    win_a, _ = make_test_window(1, "tmux:a", column=2)
+    current_windows = {"tmux:a": win_a}
+
+    target = calculate_target_column("tmux:b", saved_order, current_windows)
+
+    assert target == 3  # Right of A at column 2
+
+
+def test_calculate_target_column_accounts_for_spacer() -> None:
+    from wlrenv.niri.ordering import SPACER_IDENTITY, calculate_target_column
+
+    saved_order = ["tmux:a"]
+    spacer, _ = make_test_window(99, SPACER_IDENTITY, column=1)
+    current_windows = {SPACER_IDENTITY: spacer}
+
+    target = calculate_target_column("tmux:a", saved_order, current_windows)
+
+    assert target == 2  # Right of spacer at column 1

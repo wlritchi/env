@@ -42,3 +42,19 @@ def find_rightmost_predecessor(
                 rightmost_col = window.column
 
     return rightmost
+
+
+def calculate_target_column(
+    identity: str,
+    saved_order: list[str],
+    current_windows: dict[str, Window],
+) -> int:
+    """Calculate the target column for a window based on saved order.
+
+    Returns 1 if no predecessors are present, otherwise returns
+    the rightmost predecessor's column + 1.
+    """
+    rightmost = find_rightmost_predecessor(identity, saved_order, current_windows)
+    if rightmost is None or rightmost.column is None:
+        return 1
+    return rightmost.column + 1
