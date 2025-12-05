@@ -15,6 +15,15 @@ from wlrenv.niri.storage import lookup, store_entry
 from wlrenv.niri.track import calculate_width_percent
 
 
+def _get_window_column(window_id: int, workspace_id: int) -> int | None:
+    """Get the current column of a window."""
+    windows = ipc.get_windows()
+    for w in windows:
+        if w.id == window_id and w.workspace_id == workspace_id:
+            return w.column
+    return None
+
+
 def handle_message(message: dict[str, Any]) -> dict[str, Any]:
     """Handle a message from the browser extension."""
     action = message.get("action")
@@ -117,12 +126,13 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
             moved_count += 1
 
             # Place window in correct column order
-            if niri_window.column is not None:
+            column = _get_window_column(niri_window.id, workspace_id)
+            if column is not None:
                 ordering.place_window(
                     window_id=niri_window.id,
                     identity=f"librewolf:{uuid}",
                     workspace_id=workspace_id,
-                    current_column=niri_window.column,
+                    current_column=column,
                 )
 
     matcher.save()

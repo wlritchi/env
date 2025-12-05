@@ -168,6 +168,11 @@ def test_handle_restore_places_windows(
     mock_ipc.get_workspaces.return_value = [MagicMock(id=2, output="eDP-1")]
     mock_lookup.return_value = {"workspace": 2, "width": 50}
 
+    # Mock get_windows to return the window state after configure
+    mock_ipc.get_windows.return_value = [
+        MagicMock(id=1, workspace_id=2, column=3),
+    ]
+
     message = {
         "windows": [
             {"window_title": "Window A", "tabs": [{"url": "https://a.com"}]},
