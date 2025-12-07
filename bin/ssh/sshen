@@ -10,4 +10,4 @@ fi
 host="$1"
 session_name="${2:-main}"
 
-ssh -t "$host" -- sh -c 'command -v tmux >/dev/null 2>&1 || exec bash; tmux new -As '"${session_name@Q}"
+ssh -t "$host" -- sh -c 'command -v tmux >/dev/null 2>&1 || exec bash; command -v wlr-fix-tmux-resurrect >/dev/null 2>&1 && wlr-fix-tmux-resurrect; tmux new -As '"${session_name@Q}"

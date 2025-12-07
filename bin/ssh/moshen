@@ -23,7 +23,7 @@ if command -v sponge >/dev/null; then
         echo "$session_line"
     ) | sort -u | sponge "$sessions_file"
 fi
-mosh "$host" -- sh -c 'command -v tmux >/dev/null 2>&1 || exec bash; tmux new -As '"${session_name@Q}"
+mosh "$host" -- sh -c 'command -v tmux >/dev/null 2>&1 || exec bash; command -v wlr-fix-tmux-resurrect >/dev/null 2>&1 && wlr-fix-tmux-resurrect; tmux new -As '"${session_name@Q}"
 if command -v sponge >/dev/null; then
     grep -v "^$session_line$" "$sessions_file" | sponge "$sessions_file"
 fi
