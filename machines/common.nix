@@ -50,7 +50,7 @@
         zoxide
       ])
       ++ [
-        (krew2nix.packages.${pkgs.system}.kubectl.withKrewPlugins (
+        (krew2nix.packages.${pkgs.stdenv.hostPlatform.system}.kubectl.withKrewPlugins (
           plugins: map (name: plugins.${name}) config.custom.krewPlugins
         ))
       ];
