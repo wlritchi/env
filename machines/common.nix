@@ -45,6 +45,7 @@
         sccache
         stylua
         tmux
+        uv
         watchexec
         zellij
         zoxide
