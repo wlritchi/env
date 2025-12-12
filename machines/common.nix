@@ -1,52 +1,76 @@
-{ config, pkgs, krew2nix, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  krew2nix,
+  ...
+}:
 
 {
-  home.packages = (with pkgs; [
-    bat
-    bun
-    csvq
-    delta
-    eza
-    fnm
-    fzf
-    gh
-    git-lfs
-    git-sync
-    go
-    gopls
-    jq
-    k9s
-    moreutils
-    neovim
-    nixfmt
-    nnn
-    onefetch
-    rclone
-    ripgrep
-    rustup
-    sccache
-    stylua
-    tmux
-    watchexec
-    zellij
-    zoxide
-  ]) ++ [
-    (krew2nix.packages.${pkgs.system}.kubectl.withKrewPlugins
-      (plugins: [ plugins.ctx plugins.ns plugins.rabbitmq plugins.rook-ceph ]))
-  ];
+  options.custom.krewPlugins = lib.mkOption {
+    type = lib.types.listOf lib.types.str;
+    default = [ ];
+    description = "List of krew plugin names to install";
+  };
 
-  programs.home-manager.enable = true;
+  config = {
+    custom.krewPlugins = [
+      "ctx"
+      "ns"
+    ];
 
-  nix = {
-    package = pkgs.nix;
-    settings = {
-      experimental-features = [ "nix-command" "flakes" ];
-      # Optimize build parallelism
-      # cores = 0 means use all available cores for each build job
-      cores = 0;
-      # max-jobs = auto scales with available CPU cores
-      # Set to a reasonable number to avoid overwhelming the system
-      max-jobs = "auto";
+    home.packages =
+      (with pkgs; [
+        bat
+        bun
+        csvq
+        delta
+        eza
+        fnm
+        fzf
+        gh
+        git-lfs
+        git-sync
+        go
+        gopls
+        jq
+        k9s
+        moreutils
+        neovim
+        nixfmt
+        nnn
+        onefetch
+        ripgrep
+        rustup
+        sccache
+        stylua
+        tmux
+        watchexec
+        zellij
+        zoxide
+      ])
+      ++ [
+        (krew2nix.packages.${pkgs.system}.kubectl.withKrewPlugins (
+          plugins: map (name: plugins.${name}) config.custom.krewPlugins
+        ))
+      ];
+
+    programs.home-manager.enable = true;
+
+    nix = {
+      package = pkgs.nix;
+      settings = {
+        experimental-features = [
+          "nix-command"
+          "flakes"
+        ];
+        # Optimize build parallelism
+        # cores = 0 means use all available cores for each build job
+        cores = 0;
+        # max-jobs = auto scales with available CPU cores
+        # Set to a reasonable number to avoid overwhelming the system
+        max-jobs = "auto";
+      };
     };
   };
 }
