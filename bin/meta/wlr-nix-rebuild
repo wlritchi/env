@@ -12,7 +12,7 @@ export NIX_CONFIG="experimental-features = nix-command flakes"
 home_manager=(
     nix
     run
-    home-manager/release-25.05
+    home-manager/release-25.11
     --
 )
 
