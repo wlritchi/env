@@ -591,35 +591,35 @@ impl WaylandEventLoop {
         // Main event loop
         loop {
             // Process any pending commands first
+            // Track whether we created a window this iteration
+            let windows_before = app.windows.len();
             app.process_commands(&qh);
+            let created_window = app.windows.len() > windows_before;
 
             // Check if we should exit
             if app.exit {
                 break;
             }
 
+            // If we just created a window, do a roundtrip to ensure we receive
+            // the configure event from the compositor. This is required by XDG shell
+            // protocol - the window is not "mapped" until we receive configure,
+            // ack it, attach a buffer, and commit. Without this roundtrip, niri
+            // won't see the window.
+            if created_window {
+                debug!("Performing roundtrip after window creation to receive configure event");
+                if let Err(e) = event_queue.roundtrip(&mut app) {
+                    warn!("Roundtrip after window creation failed: {}", e);
+                }
+            }
+
             // Dispatch Wayland events with a timeout
             match event_queue.dispatch_pending(&mut app) {
                 Ok(_) => {
-                    // For unconfigured windows, try to draw a default background
-                    // This helps with windows that haven't received configure events yet
-                    for i in 0..app.windows.len() {
-                        let should_draw = {
-                            let window = &app.windows[i];
-                            !window.configured && !window.buffer_attached
-                        };
-                        if should_draw {
-                            debug!(
-                                "Drawing default background for unconfigured window {}",
-                                app.windows[i].id
-                            );
-                            // Use default dimensions if not configured yet
-                            app.windows[i].width = 1;
-                            app.windows[i].height = 2000;
-                            app.windows[i].configured = true; // Mark as configured to proceed
-                            app.draw_window_background(i, &qh);
-                        }
-                    }
+                    // XDG shell protocol requires waiting for configure events before drawing.
+                    // The WindowHandler::configure callback handles drawing when the compositor
+                    // is ready. Do NOT draw to unconfigured windows - this violates the protocol
+                    // and niri 25.11+ is strict about compliance.
 
                     // Flush any pending operations
                     if let Err(e) = event_queue.flush() {
