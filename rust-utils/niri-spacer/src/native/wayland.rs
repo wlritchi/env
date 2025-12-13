@@ -147,8 +147,10 @@ impl WaylandApp {
         window.set_app_id(app_id.clone());
         window.set_title(title);
 
-        // Remove all size constraints to let niri fully control window sizing
-        // The initial surface size will still be small, but niri will resize via configure events
+        // Set size hints to request a minimal-width window
+        // This tells niri we want to be as narrow as possible
+        window.set_min_size(Some((1, 1)));
+        window.set_max_size(Some((1, 4096))); // Max width of 1px, tall enough for any display
 
         // Commit the surface to trigger initial configure
         surface.commit();
