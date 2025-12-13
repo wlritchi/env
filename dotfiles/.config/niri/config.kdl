@@ -222,6 +222,10 @@ layer-rule {
 }
 
 window-rule {
+    open-maximized-to-edges false
+}
+
+window-rule {
     match is-window-cast-target=true
 
     focus-ring {
