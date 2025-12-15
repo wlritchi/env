@@ -57,7 +57,10 @@ print_status() {
 }
 
 wlr_interactive=
-if [ -n "$TERM" ]; then
+# Check both $TERM, $- interactive flag, AND that stdin is actually a terminal.
+# The stdin check (-t 0) prevents tmux status bar scripts (e.g., tmux-continuum)
+# from being detected as interactive - they inherit $TERM but have no TTY.
+if [ -n "$TERM" ] && [ -t 0 ]; then
     case "$-" in
         *i*)
             wlr_interactive=y
