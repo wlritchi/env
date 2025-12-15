@@ -7,9 +7,11 @@ set -euo pipefail
 # check gitconfig setup
 if [ ! -f ~/.gitconfig ]; then
     cp "$WLR_ENV_PATH/config/git/local.template" ~/.gitconfig
-    wlr-warn "Created ~/.gitconfig from template - edit HOSTNAME and user.signingKey"
+    wlr-warn "Created ~/.gitconfig from template - edit HOSTNAME, UNAME, and user.signingKey"
 elif ! grep -q 'path.*\.wlrenv/config/git/common' ~/.gitconfig; then
     wlr-warn "~/.gitconfig missing include for common gitconfig - see config/git/local.template"
+elif ! grep -q 'path.*\.wlrenv/config/git/uname/' ~/.gitconfig; then
+    wlr-warn "~/.gitconfig missing include for uname gitconfig - see config/git/local.template"
 fi
 
 # set up git config for env
