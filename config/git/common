@@ -6,7 +6,7 @@
 	rgrep = !git grep
 
 [core]
-	pager = less -R
+	pager = delta
 	attributesfile = ~/.gitattributes
 	untrackedcache = true
 	fsmonitor = true
@@ -25,6 +25,9 @@
 	match = yellow bold
 	selected = normal
 	separator = cyan
+
+[interactive]
+	diffFilter = delta --color-only
 
 [push]
 	default = current
@@ -87,4 +90,9 @@
 	path = ~/.wlrenv/vendor/catppuccin-delta/catppuccin.gitconfig
 
 [delta]
+	navigate = true
+	dark = true
 	features = catppuccin-macchiato
+
+[merge]
+	conflictStyle = zdiff3
