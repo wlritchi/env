@@ -55,8 +55,8 @@ PATH = '~/.nix-profile/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$
 # All possible commands: https://nikitabobko.github.io/AeroSpace/commands
 
 alt-space = 'layout h_tiles h_accordion'
-alt-shift-enter = 'exec-and-forget open -n -a Alacritty.app --args --working-directory ~'
-alt-backtick = 'exec-and-forget open -n -a Alacritty.app --args -e sh -c "~/.nix-profile/bin/k9s"'
+alt-shift-enter = 'exec-and-forget open -n -a Ghostty.app --args --working-directory=~'
+alt-backtick = 'exec-and-forget open -n -a Ghostty.app --args -e ~/.nix-profile/bin/k9s'
 
 alt-j = 'focus left --boundaries-action wrap-around-the-workspace'
 alt-k = 'focus right --boundaries-action wrap-around-the-workspace'
