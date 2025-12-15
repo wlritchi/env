@@ -27,6 +27,9 @@ let
       };
   secretive = pkgs.callPackage ./pkgs/secretive.nix { };
   age-with-plugins = import ./pkgs/age-with-plugins.nix { inherit pkgs; };
+  browserpass-native-passage = import ./pkgs/browserpass-native-passage.nix {
+    inherit pkgs age-with-plugins;
+  };
 in
 {
   imports = [
@@ -40,12 +43,11 @@ in
 
   home.packages = with pkgs; [
     aerospace
-    age-with-plugins
     age-plugin-se
+    age-with-plugins
     autokbisw
     awscli2
     bash
-    browserpass
     coreutils-full
     docker
     docker-buildx
@@ -62,5 +64,14 @@ in
 
   home.file.".docker/cli-plugins/docker-buildx" = {
     source = "${pkgs.docker-buildx}/libexec/docker/cli-plugins/docker-buildx";
+  };
+
+  programs.browserpass = {
+    enable = true;
+    browsers = [
+      "chrome"
+      "librewolf"
+    ];
+    package = browserpass-native-passage;
   };
 }
