@@ -38,12 +38,14 @@ in
 
   home.packages = with pkgs; [
     aerospace
+    autokbisw
     awscli2
     bash
     browserpass
     coreutils-full
     docker
     docker-buildx
+    karabiner-elements
     openssh
     pinentry_mac
     procps # for the watch command
