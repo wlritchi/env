@@ -16,7 +16,7 @@ return {
           vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
           vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, opts)
           vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
-          vim.keymap.set("n", "gr", vim.lsp.buf.references, opts)
+          vim.keymap.set("n", "gr", "<cmd>Telescope lsp_references<cr>", opts)
 
           -- Enable inlay hints if supported
           local client = vim.lsp.get_client_by_id(ev.data.client_id)
