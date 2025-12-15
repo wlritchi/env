@@ -48,6 +48,7 @@ in
     coreutils-full
     docker
     docker-buildx
+    ghostty-bin
     karabiner-elements
     passage
     procps # for the watch command
