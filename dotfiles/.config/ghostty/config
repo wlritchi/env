@@ -1,0 +1,17 @@
+# Theme
+theme = catppuccin-macchiato
+
+# Font
+font-family = FiraCode Nerd Font
+font-size = 10
+
+# Cursor
+cursor-style = block
+
+# Window
+window-decoration = false
+window-padding-x = 2
+window-padding-y = 2
+
+# Behavior
+quit-after-last-window-closed = true
