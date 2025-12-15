@@ -39,6 +39,8 @@ in
 
   home.packages = with pkgs; [
     aerospace
+    age
+    age-plugin-se
     autokbisw
     awscli2
     bash
@@ -49,6 +51,7 @@ in
     karabiner-elements
     openssh
     pinentry_mac
+    passage
     procps # for the watch command
     secretive
     teleport
