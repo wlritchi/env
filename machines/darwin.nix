@@ -49,8 +49,6 @@ in
     docker
     docker-buildx
     karabiner-elements
-    openssh
-    pinentry_mac
     passage
     procps # for the watch command
     secretive
