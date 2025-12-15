@@ -31,6 +31,7 @@ return {
       vim.lsp.config("pyright", {})
       vim.lsp.config("ts_ls", {})
       vim.lsp.config("rust_analyzer", {})
+      vim.lsp.config("gopls", {})
     end,
   },
 
@@ -52,6 +53,7 @@ return {
           "pyright",
           "ts_ls",
           "rust_analyzer",
+          "gopls",
         },
         automatic_installation = true,
       })
