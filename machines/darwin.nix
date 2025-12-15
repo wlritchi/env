@@ -26,6 +26,7 @@ let
         config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "acli" ];
       };
   secretive = pkgs.callPackage ./pkgs/secretive.nix { };
+  age-with-plugins = import ./pkgs/age-with-plugins.nix { inherit pkgs; };
 in
 {
   imports = [
@@ -39,7 +40,7 @@ in
 
   home.packages = with pkgs; [
     aerospace
-    age
+    age-with-plugins
     age-plugin-se
     autokbisw
     awscli2
