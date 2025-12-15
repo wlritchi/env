@@ -25,6 +25,7 @@ let
         system = pkgs.stdenv.hostPlatform.system;
         config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "acli" ];
       };
+  secretive = pkgs.callPackage ./pkgs/secretive.nix { };
 in
 {
   imports = [
@@ -49,6 +50,7 @@ in
     openssh
     pinentry_mac
     procps # for the watch command
+    secretive
     teleport
     pinAcli.acli
     pinDevspace.devspace
