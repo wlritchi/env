@@ -41,7 +41,13 @@ in
   home.homeDirectory = "/Users/luc.ritchie";
   home.stateVersion = "25.11";
 
+  fonts.fontconfig.enable = true;
+
   home.packages = with pkgs; [
+    # Fonts
+    fira-code
+    nerd-fonts.fira-code
+
     aerospace
     age-plugin-se
     age-with-plugins
