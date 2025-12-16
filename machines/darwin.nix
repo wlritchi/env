@@ -72,6 +72,13 @@ in
     source = "${pkgs.docker-buildx}/libexec/docker/cli-plugins/docker-buildx";
   };
 
+  # Keyboard layouts must be copied, not symlinked (macOS ignores symlinks)
+  home.activation.copyKeyboardLayouts = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    run mkdir -p "$HOME/Library/Keyboard Layouts"
+    run ${pkgs.rsync}/bin/rsync -aL --chmod=u+w \
+      "${../keyboard}/" "$HOME/Library/Keyboard Layouts/"
+  '';
+
   programs.browserpass = {
     enable = true;
     browsers = [
