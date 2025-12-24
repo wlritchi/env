@@ -262,7 +262,9 @@ def _setup() -> None:
 
         if which('bat'):
             XSH.aliases['cat'] = 'bat'
-        if which('eza'):
+        if which('lsx') and which('eza'):
+            XSH.aliases['ls'] = 'lsx'
+        elif which('eza'):
             XSH.aliases['ls'] = 'eza'
         elif which('exa'):
             XSH.aliases['ls'] = 'exa'

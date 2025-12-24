@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Workaround for eza 0.23.0 regression where no arguments causes it to read
+# stdin, which breaks when stdin is /dev/null (e.g. in Claude Code).
+# See https://github.com/eza-community/eza/issues/1568
+
+if [ $# -eq 0 ]; then
+    exec eza .
+else
+    exec eza "$@"
+fi

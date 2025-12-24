@@ -376,10 +376,12 @@ alias gs='git status' # ghostscript
 command -v grmx > /dev/null 2>&1 && alias grm='grmx' # macos, with brew: gnu rm
 
 command -v bat >/dev/null 2>&1 && alias cat='bat'
-if command -v eza >/dev/null 2>&1; then
+if command -v lsx >/dev/null 2>&1 && command -v eza >/dev/null 2>&1; then
+    alias ls='lsx'
+elif command -v eza >/dev/null 2>&1; then
     alias ls='eza'
-else
-    command -v exa >/dev/null 2>&1 && alias ls='exa'
+elif command -v exa >/dev/null 2>&1; then
+    alias ls='exa'
 fi
 command -v nvim >/dev/null 2>&1 && alias vim='nvim'
 
