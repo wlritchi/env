@@ -28,13 +28,16 @@
         eza
         fnm
         fzf
+        git
         git-lfs
         git-sync
+        gnupg
         go
         gopls
         jq
         k9s
         moreutils
+        ncdu
         neovim
         nixfmt
         nnn
