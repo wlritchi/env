@@ -8,7 +8,6 @@
 {
   launchd.agents = {
     # Git sync - runs every hour
-    # Note: Requires git-sync script to be available
     git-sync = {
       enable = true;
       config = {

@@ -1,10 +1,17 @@
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 {
   systemd.user = {
     # Rclone copy service + timer
     services.rclone-copy = {
-      Unit = { Description = "Run rclone copy on configured directories"; };
+      Unit = {
+        Description = "Run rclone copy on configured directories";
+      };
       Service = {
         Type = "oneshot";
         ExecStart = pkgs.writeShellScript "rclone-copy-runner" ''
@@ -31,13 +38,16 @@
         OnUnitActiveSec = "1h";
         RandomizedDelaySec = "5m";
       };
-      Install = { WantedBy = [ "timers.target" ]; };
+      Install = {
+        WantedBy = [ "timers.target" ];
+      };
     };
 
     # Git sync service + timer
-    # Note: Requires git-sync script to be available
     services.git-sync = {
-      Unit = { Description = "Run git-sync on configured repos"; };
+      Unit = {
+        Description = "Run git-sync on configured repos";
+      };
       Service = {
         Type = "oneshot";
         ExecStart = pkgs.writeShellScript "git-sync-runner" ''
@@ -58,54 +68,54 @@
 
     timers.git-sync = {
       Unit = {
-        Description =
-          "Run git-sync on configured repos on boot and roughly every hour";
+        Description = "Run git-sync on configured repos on boot and roughly every hour";
       };
       Timer = {
         OnBootSec = "5m";
         OnUnitActiveSec = "1h";
         RandomizedDelaySec = "5m";
       };
-      Install = { WantedBy = [ "timers.target" ]; };
+      Install = {
+        WantedBy = [ "timers.target" ];
+      };
     };
 
     # Tmux/Niri workspace tracker service + timer
     services.wlr-tmux-niri-tracker = {
       Unit = {
         Description = "Track tmux sessions to niri workspaces";
-        Documentation =
-          "file://${config.home.homeDirectory}/.wlrenv/TMUX_NIRI_WORKSPACE_TRACKING.md";
+        Documentation = "file://${config.home.homeDirectory}/.wlrenv/TMUX_NIRI_WORKSPACE_TRACKING.md";
         ConditionEnvironment = "NIRI_SOCKET";
       };
       Service = {
         Type = "oneshot";
-        ExecStart =
-          "${config.home.homeDirectory}/.local/bin/wlr-niri-track-terminals";
+        ExecStart = "${config.home.homeDirectory}/.local/bin/wlr-niri-track-terminals";
       };
     };
 
     timers.wlr-tmux-niri-tracker = {
       Unit = {
-        Description =
-          "Periodically track tmux sessions to niri workspaces every 30 seconds";
-        Documentation =
-          "file://${config.home.homeDirectory}/.wlrenv/TMUX_NIRI_WORKSPACE_TRACKING.md";
+        Description = "Periodically track tmux sessions to niri workspaces every 30 seconds";
+        Documentation = "file://${config.home.homeDirectory}/.wlrenv/TMUX_NIRI_WORKSPACE_TRACKING.md";
       };
       Timer = {
         OnBootSec = "30s";
         OnUnitActiveSec = "30s";
         Unit = "wlr-tmux-niri-tracker.service";
       };
-      Install = { WantedBy = [ "timers.target" ]; };
+      Install = {
+        WantedBy = [ "timers.target" ];
+      };
     };
 
     # Tmux pane backup service + timer
     services.tmux-pane-backup = {
-      Unit = { Description = "Back up tmux-resurrect pane contents"; };
+      Unit = {
+        Description = "Back up tmux-resurrect pane contents";
+      };
       Service = {
         Type = "oneshot";
-        ExecStart =
-          "${config.home.homeDirectory}/.wlrenv/bin/tmux/wlr-tmux-pane-backup";
+        ExecStart = "${config.home.homeDirectory}/.wlrenv/bin/tmux/wlr-tmux-pane-backup";
       };
     };
 
@@ -118,12 +128,16 @@
         OnUnitActiveSec = "6min";
         Unit = "tmux-pane-backup.service";
       };
-      Install = { WantedBy = [ "timers.target" ]; };
+      Install = {
+        WantedBy = [ "timers.target" ];
+      };
     };
 
     # Retainer cleanup for tmux pane backups
     services.retainer-tmux-panes = {
-      Unit = { Description = "Clean up old tmux pane content archives"; };
+      Unit = {
+        Description = "Clean up old tmux pane content archives";
+      };
       Service = {
         Type = "oneshot";
         ExecStart = pkgs.writeShellScript "retainer-tmux-panes-runner" ''
@@ -136,13 +150,17 @@
     };
 
     timers.retainer-tmux-panes = {
-      Unit = { Description = "Clean up old tmux pane archives hourly"; };
+      Unit = {
+        Description = "Clean up old tmux pane archives hourly";
+      };
       Timer = {
         OnBootSec = "10m";
         OnUnitActiveSec = "1h";
         RandomizedDelaySec = "5m";
       };
-      Install = { WantedBy = [ "timers.target" ]; };
+      Install = {
+        WantedBy = [ "timers.target" ];
+      };
     };
   };
 }
