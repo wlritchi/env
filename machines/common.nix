@@ -28,7 +28,6 @@
         eza
         fnm
         fzf
-        gh
         git-lfs
         git-sync
         go
@@ -57,6 +56,11 @@
       ];
 
     programs.home-manager.enable = true;
+
+    programs.gh = {
+      enable = true;
+      extensions = [ pkgs.gh-poi ];
+    };
 
     nix = {
       package = pkgs.nix;
