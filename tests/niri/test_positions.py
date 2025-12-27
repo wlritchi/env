@@ -231,3 +231,116 @@ def test_prune_preserves_non_dominated(temp_dirs: tuple[Path, Path]) -> None:
     # "has_librewolf" preserved: "current" doesn't have librewolf
     assert "has_librewolf" in result["boots"]
     assert "current" in result["boots"]
+
+
+def test_lookup_latest_position(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import lookup_latest_position, save_positions
+
+    data = {
+        "version": 1,
+        "boots": {
+            "old": {
+                "updated_at": "2025-12-25T10:00:00Z",
+                "apps": ["tmux"],
+                "workspaces": {
+                    "1": [{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}]
+                },
+            },
+            "new": {
+                "updated_at": "2025-12-26T10:00:00Z",
+                "apps": ["tmux"],
+                "workspaces": {
+                    "2": [{"id": "tmux:a", "index": 2, "window_id": 200, "width": 60}]
+                },
+            },
+        },
+    }
+    save_positions(data)
+
+    result = lookup_latest_position("tmux:a")
+
+    # Should return from newer boot
+    assert result is not None
+    assert result["workspace_id"] == 2
+    assert result["width"] == 60
+
+
+def test_lookup_latest_position_returns_none_for_unknown(
+    temp_dirs: tuple[Path, Path],
+) -> None:
+    from wlrenv.niri.positions import lookup_latest_position
+
+    result = lookup_latest_position("tmux:nonexistent")
+
+    assert result is None
+
+
+def test_find_predecessors_cross_app(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import find_predecessors, save_positions
+
+    data = {
+        "version": 1,
+        "boots": {
+            "boot1": {
+                "updated_at": "2025-12-26T10:00:00Z",
+                "apps": ["tmux", "librewolf"],
+                "workspaces": {
+                    "1": [
+                        {"id": "tmux:a", "index": 1, "window_id": 100, "width": 50},
+                        {
+                            "id": "librewolf:x",
+                            "index": 2,
+                            "window_id": 200,
+                            "width": 40,
+                        },
+                        {"id": "tmux:b", "index": 3, "window_id": 300, "width": 50},
+                    ]
+                },
+            },
+        },
+    }
+    save_positions(data)
+
+    # librewolf:x has predecessor tmux:a (index 1 < 2)
+    predecessors = find_predecessors(
+        stable_id="librewolf:x",
+        this_app="librewolf",
+        workspace_id=1,
+    )
+
+    assert "tmux:a" in predecessors
+    assert "tmux:b" not in predecessors  # index 3 > 2
+    assert "librewolf:x" not in predecessors  # self
+
+
+def test_resolve_predecessors_to_window_ids(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import (
+        get_boot_id,
+        resolve_predecessors_to_window_ids,
+        save_positions,
+    )
+
+    boot_id = get_boot_id()
+    data = {
+        "version": 1,
+        "boots": {
+            boot_id: {
+                "updated_at": "2025-12-26T10:00:00Z",
+                "apps": ["tmux"],
+                "workspaces": {
+                    "1": [
+                        {"id": "tmux:a", "index": 1, "window_id": 100, "width": 50},
+                        {"id": "tmux:b", "index": 2, "window_id": 200, "width": 50},
+                    ]
+                },
+            },
+        },
+    }
+    save_positions(data)
+
+    window_ids = resolve_predecessors_to_window_ids(
+        predecessor_ids=["tmux:a", "tmux:missing"],
+        workspace_id=1,
+    )
+
+    assert window_ids == [100]  # tmux:missing not found
