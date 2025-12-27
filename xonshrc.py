@@ -224,8 +224,8 @@ def _setup() -> None:
 
         rtn_str = ''
         try:
-            if _.rtn != 0:  # type: ignore
-                rtn_str = f'{_.rtn}'  # type: ignore
+            if _.rtn != 0:  # type: ignore[name-defined]  # xonsh magic variable
+                rtn_str = f'{_.rtn}'  # type: ignore[name-defined]
         except AttributeError:
             # previous command has no return code (e.g. because it's a xonsh function)
             pass

@@ -180,9 +180,9 @@ def delete_files(files: set[Path], *, dry_run: bool = False) -> None:
     """Delete the specified files."""
     for path in sorted(files):
         if dry_run:
-            print(f"(dry run) would delete: {path}")  # noqa: T201
+            print(f"(dry run) would delete: {path}")
         else:
-            print(f"deleting: {path}")  # noqa: T201
+            print(f"deleting: {path}")
             path.unlink()
 
 
@@ -255,11 +255,11 @@ def main(args: list[str] | None = None) -> int:
     try:
         pattern = re.compile(parsed.pattern)
     except re.error as e:
-        print(f"Invalid regex pattern: {e}", file=sys.stderr)  # noqa: T201
+        print(f"Invalid regex pattern: {e}", file=sys.stderr)
         return 1
 
     if 'timestamp' not in pattern.groupindex:
-        print(  # noqa: T201
+        print(
             'Pattern must contain a named group "timestamp", e.g. (?P<timestamp>...)',
             file=sys.stderr,
         )
@@ -276,11 +276,11 @@ def main(args: list[str] | None = None) -> int:
             exponential_factor=parsed.exponential_factor,
         )
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)  # noqa: T201
+        print(f"Error: {e}", file=sys.stderr)
         return 1
 
     if not files_to_delete:
-        print("No files to delete.")  # noqa: T201
+        print("No files to delete.")
         return 0
 
     delete_files(files_to_delete, dry_run=parsed.dry_run)

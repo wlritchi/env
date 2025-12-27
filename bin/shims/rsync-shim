@@ -53,7 +53,7 @@ def main() -> None:
             args.help,
         )
     ):
-        print(  # noqa: T201
+        print(
             dedent(
                 """
                 Error: rsync requires --checksum mode for safe file comparisons.

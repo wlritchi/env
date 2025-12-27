@@ -16,7 +16,7 @@ def track_terminals_cli() -> None:
     try:
         track_terminals()
     except NiriError as e:
-        print(f"Error: {e}", file=sys.stderr)  # noqa: T201
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -25,7 +25,7 @@ def restore_tmux_cli() -> None:
     try:
         restore_tmux()
     except NiriError as e:
-        print(f"Error: {e}", file=sys.stderr)  # noqa: T201
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -34,7 +34,7 @@ def restore_mosh_cli() -> None:
     try:
         restore_mosh()
     except NiriError as e:
-        print(f"Error: {e}", file=sys.stderr)  # noqa: T201
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
