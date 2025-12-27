@@ -42,6 +42,7 @@
         nixfmt
         nnn
         onefetch
+        prek
         ripgrep
         rustup
         sccache
