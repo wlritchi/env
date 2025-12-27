@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from wlrenv.niri import ipc, order_storage
+from wlrenv.niri import ipc, positions
 from wlrenv.niri.ipc import Window
 
 SPACER_IDENTITY = "__spacer__"
@@ -116,17 +116,54 @@ def place_window(
     workspace_id: int,
     current_column: int,
 ) -> None:
-    """Place a window in the correct column based on saved order.
+    """Place a window in the correct column based on predecessor positions.
 
     This is the main entry point for window ordering during restore.
+    Uses positions.find_predecessors() for cross-app ordering from historical boots.
     """
-    saved_order = order_storage.get_order(workspace_id)
+    # Parse app from identity (e.g., "tmux:session" -> "tmux")
+    app = identity.split(":")[0] if ":" in identity else identity
 
-    # Build current window state (excluding the window we're placing)
-    current_windows = _build_current_windows(workspace_id, exclude_window_id=window_id)
+    # Find predecessors from historical boots
+    predecessor_ids = positions.find_predecessors(
+        stable_id=identity,
+        this_app=app,
+        workspace_id=workspace_id,
+    )
 
-    # Calculate target column
-    target = calculate_target_column(identity, saved_order, current_windows)
+    # Resolve to window IDs in current boot
+    predecessor_window_ids = positions.resolve_predecessors_to_window_ids(
+        predecessor_ids=predecessor_ids,
+        workspace_id=workspace_id,
+    )
+
+    # Get all windows in workspace to find predecessor columns
+    windows = ipc.get_windows()
+    window_id_to_column: dict[int, int] = {}
+    spacer_column: int | None = None
+
+    for w in windows:
+        if w.workspace_id != workspace_id:
+            continue
+        if w.column is not None:
+            window_id_to_column[w.id] = w.column
+            if w.title == "niri-spacer window":
+                spacer_column = w.column
+
+    # Find rightmost predecessor column
+    rightmost_col = 0
+
+    # Spacer is implicit predecessor
+    if spacer_column is not None and spacer_column > rightmost_col:
+        rightmost_col = spacer_column
+
+    for pred_window_id in predecessor_window_ids:
+        col = window_id_to_column.get(pred_window_id)
+        if col is not None and col > rightmost_col:
+            rightmost_col = col
+
+    # Target is one right of rightmost predecessor (or column 1 if none)
+    target = rightmost_col + 1 if rightmost_col > 0 else 1
 
     # Move if needed
     move_to_column(window_id, current_column, target)
