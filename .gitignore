@@ -1,6 +1,7 @@
 .last-update-check
 rendered
 build
+.worktrees/
 
 **/.claude/settings.local.json
 
