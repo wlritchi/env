@@ -167,3 +167,67 @@ def test_upsert_entries_removes_stale_same_id(temp_dirs: tuple[Path, Path]) -> N
     # Should only exist on workspace 2 now
     assert boot["workspaces"].get("1", []) == []
     assert len(boot["workspaces"]["2"]) == 1
+
+
+def test_prune_dominated_boots(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import (
+        load_positions,
+        prune_dominated_boots,
+        save_positions,
+    )
+
+    data = {
+        "version": 1,
+        "boots": {
+            "old": {
+                "updated_at": "2025-12-25T10:00:00Z",
+                "apps": ["tmux"],
+                "workspaces": {},
+            },
+            "current": {
+                "updated_at": "2025-12-26T10:00:00Z",
+                "apps": ["tmux", "mosh"],
+                "workspaces": {},
+            },
+        },
+    }
+    save_positions(data)
+
+    prune_dominated_boots("current")
+
+    result = load_positions()
+    # "old" should be pruned: "current" has superset of apps and is newer
+    assert "old" not in result["boots"]
+    assert "current" in result["boots"]
+
+
+def test_prune_preserves_non_dominated(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import (
+        load_positions,
+        prune_dominated_boots,
+        save_positions,
+    )
+
+    data = {
+        "version": 1,
+        "boots": {
+            "has_librewolf": {
+                "updated_at": "2025-12-25T10:00:00Z",
+                "apps": ["librewolf"],
+                "workspaces": {},
+            },
+            "current": {
+                "updated_at": "2025-12-26T10:00:00Z",
+                "apps": ["tmux"],
+                "workspaces": {},
+            },
+        },
+    }
+    save_positions(data)
+
+    prune_dominated_boots("current")
+
+    result = load_positions()
+    # "has_librewolf" preserved: "current" doesn't have librewolf
+    assert "has_librewolf" in result["boots"]
+    assert "current" in result["boots"]

@@ -134,3 +134,36 @@ def upsert_entries(
         boot["updated_at"] = datetime.now(UTC).isoformat()
 
         save_positions(data)
+
+
+def prune_dominated_boots(current_boot_id: str) -> None:
+    """Remove boots dominated by the current boot.
+
+    Boot A dominates Boot B if:
+    1. A.apps is a superset of B.apps
+    2. A.updated_at > B.updated_at
+    """
+    with PositionsLock():
+        data = load_positions()
+
+        if current_boot_id not in data["boots"]:
+            return
+
+        current = data["boots"][current_boot_id]
+        current_apps = set(current["apps"])
+        current_time = current["updated_at"]
+
+        to_delete = []
+        for boot_id, boot in data["boots"].items():
+            if boot_id == current_boot_id:
+                continue
+            boot_apps = set(boot["apps"])
+            # Current dominates boot if current has all of boot's apps and is newer
+            if boot_apps <= current_apps and boot["updated_at"] < current_time:
+                to_delete.append(boot_id)
+
+        for boot_id in to_delete:
+            del data["boots"][boot_id]
+
+        if to_delete:
+            save_positions(data)
