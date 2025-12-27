@@ -5,114 +5,99 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wlrenv.niri.ipc import Output, Window, Workspace
-from wlrenv.niri.track import (
-    calculate_width_percent,
-    track_terminals,
-)
-
 
 @pytest.fixture
-def temp_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Use temporary directory for state."""
-    import wlrenv.niri.config as config
+def temp_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """Set up temp state and run directories."""
+    from wlrenv.niri import config
 
-    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
-    return tmp_path
+    state_dir = tmp_path / "state"
+    run_dir = tmp_path / "run"
+    state_dir.mkdir()
+    run_dir.mkdir()
+
+    monkeypatch.setattr(config, "STATE_DIR", state_dir)
+    monkeypatch.setattr("wlrenv.niri.positions._get_run_dir", lambda: run_dir)
+    return state_dir, run_dir
 
 
 def test_calculate_width_percent_rounds_to_10() -> None:
-    # 1535 / 3072 = 49.97% -> rounds to 50
-    assert calculate_width_percent(1535.0, 3072) == 50
+    from wlrenv.niri.track import calculate_width_percent
 
-    # 3070 / 3072 = 99.9% -> rounds to 100
-    assert calculate_width_percent(3070.0, 3072) == 100
-
-    # 768 / 3072 = 25% -> exactly 30 (rounds up from 25)
-    assert calculate_width_percent(768.0, 3072) == 30
+    assert calculate_width_percent(500, 1000) == 50
+    assert calculate_width_percent(333, 1000) == 30
+    assert calculate_width_percent(666, 1000) == 70
+    assert calculate_width_percent(450, 1000) == 50
 
 
-def make_window(
-    id: int = 1,
-    pid: int = 1234,
-    workspace_id: int = 1,
-    tile_width: float = 1535.0,
-    column: int = 1,
-) -> Window:
-    return Window(
-        id=id,
-        title="Alacritty",
-        app_id="Alacritty",
-        pid=pid,
-        workspace_id=workspace_id,
-        tile_width=tile_width,
-        tile_height=1000.0,
-        column=column,
-    )
+def test_track_terminals_stores_tmux_session(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri import positions
+    from wlrenv.niri.track import track_terminals
+
+    mock_window = MagicMock()
+    mock_window.id = 123
+    mock_window.pid = 1000
+    mock_window.workspace_id = 1
+    mock_window.tile_width = 500
+    mock_window.column = 2
+
+    mock_output = MagicMock()
+    mock_output.name = "eDP-1"
+    mock_output.width = 1000
+
+    mock_workspace = MagicMock()
+    mock_workspace.id = 1
+    mock_workspace.output = "eDP-1"
+
+    with (
+        patch("wlrenv.niri.track.ipc.get_windows", return_value=[mock_window]),
+        patch("wlrenv.niri.track.ipc.get_outputs", return_value=[mock_output]),
+        patch("wlrenv.niri.track.ipc.get_workspaces", return_value=[mock_workspace]),
+        patch("wlrenv.niri.track.get_child_processes") as mock_children,
+        patch("wlrenv.niri.track.identify_tmux", return_value="dotfiles"),
+    ):
+        mock_children.return_value = [MagicMock(comm="tmux", args=["tmux"])]
+        track_terminals()
+
+    data = positions.load_positions()
+    boot_id = list(data["boots"].keys())[0]
+    entries = data["boots"][boot_id]["workspaces"]["1"]
+
+    assert len(entries) == 1
+    assert entries[0]["id"] == "tmux:dotfiles"
+    assert entries[0]["width"] == 50
 
 
-@patch("wlrenv.niri.track.get_child_processes")
-@patch("wlrenv.niri.ipc.get_workspaces")
-@patch("wlrenv.niri.ipc.get_outputs")
-@patch("wlrenv.niri.ipc.get_windows")
-def test_track_terminals_stores_tmux_session(
-    mock_windows: MagicMock,
-    mock_outputs: MagicMock,
-    mock_workspaces: MagicMock,
-    mock_children: MagicMock,
-    temp_state_dir: Path,
-) -> None:
-    from wlrenv.niri.identify import ProcessInfo
-    from wlrenv.niri.storage import lookup
+def test_track_terminals_saves_column_order(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri import positions
+    from wlrenv.niri.track import track_terminals
 
-    mock_windows.return_value = [make_window(id=1, pid=1000, workspace_id=2)]
-    mock_outputs.return_value = [Output(name="eDP-1", width=3072, height=1920)]
-    mock_workspaces.return_value = [Workspace(id=2, output="eDP-1")]
-    mock_children.return_value = [
-        ProcessInfo(
-            comm="tmux: client", args=["tmux", "attach-session", "-t", "mywork"]
-        )
+    mock_windows = [
+        MagicMock(id=1, pid=100, workspace_id=1, tile_width=500, column=3),
+        MagicMock(id=2, pid=200, workspace_id=1, tile_width=500, column=1),
     ]
 
-    track_terminals()
+    mock_output = MagicMock()
+    mock_output.name = "eDP-1"
+    mock_output.width = 1000
+    mock_workspace = MagicMock(id=1, output="eDP-1")
 
-    result = lookup("tmux", "mywork")
-    assert result is not None
-    assert result["workspace"] == 2
-    assert result["width"] == 50
+    with (
+        patch("wlrenv.niri.track.ipc.get_windows", return_value=mock_windows),
+        patch("wlrenv.niri.track.ipc.get_outputs", return_value=[mock_output]),
+        patch("wlrenv.niri.track.ipc.get_workspaces", return_value=[mock_workspace]),
+        patch("wlrenv.niri.track.get_child_processes") as mock_children,
+        patch("wlrenv.niri.track.identify_tmux", side_effect=["a", "b"]),
+        patch("wlrenv.niri.track.identify_mosh", return_value=None),
+    ):
+        mock_children.return_value = [MagicMock(comm="tmux", args=["tmux"])]
+        track_terminals()
 
+    data = positions.load_positions()
+    boot_id = list(data["boots"].keys())[0]
+    entries = data["boots"][boot_id]["workspaces"]["1"]
 
-@patch("wlrenv.niri.track.order_storage")
-@patch("wlrenv.niri.track.get_child_processes")
-@patch("wlrenv.niri.ipc.get_workspaces")
-@patch("wlrenv.niri.ipc.get_outputs")
-@patch("wlrenv.niri.ipc.get_windows")
-def test_track_terminals_saves_column_order(
-    mock_windows: MagicMock,
-    mock_outputs: MagicMock,
-    mock_workspaces: MagicMock,
-    mock_children: MagicMock,
-    mock_order_storage: MagicMock,
-    temp_state_dir: Path,
-) -> None:
-    from wlrenv.niri.identify import ProcessInfo
-
-    # Two tmux windows in workspace 1 at columns 2 and 1
-    mock_windows.return_value = [
-        make_window(id=1, pid=1000, workspace_id=1, column=2),
-        make_window(id=2, pid=1001, workspace_id=1, column=1),
-    ]
-    mock_outputs.return_value = [Output(name="eDP-1", width=3072, height=1920)]
-    mock_workspaces.return_value = [Workspace(id=1, output="eDP-1")]
-    mock_children.side_effect = [
-        [ProcessInfo(comm="tmux", args=["tmux", "-t", "work"])],
-        [ProcessInfo(comm="tmux", args=["tmux", "-t", "scratch"])],
-    ]
-
-    track_terminals()
-
-    # Order should be saved sorted by column: scratch (col 1), work (col 2)
-    mock_order_storage.save_order.assert_called_once_with(
-        workspace_id=1,
-        order=["tmux:scratch", "tmux:work"],
-    )
+    # Entries preserve column index from windows
+    ids_with_index = [(e["id"], e["index"]) for e in entries]
+    assert ("tmux:a", 3) in ids_with_index
+    assert ("tmux:b", 1) in ids_with_index

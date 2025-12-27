@@ -10,11 +10,18 @@ from wlrenv.niri.ipc import Window
 
 
 @pytest.fixture
-def temp_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def temp_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """Set up temp state and run directories."""
     from wlrenv.niri import config
 
-    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
-    return tmp_path
+    state_dir = tmp_path / "state"
+    run_dir = tmp_path / "run"
+    state_dir.mkdir()
+    run_dir.mkdir()
+
+    monkeypatch.setattr(config, "STATE_DIR", state_dir)
+    monkeypatch.setattr("wlrenv.niri.positions._get_run_dir", lambda: run_dir)
+    return state_dir, run_dir
 
 
 def make_test_window(
@@ -174,16 +181,17 @@ def test_move_to_column_moves_right(mock_ipc: MagicMock) -> None:
 
 
 @patch("wlrenv.niri.ordering.ipc")
-@patch("wlrenv.niri.ordering.order_storage")
+@patch("wlrenv.niri.ordering.positions")
 def test_place_window_moves_to_correct_column(
-    mock_storage: MagicMock,
+    mock_positions: MagicMock,
     mock_ipc: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
     from wlrenv.niri.ordering import place_window
 
-    # Setup: B should come after A
-    mock_storage.get_order.return_value = ["tmux:a", "tmux:b"]
+    # Setup: B should come after A (A is a predecessor of B)
+    mock_positions.find_predecessors.return_value = ["tmux:a"]
+    mock_positions.resolve_predecessors_to_window_ids.return_value = [1]  # window_id 1
 
     # A is present at column 2
     win_a, _ = make_test_window(1, "tmux:a", column=2)
@@ -202,15 +210,17 @@ def test_place_window_moves_to_correct_column(
 
 
 @patch("wlrenv.niri.ordering.ipc")
-@patch("wlrenv.niri.ordering.order_storage")
+@patch("wlrenv.niri.ordering.positions")
 def test_place_window_skips_move_when_already_correct(
-    mock_storage: MagicMock,
+    mock_positions: MagicMock,
     mock_ipc: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
     from wlrenv.niri.ordering import place_window
 
-    mock_storage.get_order.return_value = ["tmux:a"]
+    # No predecessors
+    mock_positions.find_predecessors.return_value = []
+    mock_positions.resolve_predecessors_to_window_ids.return_value = []
     mock_ipc.get_windows.return_value = []
 
     # A has no predecessors, target is column 1, already at column 1

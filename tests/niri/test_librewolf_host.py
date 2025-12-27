@@ -10,16 +10,24 @@ from wlrenv.niri.librewolf_host import handle_message
 
 
 @pytest.fixture
-def temp_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Use temporary directory for state."""
-    import wlrenv.niri.config as config
+def temp_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """Set up temp state and run directories."""
+    from wlrenv.niri import config
 
-    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
-    return tmp_path
+    state_dir = tmp_path / "state"
+    run_dir = tmp_path / "run"
+    state_dir.mkdir()
+    run_dir.mkdir()
+
+    monkeypatch.setattr(config, "STATE_DIR", state_dir)
+    monkeypatch.setattr("wlrenv.niri.positions._get_run_dir", lambda: run_dir)
+    return state_dir, run_dir
 
 
 @patch("wlrenv.niri.librewolf_host.ipc")
-def test_handle_store_message(mock_ipc: MagicMock, temp_state_dir: Path) -> None:
+def test_handle_store_message(
+    mock_ipc: MagicMock, temp_dirs: tuple[Path, Path]
+) -> None:
     from wlrenv.niri.ipc import Window
 
     mock_ipc.find_window_by_title.return_value = Window(
@@ -30,6 +38,7 @@ def test_handle_store_message(mock_ipc: MagicMock, temp_state_dir: Path) -> None
         workspace_id=2,
         tile_width=1535.0,
         tile_height=1000.0,
+        column=1,
     )
     mock_ipc.get_outputs.return_value = [MagicMock(name="eDP-1", width=3072)]
     mock_ipc.get_workspaces.return_value = [MagicMock(id=2, output="eDP-1")]
@@ -50,16 +59,40 @@ def test_handle_store_message(mock_ipc: MagicMock, temp_state_dir: Path) -> None
 
 
 @patch("wlrenv.niri.librewolf_host.ipc")
-def test_handle_restore_message(mock_ipc: MagicMock, temp_state_dir: Path) -> None:
+def test_handle_restore_message(
+    mock_ipc: MagicMock, temp_dirs: tuple[Path, Path]
+) -> None:
+    from wlrenv.niri import positions
     from wlrenv.niri.ipc import Window
     from wlrenv.niri.librewolf import UrlMatcher
-    from wlrenv.niri.storage import store_entry
 
     # Set up stored data
     matcher = UrlMatcher.load()
     uuid = matcher.match_or_create(["https://github.com"])
     matcher.save()
-    store_entry("librewolf", uuid, workspace=3, width=70)
+
+    # Store position using positions module
+    positions.save_positions(
+        {
+            "version": 1,
+            "boots": {
+                "test-boot": {
+                    "updated_at": "2025-12-26T10:00:00Z",
+                    "apps": ["librewolf"],
+                    "workspaces": {
+                        "3": [
+                            {
+                                "id": f"librewolf:{uuid}",
+                                "index": 1,
+                                "window_id": 100,
+                                "width": 70,
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+    )
 
     mock_ipc.find_window_by_title.return_value = Window(
         id=42,
@@ -69,7 +102,11 @@ def test_handle_restore_message(mock_ipc: MagicMock, temp_state_dir: Path) -> No
         workspace_id=1,
         tile_width=1535.0,
         tile_height=1000.0,
+        column=1,
     )
+    mock_ipc.get_windows.return_value = [
+        MagicMock(id=42, workspace_id=3, column=1),
+    ]
 
     message = {
         "action": "restore_workspaces",
@@ -87,23 +124,20 @@ def test_handle_restore_message(mock_ipc: MagicMock, temp_state_dir: Path) -> No
     mock_ipc.configure.assert_called_once()
 
 
-def test_handle_ping_message(temp_state_dir: Path) -> None:
+def test_handle_ping_message(temp_dirs: tuple[Path, Path]) -> None:
     message = {"action": "ping"}
     response = handle_message(message)
     assert response["success"] is True
 
 
 @patch("wlrenv.niri.librewolf_host.UrlMatcher")
-@patch("wlrenv.niri.librewolf_host.order_storage")
-@patch("wlrenv.niri.librewolf_host.store_entry")
 @patch("wlrenv.niri.librewolf_host.ipc")
 def test_handle_store_saves_column_order(
     mock_ipc: MagicMock,
-    mock_store_entry: MagicMock,
-    mock_order_storage: MagicMock,
     mock_url_matcher_cls: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
+    from wlrenv.niri import positions
     from wlrenv.niri.librewolf_host import handle_store
 
     # Create output and workspace mocks (configure attributes properly)
@@ -137,23 +171,31 @@ def test_handle_store_saves_column_order(
 
     handle_store(message, request_id=None)
 
-    # Order should be saved by column (sorted: uuid-b at col 1, uuid-a at col 2)
-    mock_order_storage.save_order.assert_called_once_with(
-        workspace_id=1, order=["librewolf:uuid-b", "librewolf:uuid-a"]
-    )
+    # Check positions were saved
+    data = positions.load_positions()
+    boot_id = list(data["boots"].keys())[0]
+    entries = data["boots"][boot_id]["workspaces"]["1"]
+
+    # Should have both entries with correct column indices
+    entry_ids = {e["id"] for e in entries}
+    assert entry_ids == {"librewolf:uuid-a", "librewolf:uuid-b"}
+
+    # Verify column indices
+    entry_by_id = {e["id"]: e for e in entries}
+    assert entry_by_id["librewolf:uuid-a"]["index"] == 2
+    assert entry_by_id["librewolf:uuid-b"]["index"] == 1
 
 
 @patch("wlrenv.niri.librewolf_host.UrlMatcher")
 @patch("wlrenv.niri.librewolf_host.ordering")
-@patch("wlrenv.niri.librewolf_host.lookup")
 @patch("wlrenv.niri.librewolf_host.ipc")
 def test_handle_restore_places_windows(
     mock_ipc: MagicMock,
-    mock_lookup: MagicMock,
     mock_ordering: MagicMock,
     mock_url_matcher_cls: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
+    from wlrenv.niri import positions
     from wlrenv.niri.librewolf_host import handle_restore
 
     # Mock UrlMatcher
@@ -161,12 +203,34 @@ def test_handle_restore_places_windows(
     mock_matcher.match_or_create.return_value = "uuid-a"
     mock_url_matcher_cls.load.return_value = mock_matcher
 
+    # Set up stored position
+    positions.save_positions(
+        {
+            "version": 1,
+            "boots": {
+                "test-boot": {
+                    "updated_at": "2025-12-26T10:00:00Z",
+                    "apps": ["librewolf"],
+                    "workspaces": {
+                        "2": [
+                            {
+                                "id": "librewolf:uuid-a",
+                                "index": 1,
+                                "window_id": 100,
+                                "width": 50,
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+    )
+
     mock_ipc.find_window_by_title.return_value = MagicMock(
         id=1, workspace_id=2, tile_width=1500, column=3
     )
     mock_ipc.get_outputs.return_value = [MagicMock(name="eDP-1", width=3000)]
     mock_ipc.get_workspaces.return_value = [MagicMock(id=2, output="eDP-1")]
-    mock_lookup.return_value = {"workspace": 2, "width": 50}
 
     # Mock get_windows to return the window state after configure
     mock_ipc.get_windows.return_value = [

@@ -9,9 +9,8 @@ import sys
 from collections import defaultdict
 from typing import Any
 
-from wlrenv.niri import ipc, order_storage, ordering
+from wlrenv.niri import ipc, ordering, positions
 from wlrenv.niri.librewolf import UrlMatcher
-from wlrenv.niri.storage import lookup, store_entry
 from wlrenv.niri.track import calculate_width_percent
 
 
@@ -63,9 +62,8 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
     matcher = UrlMatcher.load()
     stored_count = 0
 
-    # Track windows per workspace for ordering
-    # workspace_id -> list of (column, identity)
-    workspace_windows: dict[int, list[tuple[int, str]]] = defaultdict(list)
+    # Collect entries per workspace
+    workspace_entries: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
     for win in windows:
         urls = [t["url"] for t in win.get("tabs", [])]
@@ -78,25 +76,29 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
             ws = workspaces.get(niri_window.workspace_id)
             if ws:
                 output = outputs.get(ws.output)
-                if output:
+                if output and niri_window.column is not None:
                     width = calculate_width_percent(
                         niri_window.tile_width, output.width
                     )
-                    store_entry("librewolf", uuid, niri_window.workspace_id, width)
+                    workspace_entries[niri_window.workspace_id].append(
+                        {
+                            "id": f"librewolf:{uuid}",
+                            "index": niri_window.column,
+                            "window_id": niri_window.id,
+                            "width": width,
+                        }
+                    )
                     stored_count += 1
 
-                    # Track column position for ordering
-                    if niri_window.column is not None:
-                        workspace_windows[niri_window.workspace_id].append(
-                            (niri_window.column, f"librewolf:{uuid}")
-                        )
+    # Upsert entries per workspace
+    for workspace_id, entries in workspace_entries.items():
+        positions.upsert_entries(
+            app="librewolf", workspace_id=workspace_id, entries=entries
+        )
 
-    # Save column order per workspace
-    for workspace_id, entries in workspace_windows.items():
-        # Sort by column, extract identities
-        entries.sort(key=lambda x: x[0])
-        order = [identity for _, identity in entries]
-        order_storage.save_order(workspace_id=workspace_id, order=order)
+    # Prune dominated boots
+    if workspace_entries:
+        positions.prune_dominated_boots(positions.get_boot_id())
 
     matcher.save()
     return {"success": True, "stored_count": stored_count, "request_id": request_id}
@@ -111,17 +113,19 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
 
     matcher = UrlMatcher.load()
     moved_count = 0
+    restored_entries: dict[int, list[dict[str, Any]]] = defaultdict(list)
 
     for win in windows:
         urls = [t["url"] for t in win.get("tabs", [])]
         title = win.get("window_title", "")
 
         uuid = matcher.match_or_create(urls)
-        props = lookup("librewolf", uuid)
+        stable_id = f"librewolf:{uuid}"
+        props = positions.lookup_latest_position(stable_id)
         niri_window = ipc.find_window_by_title(title)
 
         if niri_window and props:
-            workspace_id = props["workspace"]
+            workspace_id = props["workspace_id"]
             ipc.configure(niri_window.id, workspace=workspace_id, width=props["width"])
             moved_count += 1
 
@@ -130,10 +134,26 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
             if column is not None:
                 ordering.place_window(
                     window_id=niri_window.id,
-                    identity=f"librewolf:{uuid}",
+                    identity=stable_id,
                     workspace_id=workspace_id,
                     current_column=column,
                 )
+                # Record entry for position storage
+                restored_entries[workspace_id].append(
+                    {
+                        "id": stable_id,
+                        "index": column,
+                        "window_id": niri_window.id,
+                        "width": props["width"],
+                    }
+                )
+
+    # Record restored positions
+    for workspace_id, entries in restored_entries.items():
+        positions.upsert_entries("librewolf", workspace_id, entries)
+
+    if restored_entries:
+        positions.prune_dominated_boots(positions.get_boot_id())
 
     matcher.save()
     return {"success": True, "moved_count": moved_count, "request_id": request_id}

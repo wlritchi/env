@@ -9,12 +9,18 @@ from wlrenv.niri.restore import restore_mosh, restore_tmux
 
 
 @pytest.fixture
-def temp_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Use temporary directory for state."""
-    import wlrenv.niri.config as config
+def temp_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """Set up temp state and run directories."""
+    from wlrenv.niri import config
 
-    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
-    return tmp_path
+    state_dir = tmp_path / "state"
+    run_dir = tmp_path / "run"
+    state_dir.mkdir()
+    run_dir.mkdir()
+
+    monkeypatch.setattr(config, "STATE_DIR", state_dir)
+    monkeypatch.setattr("wlrenv.niri.positions._get_run_dir", lambda: run_dir)
+    return state_dir, run_dir
 
 
 @patch("wlrenv.niri.restore.spawn_terminal")
@@ -26,12 +32,32 @@ def test_restore_tmux_spawns_and_configures(
     mock_wait: MagicMock,
     mock_sessions: MagicMock,
     mock_spawn: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
-    from wlrenv.niri.storage import store_entry
+    from wlrenv.niri import positions
 
-    # Set up stored data
-    store_entry("tmux", "work", workspace=2, width=70)
+    # Set up stored data using positions module
+    positions.save_positions(
+        {
+            "version": 1,
+            "boots": {
+                "test-boot": {
+                    "updated_at": "2025-12-26T10:00:00Z",
+                    "apps": ["tmux"],
+                    "workspaces": {
+                        "2": [
+                            {
+                                "id": "tmux:work",
+                                "index": 1,
+                                "window_id": 100,
+                                "width": 70,
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+    )
 
     # Mock session list
     mock_sessions.return_value = ["work"]
@@ -60,7 +86,7 @@ def test_restore_tmux_skips_wait_if_no_props(
     mock_wait: MagicMock,
     mock_sessions: MagicMock,
     mock_spawn: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
     # No stored data for this session
     mock_sessions.return_value = ["unknown"]
@@ -84,12 +110,32 @@ def test_restore_mosh_spawns_and_configures(
     mock_wait: MagicMock,
     mock_sessions: MagicMock,
     mock_spawn: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
-    from wlrenv.niri.storage import store_entry
+    from wlrenv.niri import positions
 
-    # Set up stored data
-    store_entry("mosh", "server.example.com:session1", workspace=3, width=80)
+    # Set up stored data using positions module
+    positions.save_positions(
+        {
+            "version": 1,
+            "boots": {
+                "test-boot": {
+                    "updated_at": "2025-12-26T10:00:00Z",
+                    "apps": ["mosh"],
+                    "workspaces": {
+                        "3": [
+                            {
+                                "id": "mosh:server.example.com:session1",
+                                "index": 1,
+                                "window_id": 100,
+                                "width": 80,
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+    )
 
     # Mock session list
     mock_sessions.return_value = [("server.example.com", "session1")]
@@ -118,7 +164,7 @@ def test_restore_mosh_skips_wait_if_no_props(
     mock_wait: MagicMock,
     mock_sessions: MagicMock,
     mock_spawn: MagicMock,
-    temp_state_dir: Path,
+    temp_dirs: tuple[Path, Path],
 ) -> None:
     # No stored data for this session
     mock_sessions.return_value = [("unknown.example.com", "unknown")]
@@ -134,7 +180,7 @@ def test_restore_mosh_skips_wait_if_no_props(
 
 
 @patch("wlrenv.niri.restore.ordering")
-@patch("wlrenv.niri.restore.lookup")
+@patch("wlrenv.niri.restore.positions")
 @patch("wlrenv.niri.restore.ipc")
 @patch("wlrenv.niri.restore.spawn_terminal")
 @patch("wlrenv.niri.restore.get_detached_tmux_sessions")
@@ -142,11 +188,15 @@ def test_restore_tmux_places_window_in_order(
     mock_sessions: MagicMock,
     mock_spawn: MagicMock,
     mock_ipc: MagicMock,
-    mock_lookup: MagicMock,
+    mock_positions: MagicMock,
     mock_ordering: MagicMock,
 ) -> None:
     mock_sessions.return_value = ["work"]
-    mock_lookup.return_value = {"workspace": 2, "width": 50}
+    mock_positions.lookup_latest_position.return_value = {
+        "workspace_id": 2,
+        "width": 50,
+    }
+    mock_positions.get_boot_id.return_value = "test-boot"
     mock_spawn.return_value = MagicMock(pid=1234)
     mock_ipc.wait_for_window.return_value = 42
 
@@ -167,7 +217,7 @@ def test_restore_tmux_places_window_in_order(
 
 
 @patch("wlrenv.niri.restore.ordering")
-@patch("wlrenv.niri.restore.lookup")
+@patch("wlrenv.niri.restore.positions")
 @patch("wlrenv.niri.restore.ipc")
 @patch("wlrenv.niri.restore.spawn_terminal")
 @patch("wlrenv.niri.restore.read_moshen_sessions")
@@ -175,11 +225,15 @@ def test_restore_mosh_places_window_in_order(
     mock_sessions: MagicMock,
     mock_spawn: MagicMock,
     mock_ipc: MagicMock,
-    mock_lookup: MagicMock,
+    mock_positions: MagicMock,
     mock_ordering: MagicMock,
 ) -> None:
     mock_sessions.return_value = [("server.example.com", "session1")]
-    mock_lookup.return_value = {"workspace": 3, "width": 80}
+    mock_positions.lookup_latest_position.return_value = {
+        "workspace_id": 3,
+        "width": 80,
+    }
+    mock_positions.get_boot_id.return_value = "test-boot"
     mock_spawn.return_value = MagicMock(pid=5678)
     mock_ipc.wait_for_window.return_value = 99
 
