@@ -35,8 +35,12 @@ This allows you to proceed with committing your work without being blocked by si
 infrastructure issues, while maintaining the ability to sign commits when the infrastructure is
 available.
 
-# Worktrees
+# Worktrees (including for Superpowers)
 
 Use in-project git worktrees when working on large multi-step tasks in repos that have non-trivial
 uncommitted changes. In clean repos, worktrees are not necessary unless the user specifically asks
 for you to use them.
+
+# Implementing plans (for Superpowers)
+
+Use subagent-driven plan execution unless the user requests otherwise.
