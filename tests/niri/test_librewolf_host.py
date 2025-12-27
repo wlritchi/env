@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from wlrenv.niri.librewolf_host import handle_message
+from wlrenv.niri.positions import BootData, PositionEntry, PositionsFile
 
 
 @pytest.fixture
@@ -73,25 +74,25 @@ def test_handle_restore_message(
 
     # Store position using positions module
     positions.save_positions(
-        {
-            "version": 1,
-            "boots": {
-                "test-boot": {
-                    "updated_at": "2025-12-26T10:00:00Z",
-                    "apps": ["librewolf"],
-                    "workspaces": {
+        PositionsFile(
+            version=1,
+            boots={
+                "test-boot": BootData(
+                    updated_at="2025-12-26T10:00:00Z",
+                    apps=["librewolf"],
+                    workspaces={
                         "3": [
-                            {
-                                "id": f"librewolf:{uuid}",
-                                "index": 1,
-                                "window_id": 100,
-                                "width": 70,
-                            }
+                            PositionEntry(
+                                id=f"librewolf:{uuid}",
+                                index=1,
+                                window_id=100,
+                                width=70,
+                            )
                         ]
                     },
-                }
+                )
             },
-        }
+        )
     )
 
     mock_ipc.find_window_by_title.return_value = Window(
@@ -173,17 +174,17 @@ def test_handle_store_saves_column_order(
 
     # Check positions were saved
     data = positions.load_positions()
-    boot_id = next(iter(data["boots"].keys()))
-    entries = data["boots"][boot_id]["workspaces"]["1"]
+    boot_id = next(iter(data.boots.keys()))
+    entries = data.boots[boot_id].workspaces["1"]
 
     # Should have both entries with correct column indices
-    entry_ids = {e["id"] for e in entries}
+    entry_ids = {e.id for e in entries}
     assert entry_ids == {"librewolf:uuid-a", "librewolf:uuid-b"}
 
     # Verify column indices
-    entry_by_id = {e["id"]: e for e in entries}
-    assert entry_by_id["librewolf:uuid-a"]["index"] == 2
-    assert entry_by_id["librewolf:uuid-b"]["index"] == 1
+    entry_by_id = {e.id: e for e in entries}
+    assert entry_by_id["librewolf:uuid-a"].index == 2
+    assert entry_by_id["librewolf:uuid-b"].index == 1
 
 
 @patch("wlrenv.niri.librewolf_host.UrlMatcher")
@@ -205,25 +206,25 @@ def test_handle_restore_places_windows(
 
     # Set up stored position
     positions.save_positions(
-        {
-            "version": 1,
-            "boots": {
-                "test-boot": {
-                    "updated_at": "2025-12-26T10:00:00Z",
-                    "apps": ["librewolf"],
-                    "workspaces": {
+        PositionsFile(
+            version=1,
+            boots={
+                "test-boot": BootData(
+                    updated_at="2025-12-26T10:00:00Z",
+                    apps=["librewolf"],
+                    workspaces={
                         "2": [
-                            {
-                                "id": "librewolf:uuid-a",
-                                "index": 1,
-                                "window_id": 100,
-                                "width": 50,
-                            }
+                            PositionEntry(
+                                id="librewolf:uuid-a",
+                                index=1,
+                                window_id=100,
+                                width=50,
+                            )
                         ]
                     },
-                }
+                )
             },
-        }
+        )
     )
 
     mock_ipc.find_window_by_title.return_value = MagicMock(

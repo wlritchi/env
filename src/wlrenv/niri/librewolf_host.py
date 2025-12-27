@@ -7,10 +7,11 @@ import json
 import struct
 import sys
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 
 from wlrenv.niri import ipc, ordering, positions
 from wlrenv.niri.librewolf import UrlMatcher
+from wlrenv.niri.positions import PositionEntry
 from wlrenv.niri.track import calculate_width_percent
 
 
@@ -63,7 +64,7 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
     stored_count = 0
 
     # Collect entries per workspace
-    workspace_entries: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    workspace_entries: dict[int, list[PositionEntry]] = defaultdict(list)
 
     for win in windows:
         urls = [t["url"] for t in win.get("tabs", [])]
@@ -81,12 +82,12 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
                         niri_window.tile_width, output.width
                     )
                     workspace_entries[niri_window.workspace_id].append(
-                        {
-                            "id": f"librewolf:{uuid}",
-                            "index": niri_window.column,
-                            "window_id": niri_window.id,
-                            "width": width,
-                        }
+                        PositionEntry(
+                            id=f"librewolf:{uuid}",
+                            index=niri_window.column,
+                            window_id=niri_window.id,
+                            width=width,
+                        )
                     )
                     stored_count += 1
 
@@ -113,7 +114,7 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
 
     matcher = UrlMatcher.load()
     moved_count = 0
-    restored_entries: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    restored_entries: dict[int, list[PositionEntry]] = defaultdict(list)
 
     for win in windows:
         urls = [t["url"] for t in win.get("tabs", [])]
@@ -125,8 +126,8 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
         niri_window = ipc.find_window_by_title(title)
 
         if niri_window and props:
-            workspace_id = props["workspace_id"]
-            ipc.configure(niri_window.id, workspace=workspace_id, width=props["width"])
+            workspace_id = props.workspace_id
+            ipc.configure(niri_window.id, workspace=workspace_id, width=props.width)
             moved_count += 1
 
             # Place window in correct column order
@@ -140,12 +141,12 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
                 )
                 # Record entry for position storage
                 restored_entries[workspace_id].append(
-                    {
-                        "id": stable_id,
-                        "index": column,
-                        "window_id": niri_window.id,
-                        "width": props["width"],
-                    }
+                    PositionEntry(
+                        id=stable_id,
+                        index=column,
+                        window_id=niri_window.id,
+                        width=props.width,
+                    )
                 )
 
     # Record restored positions
@@ -166,7 +167,7 @@ def read_message() -> dict[str, Any] | None:
         return None
     length = struct.unpack("@I", raw_length)[0]
     data = sys.stdin.buffer.read(length).decode("utf-8")
-    return json.loads(data)  # type: ignore[no-any-return]
+    return cast(dict[str, Any], json.loads(data))
 
 
 def write_message(message: dict[str, Any]) -> None:

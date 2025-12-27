@@ -55,45 +55,59 @@ def test_load_returns_empty_structure_for_missing_file(
 
     data = load_positions()
 
-    assert data == {"version": 1, "boots": {}}
+    assert data.version == 1
+    assert data.boots == {}
 
 
 def test_save_and_load_round_trip(temp_dirs: tuple[Path, Path]) -> None:
-    from wlrenv.niri.positions import load_positions, save_positions
+    from wlrenv.niri.positions import (
+        BootData,
+        PositionEntry,
+        PositionsFile,
+        load_positions,
+        save_positions,
+    )
 
-    data = {
-        "version": 1,
-        "boots": {
-            "boot-123": {
-                "updated_at": "2025-12-26T10:00:00Z",
-                "apps": ["tmux"],
-                "workspaces": {
+    data = PositionsFile(
+        version=1,
+        boots={
+            "boot-123": BootData(
+                updated_at="2025-12-26T10:00:00Z",
+                apps=["tmux"],
+                workspaces={
                     "1": [
-                        {
-                            "id": "tmux:dotfiles",
-                            "index": 1,
-                            "window_id": 100,
-                            "width": 50,
-                        }
+                        PositionEntry(
+                            id="tmux:dotfiles",
+                            index=1,
+                            window_id=100,
+                            width=50,
+                        )
                     ]
                 },
-            }
+            )
         },
-    }
+    )
 
     save_positions(data)
     loaded = load_positions()
 
-    assert loaded == data
+    assert loaded.version == data.version
+    assert "boot-123" in loaded.boots
+    boot = loaded.boots["boot-123"]
+    assert boot.apps == ["tmux"]
+    assert len(boot.workspaces["1"]) == 1
+    entry = boot.workspaces["1"][0]
+    assert entry.id == "tmux:dotfiles"
+    assert entry.width == 50
 
 
 def test_save_is_atomic(temp_dirs: tuple[Path, Path]) -> None:
-    from wlrenv.niri.positions import save_positions
+    from wlrenv.niri.positions import BootData, PositionsFile, save_positions
 
     state_dir, _ = temp_dirs
 
     # Save initial data
-    save_positions({"version": 1, "boots": {"a": {"apps": []}}})
+    save_positions(PositionsFile(boots={"a": BootData(updated_at="", apps=[])}))
 
     # Check no temp files left behind
     files = list(state_dir.glob("*.tmp"))
@@ -104,165 +118,177 @@ def test_save_is_atomic(temp_dirs: tuple[Path, Path]) -> None:
 
 
 def test_upsert_entries_creates_boot(temp_dirs: tuple[Path, Path]) -> None:
-    from wlrenv.niri.positions import load_positions, upsert_entries
+    from wlrenv.niri.positions import PositionEntry, load_positions, upsert_entries
 
     entries = [
-        {"id": "tmux:dotfiles", "index": 1, "window_id": 100, "width": 50},
-        {"id": "tmux:scratch", "index": 2, "window_id": 101, "width": 40},
+        PositionEntry(id="tmux:dotfiles", index=1, window_id=100, width=50),
+        PositionEntry(id="tmux:scratch", index=2, window_id=101, width=40),
     ]
 
     upsert_entries(app="tmux", workspace_id=1, entries=entries)
 
     data = load_positions()
-    boot_id = next(iter(data["boots"].keys()))
-    boot = data["boots"][boot_id]
+    boot_id = next(iter(data.boots.keys()))
+    boot = data.boots[boot_id]
 
-    assert "tmux" in boot["apps"]
-    assert boot["workspaces"]["1"] == entries
+    assert "tmux" in boot.apps
+    assert len(boot.workspaces["1"]) == 2
+    assert boot.workspaces["1"][0].id == "tmux:dotfiles"
+    assert boot.workspaces["1"][1].id == "tmux:scratch"
 
 
 def test_upsert_entries_merges_apps(temp_dirs: tuple[Path, Path]) -> None:
-    from wlrenv.niri.positions import load_positions, upsert_entries
+    from wlrenv.niri.positions import PositionEntry, load_positions, upsert_entries
 
     upsert_entries(
         app="tmux",
         workspace_id=1,
-        entries=[{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}],
+        entries=[PositionEntry(id="tmux:a", index=1, window_id=100, width=50)],
     )
     upsert_entries(
         app="mosh",
         workspace_id=1,
-        entries=[{"id": "mosh:b", "index": 2, "window_id": 200, "width": 50}],
+        entries=[PositionEntry(id="mosh:b", index=2, window_id=200, width=50)],
     )
 
     data = load_positions()
-    boot_id = next(iter(data["boots"].keys()))
-    boot = data["boots"][boot_id]
+    boot_id = next(iter(data.boots.keys()))
+    boot = data.boots[boot_id]
 
-    assert set(boot["apps"]) == {"tmux", "mosh"}
-    assert len(boot["workspaces"]["1"]) == 2
+    assert set(boot.apps) == {"tmux", "mosh"}
+    assert len(boot.workspaces["1"]) == 2
 
 
 def test_upsert_entries_removes_stale_same_id(temp_dirs: tuple[Path, Path]) -> None:
-    from wlrenv.niri.positions import load_positions, upsert_entries
+    from wlrenv.niri.positions import PositionEntry, load_positions, upsert_entries
 
     # First upsert: window on workspace 1
     upsert_entries(
         app="tmux",
         workspace_id=1,
-        entries=[{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}],
+        entries=[PositionEntry(id="tmux:a", index=1, window_id=100, width=50)],
     )
 
     # Second upsert: same window moved to workspace 2
     upsert_entries(
         app="tmux",
         workspace_id=2,
-        entries=[{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}],
+        entries=[PositionEntry(id="tmux:a", index=1, window_id=100, width=50)],
     )
 
     data = load_positions()
-    boot_id = next(iter(data["boots"].keys()))
-    boot = data["boots"][boot_id]
+    boot_id = next(iter(data.boots.keys()))
+    boot = data.boots[boot_id]
 
     # Should only exist on workspace 2 now
-    assert boot["workspaces"].get("1", []) == []
-    assert len(boot["workspaces"]["2"]) == 1
+    assert boot.workspaces.get("1", []) == []
+    assert len(boot.workspaces["2"]) == 1
 
 
 def test_prune_dominated_boots(temp_dirs: tuple[Path, Path]) -> None:
     from wlrenv.niri.positions import (
+        BootData,
+        PositionsFile,
         load_positions,
         prune_dominated_boots,
         save_positions,
     )
 
-    data = {
-        "version": 1,
-        "boots": {
-            "old": {
-                "updated_at": "2025-12-25T10:00:00Z",
-                "apps": ["tmux"],
-                "workspaces": {},
-            },
-            "current": {
-                "updated_at": "2025-12-26T10:00:00Z",
-                "apps": ["tmux", "mosh"],
-                "workspaces": {},
-            },
+    data = PositionsFile(
+        version=1,
+        boots={
+            "old": BootData(
+                updated_at="2025-12-25T10:00:00Z",
+                apps=["tmux"],
+                workspaces={},
+            ),
+            "current": BootData(
+                updated_at="2025-12-26T10:00:00Z",
+                apps=["tmux", "mosh"],
+                workspaces={},
+            ),
         },
-    }
+    )
     save_positions(data)
 
     prune_dominated_boots("current")
 
     result = load_positions()
     # "old" should be pruned: "current" has superset of apps and is newer
-    assert "old" not in result["boots"]
-    assert "current" in result["boots"]
+    assert "old" not in result.boots
+    assert "current" in result.boots
 
 
 def test_prune_preserves_non_dominated(temp_dirs: tuple[Path, Path]) -> None:
     from wlrenv.niri.positions import (
+        BootData,
+        PositionsFile,
         load_positions,
         prune_dominated_boots,
         save_positions,
     )
 
-    data = {
-        "version": 1,
-        "boots": {
-            "has_librewolf": {
-                "updated_at": "2025-12-25T10:00:00Z",
-                "apps": ["librewolf"],
-                "workspaces": {},
-            },
-            "current": {
-                "updated_at": "2025-12-26T10:00:00Z",
-                "apps": ["tmux"],
-                "workspaces": {},
-            },
+    data = PositionsFile(
+        version=1,
+        boots={
+            "has_librewolf": BootData(
+                updated_at="2025-12-25T10:00:00Z",
+                apps=["librewolf"],
+                workspaces={},
+            ),
+            "current": BootData(
+                updated_at="2025-12-26T10:00:00Z",
+                apps=["tmux"],
+                workspaces={},
+            ),
         },
-    }
+    )
     save_positions(data)
 
     prune_dominated_boots("current")
 
     result = load_positions()
     # "has_librewolf" preserved: "current" doesn't have librewolf
-    assert "has_librewolf" in result["boots"]
-    assert "current" in result["boots"]
+    assert "has_librewolf" in result.boots
+    assert "current" in result.boots
 
 
 def test_lookup_latest_position(temp_dirs: tuple[Path, Path]) -> None:
-    from wlrenv.niri.positions import lookup_latest_position, save_positions
+    from wlrenv.niri.positions import (
+        BootData,
+        PositionEntry,
+        PositionsFile,
+        lookup_latest_position,
+        save_positions,
+    )
 
-    data = {
-        "version": 1,
-        "boots": {
-            "old": {
-                "updated_at": "2025-12-25T10:00:00Z",
-                "apps": ["tmux"],
-                "workspaces": {
-                    "1": [{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}]
+    data = PositionsFile(
+        version=1,
+        boots={
+            "old": BootData(
+                updated_at="2025-12-25T10:00:00Z",
+                apps=["tmux"],
+                workspaces={
+                    "1": [PositionEntry(id="tmux:a", index=1, window_id=100, width=50)]
                 },
-            },
-            "new": {
-                "updated_at": "2025-12-26T10:00:00Z",
-                "apps": ["tmux"],
-                "workspaces": {
-                    "2": [{"id": "tmux:a", "index": 2, "window_id": 200, "width": 60}]
+            ),
+            "new": BootData(
+                updated_at="2025-12-26T10:00:00Z",
+                apps=["tmux"],
+                workspaces={
+                    "2": [PositionEntry(id="tmux:a", index=2, window_id=200, width=60)]
                 },
-            },
+            ),
         },
-    }
+    )
     save_positions(data)
 
     result = lookup_latest_position("tmux:a")
 
     # Should return from newer boot
     assert result is not None
-    assert result["workspace_id"] == 2
-    assert result["width"] == 60
+    assert result.workspace_id == 2
+    assert result.width == 60
 
 
 def test_lookup_latest_position_returns_none_for_unknown(
@@ -276,29 +302,35 @@ def test_lookup_latest_position_returns_none_for_unknown(
 
 
 def test_find_predecessors_cross_app(temp_dirs: tuple[Path, Path]) -> None:
-    from wlrenv.niri.positions import find_predecessors, save_positions
+    from wlrenv.niri.positions import (
+        BootData,
+        PositionEntry,
+        PositionsFile,
+        find_predecessors,
+        save_positions,
+    )
 
-    data = {
-        "version": 1,
-        "boots": {
-            "boot1": {
-                "updated_at": "2025-12-26T10:00:00Z",
-                "apps": ["tmux", "librewolf"],
-                "workspaces": {
+    data = PositionsFile(
+        version=1,
+        boots={
+            "boot1": BootData(
+                updated_at="2025-12-26T10:00:00Z",
+                apps=["tmux", "librewolf"],
+                workspaces={
                     "1": [
-                        {"id": "tmux:a", "index": 1, "window_id": 100, "width": 50},
-                        {
-                            "id": "librewolf:x",
-                            "index": 2,
-                            "window_id": 200,
-                            "width": 40,
-                        },
-                        {"id": "tmux:b", "index": 3, "window_id": 300, "width": 50},
+                        PositionEntry(id="tmux:a", index=1, window_id=100, width=50),
+                        PositionEntry(
+                            id="librewolf:x",
+                            index=2,
+                            window_id=200,
+                            width=40,
+                        ),
+                        PositionEntry(id="tmux:b", index=3, window_id=300, width=50),
                     ]
                 },
-            },
+            ),
         },
-    }
+    )
     save_positions(data)
 
     # librewolf:x has predecessor tmux:a (index 1 < 2)
@@ -315,27 +347,30 @@ def test_find_predecessors_cross_app(temp_dirs: tuple[Path, Path]) -> None:
 
 def test_resolve_predecessors_to_window_ids(temp_dirs: tuple[Path, Path]) -> None:
     from wlrenv.niri.positions import (
+        BootData,
+        PositionEntry,
+        PositionsFile,
         get_boot_id,
         resolve_predecessors_to_window_ids,
         save_positions,
     )
 
     boot_id = get_boot_id()
-    data = {
-        "version": 1,
-        "boots": {
-            boot_id: {
-                "updated_at": "2025-12-26T10:00:00Z",
-                "apps": ["tmux"],
-                "workspaces": {
+    data = PositionsFile(
+        version=1,
+        boots={
+            boot_id: BootData(
+                updated_at="2025-12-26T10:00:00Z",
+                apps=["tmux"],
+                workspaces={
                     "1": [
-                        {"id": "tmux:a", "index": 1, "window_id": 100, "width": 50},
-                        {"id": "tmux:b", "index": 2, "window_id": 200, "width": 50},
+                        PositionEntry(id="tmux:a", index=1, window_id=100, width=50),
+                        PositionEntry(id="tmux:b", index=2, window_id=200, width=50),
                     ]
                 },
-            },
+            ),
         },
-    }
+    )
     save_positions(data)
 
     window_ids = resolve_predecessors_to_window_ids(

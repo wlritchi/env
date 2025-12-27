@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from wlrenv.niri import ipc, positions
 from wlrenv.niri.identify import ProcessInfo, identify_mosh, identify_tmux
+from wlrenv.niri.positions import PositionEntry
 
 
 def calculate_width_percent(tile_width: float, output_width: int) -> int:
@@ -61,8 +62,8 @@ def track_terminals() -> None:
     workspaces = {w.id: w for w in ipc.get_workspaces()}
 
     # Collect entries per workspace for each app
-    tmux_entries: dict[int, list[dict]] = defaultdict(list)
-    mosh_entries: dict[int, list[dict]] = defaultdict(list)
+    tmux_entries: dict[int, list[PositionEntry]] = defaultdict(list)
+    mosh_entries: dict[int, list[PositionEntry]] = defaultdict(list)
 
     for window in windows:
         ws = workspaces.get(window.workspace_id)
@@ -79,23 +80,23 @@ def track_terminals() -> None:
             if identity := identify_tmux(child):
                 if window.column is not None:
                     tmux_entries[window.workspace_id].append(
-                        {
-                            "id": f"tmux:{identity}",
-                            "index": window.column,
-                            "window_id": window.id,
-                            "width": width_percent,
-                        }
+                        PositionEntry(
+                            id=f"tmux:{identity}",
+                            index=window.column,
+                            window_id=window.id,
+                            width=width_percent,
+                        )
                     )
                 break
             if identity := identify_mosh(child):
                 if window.column is not None:
                     mosh_entries[window.workspace_id].append(
-                        {
-                            "id": f"mosh:{identity}",
-                            "index": window.column,
-                            "window_id": window.id,
-                            "width": width_percent,
-                        }
+                        PositionEntry(
+                            id=f"mosh:{identity}",
+                            index=window.column,
+                            window_id=window.id,
+                            width=width_percent,
+                        )
                     )
                 break
 

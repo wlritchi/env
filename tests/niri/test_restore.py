@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from wlrenv.niri.positions import BootData, PositionEntry, PositionsFile
 from wlrenv.niri.restore import restore_mosh, restore_tmux
 
 
@@ -38,25 +39,25 @@ def test_restore_tmux_spawns_and_configures(
 
     # Set up stored data using positions module
     positions.save_positions(
-        {
-            "version": 1,
-            "boots": {
-                "test-boot": {
-                    "updated_at": "2025-12-26T10:00:00Z",
-                    "apps": ["tmux"],
-                    "workspaces": {
+        PositionsFile(
+            version=1,
+            boots={
+                "test-boot": BootData(
+                    updated_at="2025-12-26T10:00:00Z",
+                    apps=["tmux"],
+                    workspaces={
                         "2": [
-                            {
-                                "id": "tmux:work",
-                                "index": 1,
-                                "window_id": 100,
-                                "width": 70,
-                            }
+                            PositionEntry(
+                                id="tmux:work",
+                                index=1,
+                                window_id=100,
+                                width=70,
+                            )
                         ]
                     },
-                }
+                )
             },
-        }
+        )
     )
 
     # Mock session list
@@ -116,25 +117,25 @@ def test_restore_mosh_spawns_and_configures(
 
     # Set up stored data using positions module
     positions.save_positions(
-        {
-            "version": 1,
-            "boots": {
-                "test-boot": {
-                    "updated_at": "2025-12-26T10:00:00Z",
-                    "apps": ["mosh"],
-                    "workspaces": {
+        PositionsFile(
+            version=1,
+            boots={
+                "test-boot": BootData(
+                    updated_at="2025-12-26T10:00:00Z",
+                    apps=["mosh"],
+                    workspaces={
                         "3": [
-                            {
-                                "id": "mosh:server.example.com:session1",
-                                "index": 1,
-                                "window_id": 100,
-                                "width": 80,
-                            }
+                            PositionEntry(
+                                id="mosh:server.example.com:session1",
+                                index=1,
+                                window_id=100,
+                                width=80,
+                            )
                         ]
                     },
-                }
+                )
             },
-        }
+        )
     )
 
     # Mock session list
@@ -191,11 +192,13 @@ def test_restore_tmux_places_window_in_order(
     mock_positions: MagicMock,
     mock_ordering: MagicMock,
 ) -> None:
+    from wlrenv.niri.positions import PositionResult
+
     mock_sessions.return_value = ["work"]
-    mock_positions.lookup_latest_position.return_value = {
-        "workspace_id": 2,
-        "width": 50,
-    }
+    mock_positions.lookup_latest_position.return_value = PositionResult(
+        workspace_id=2,
+        width=50,
+    )
     mock_positions.get_boot_id.return_value = "test-boot"
     mock_spawn.return_value = MagicMock(pid=1234)
     mock_ipc.wait_for_window.return_value = 42
@@ -228,11 +231,13 @@ def test_restore_mosh_places_window_in_order(
     mock_positions: MagicMock,
     mock_ordering: MagicMock,
 ) -> None:
+    from wlrenv.niri.positions import PositionResult
+
     mock_sessions.return_value = [("server.example.com", "session1")]
-    mock_positions.lookup_latest_position.return_value = {
-        "workspace_id": 3,
-        "width": 80,
-    }
+    mock_positions.lookup_latest_position.return_value = PositionResult(
+        workspace_id=3,
+        width=80,
+    )
     mock_positions.get_boot_id.return_value = "test-boot"
     mock_spawn.return_value = MagicMock(pid=5678)
     mock_ipc.wait_for_window.return_value = 99

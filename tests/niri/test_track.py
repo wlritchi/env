@@ -60,12 +60,12 @@ def test_track_terminals_stores_tmux_session(temp_dirs: tuple[Path, Path]) -> No
         track_terminals()
 
     data = positions.load_positions()
-    boot_id = next(iter(data["boots"].keys()))
-    entries = data["boots"][boot_id]["workspaces"]["1"]
+    boot_id = next(iter(data.boots.keys()))
+    entries = data.boots[boot_id].workspaces["1"]
 
     assert len(entries) == 1
-    assert entries[0]["id"] == "tmux:dotfiles"
-    assert entries[0]["width"] == 50
+    assert entries[0].id == "tmux:dotfiles"
+    assert entries[0].width == 50
 
 
 def test_track_terminals_saves_column_order(temp_dirs: tuple[Path, Path]) -> None:
@@ -94,10 +94,10 @@ def test_track_terminals_saves_column_order(temp_dirs: tuple[Path, Path]) -> Non
         track_terminals()
 
     data = positions.load_positions()
-    boot_id = next(iter(data["boots"].keys()))
-    entries = data["boots"][boot_id]["workspaces"]["1"]
+    boot_id = next(iter(data.boots.keys()))
+    entries = data.boots[boot_id].workspaces["1"]
 
     # Entries preserve column index from windows
-    ids_with_index = [(e["id"], e["index"]) for e in entries]
+    ids_with_index = [(e.id, e.index) for e in entries]
     assert ("tmux:a", 3) in ids_with_index
     assert ("tmux:b", 1) in ids_with_index

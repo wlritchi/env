@@ -88,4 +88,4 @@ def test_matcher_updates_urls_on_match(temp_state_dir: Path) -> None:
     # Verify URLs were updated
     matcher3 = UrlMatcher.load()
     # The entry should now have the new URL
-    assert matcher3.entries[0]["urls"] == ["https://new.com"]
+    assert matcher3.entries[0].urls == ["https://new.com"]
