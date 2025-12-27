@@ -101,3 +101,69 @@ def test_save_is_atomic(temp_dirs: tuple[Path, Path]) -> None:
 
     # File exists
     assert (state_dir / "positions.json").exists()
+
+
+def test_upsert_entries_creates_boot(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import load_positions, upsert_entries
+
+    entries = [
+        {"id": "tmux:dotfiles", "index": 1, "window_id": 100, "width": 50},
+        {"id": "tmux:scratch", "index": 2, "window_id": 101, "width": 40},
+    ]
+
+    upsert_entries(app="tmux", workspace_id=1, entries=entries)
+
+    data = load_positions()
+    boot_id = list(data["boots"].keys())[0]
+    boot = data["boots"][boot_id]
+
+    assert "tmux" in boot["apps"]
+    assert boot["workspaces"]["1"] == entries
+
+
+def test_upsert_entries_merges_apps(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import load_positions, upsert_entries
+
+    upsert_entries(
+        app="tmux",
+        workspace_id=1,
+        entries=[{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}],
+    )
+    upsert_entries(
+        app="mosh",
+        workspace_id=1,
+        entries=[{"id": "mosh:b", "index": 2, "window_id": 200, "width": 50}],
+    )
+
+    data = load_positions()
+    boot_id = list(data["boots"].keys())[0]
+    boot = data["boots"][boot_id]
+
+    assert set(boot["apps"]) == {"tmux", "mosh"}
+    assert len(boot["workspaces"]["1"]) == 2
+
+
+def test_upsert_entries_removes_stale_same_id(temp_dirs: tuple[Path, Path]) -> None:
+    from wlrenv.niri.positions import load_positions, upsert_entries
+
+    # First upsert: window on workspace 1
+    upsert_entries(
+        app="tmux",
+        workspace_id=1,
+        entries=[{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}],
+    )
+
+    # Second upsert: same window moved to workspace 2
+    upsert_entries(
+        app="tmux",
+        workspace_id=2,
+        entries=[{"id": "tmux:a", "index": 1, "window_id": 100, "width": 50}],
+    )
+
+    data = load_positions()
+    boot_id = list(data["boots"].keys())[0]
+    boot = data["boots"][boot_id]
+
+    # Should only exist on workspace 2 now
+    assert boot["workspaces"].get("1", []) == []
+    assert len(boot["workspaces"]["2"]) == 1

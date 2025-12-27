@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import uuid as uuid_lib
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -89,3 +90,47 @@ class PositionsLock:
         if self._lock_file:
             fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
             self._lock_file.close()
+
+
+def upsert_entries(
+    app: str,
+    workspace_id: int,
+    entries: list[dict[str, Any]],
+) -> None:
+    """Upsert position entries for an app into current boot."""
+    with PositionsLock():
+        data = load_positions()
+        boot_id = get_boot_id()
+        ws_key = str(workspace_id)
+
+        # Ensure boot exists
+        if boot_id not in data["boots"]:
+            data["boots"][boot_id] = {
+                "updated_at": "",
+                "apps": [],
+                "workspaces": {},
+            }
+
+        boot = data["boots"][boot_id]
+
+        # Add app to set
+        if app not in boot["apps"]:
+            boot["apps"].append(app)
+
+        # Remove any existing entries with same stable IDs (from any workspace)
+        entry_ids = {e["id"] for e in entries}
+        for ws, ws_entries in boot["workspaces"].items():
+            boot["workspaces"][ws] = [e for e in ws_entries if e["id"] not in entry_ids]
+
+        # Clean up empty workspaces
+        boot["workspaces"] = {k: v for k, v in boot["workspaces"].items() if v}
+
+        # Add new entries
+        if ws_key not in boot["workspaces"]:
+            boot["workspaces"][ws_key] = []
+        boot["workspaces"][ws_key].extend(entries)
+
+        # Update timestamp
+        boot["updated_at"] = datetime.now(UTC).isoformat()
+
+        save_positions(data)
