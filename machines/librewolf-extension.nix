@@ -1,4 +1,9 @@
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 let
   # Build the LibreWolf workspace tracker extension
@@ -39,8 +44,7 @@ let
     text = builtins.toJSON {
       name = "wlr_librewolf_workspace_tracker";
       description = "niri workspace tracking for LibreWolf";
-      path =
-        "${config.home.homeDirectory}/.wlrenv/bin/wayland/wlr-librewolf-native-host";
+      path = "${config.home.homeDirectory}/.wlrenv/bin/wayland/wlr-librewolf-native-host";
       type = "stdio";
       allowed_extensions = [ "librewolf-workspace-tracker@wlrenv" ];
     };
@@ -56,22 +60,21 @@ let
         ExtensionSettings = {
           "librewolf-workspace-tracker@wlrenv" = {
             installation_mode = "force_installed";
-            install_url =
-              "file://${config.home.homeDirectory}/.wlrenv/build/librewolf-workspace-tracker/librewolf-workspace-tracker.xpi";
+            install_url = "file://${config.home.homeDirectory}/.wlrenv/build/librewolf-workspace-tracker/librewolf-workspace-tracker.xpi";
           };
         };
       };
     };
   };
 
-in {
+in
+{
   # Install the extension XPI to the wlrenv build directory
   home.file.".wlrenv/build/librewolf-workspace-tracker/librewolf-workspace-tracker.xpi".source =
     "${librewolf-workspace-tracker}/librewolf-workspace-tracker.xpi";
 
   # Install LibreWolf policies for automatic extension installation
-  home.file.".librewolf/policies/policies.json".source =
-    "${librewolfPolicies}/policies.json";
+  home.file.".librewolf/policies/policies.json".source = "${librewolfPolicies}/policies.json";
 
   # Install native messaging manifest
   # LibreWolf looks for native messaging hosts in ~/.librewolf/native-messaging-hosts/
@@ -83,8 +86,7 @@ in {
   # and is made executable in the repo
 
   # Create state directory
-  home.activation.createLibrewolfStateDir =
-    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      $DRY_RUN_CMD mkdir -p ${config.home.homeDirectory}/.local/state/librewolf
-    '';
+  home.activation.createLibrewolfStateDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    $DRY_RUN_CMD mkdir -p ${config.home.homeDirectory}/.local/state/librewolf
+  '';
 }

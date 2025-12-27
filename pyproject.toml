@@ -65,11 +65,20 @@ enable_error_code = [
 ]
 
 [tool.pyright]
+include = ["src"]
+exclude = [
+    "**/__pycache__",
+    ".venv",
+]
 pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false
 reportImplicitOverride = true
 
 [tool.ruff]
 line-length = 88
+target-version = "py312"
 
 [tool.ruff.format]
 quote-style = "preserve"
@@ -79,6 +88,7 @@ ignore = ["E402", "E501", "C901", "S101"]
 select = [
     "B",
     "C",
+    "C4",     # flake8-comprehensions
     "E",
     "F",
     "I",
@@ -88,12 +98,16 @@ select = [
     "ANN",
     "ASYNC",
     "UP",
-    "RUF100",  # unused noqa
-    "T201",  # print statements
+    "RUF",    # all ruff-specific rules
+    "T201",   # print statements
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"bin/**" = ["T201", "ANN401"]  # CLI utilities use print and argparse returns Any
 
 [dependency-groups]
 dev = [
+    "codespell>=2.4.1",
     "mypy>=1.15.0,<2.0.0",
     "pre-commit>=4.1.0,<5.0.0",
     "pyright>=1.1.407,<2.0.0",

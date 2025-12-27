@@ -82,6 +82,15 @@ repos:
         types_or: [yaml]
         require_serial: true
 
+      - id: codespell
+        name: codespell
+        entry: uv run codespell
+        language: system
+        types_or: [text]
+        require_serial: true
+        args: [--quiet-level=2, --skip=dotfiles/.vim/colors/*]
+        exclude: ^dotfiles/\.vim/colors/
+
       - id: ruff-format
         name: ruff-format
         entry: uv run ruff format --force-exclude

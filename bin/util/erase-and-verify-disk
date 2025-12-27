@@ -46,9 +46,9 @@ print_summary() {
 while true; do
     # get disk size in bytes, as 64-bit integer
     disk_size=$(blockdev --getsize64 "$disk")
-    
+
     echo "Wiping disk of size $disk_size bytes"
-    
+
     get_random_bytes() {
         # use pv if available, otherwise cat
         if command -v pv >/dev/null 2>&1; then
@@ -58,24 +58,24 @@ while true; do
             head -c "$disk_size" /dev/urandom
         fi
     }
-    
+
     # Create temp files for hashes
     write_hash_file=$(mktemp)
     read_hash_file=$(mktemp)
-    
+
     # Erase and hash - capture the hash
     echo "Erasing disk with random data and hashing..."
     get_random_bytes | tee "$disk" | sha256sum -b | tee "$write_hash_file"
     write_hash=$(awk '{print $1}' "$write_hash_file")
-    
+
     # Verify
     echo "Verifying disk content..."
     cat "$disk" | pv -s "$disk_size" | sha256sum -b | tee "$read_hash_file"
     read_hash=$(awk '{print $1}' "$read_hash_file")
-    
+
     # Clean up temp files
     rm -f "$write_hash_file" "$read_hash_file"
-    
+
     # Compare hashes and update counters
     if [ "$write_hash" = "$read_hash" ]; then
         echo "Verification PASSED"
@@ -86,10 +86,10 @@ while true; do
         failure_count=$((failure_count + 1))
         history="${history}X"
     fi
-    
+
     # Print summary
     print_summary
-    
+
     echo "Starting next cycle..."
     echo
 done

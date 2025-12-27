@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
-from pathlib import Path
 import sys
-from typing import Any, Tuple
+from pathlib import Path
+from typing import Any
 
 
 def _info(msg: str) -> None:
@@ -14,7 +14,7 @@ def _warning(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
-def _remove_leading_updirs(file: Path) -> Tuple[Path, int]:
+def _remove_leading_updirs(file: Path) -> tuple[Path, int]:
     parts = file.parts
     leading_updirs = 0
     while parts and parts[0] == '..':
@@ -30,7 +30,7 @@ def _norman(file: Path, *, dry_run: bool) -> None:
     parts = list(target.parts)
     while '..' in parts:
         index = parts.index('..')
-        parts = parts[:index-1] + parts[index + 1:]
+        parts = parts[: index - 1] + parts[index + 1 :]
     new_target = Path(*parts)
     if target != new_target:
         if file.resolve() != new_target.resolve():

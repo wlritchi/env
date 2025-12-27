@@ -286,4 +286,3 @@ for src in "${@:1:$(($#-1))}"; do
         move_to "$src" "$dest"
     fi
 done
-

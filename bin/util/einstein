@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -37,7 +37,9 @@ def _einstein(file: Path, *, dry_run: bool) -> None:
             continue
         new_target = relative_base.joinpath(relative)
         assert file.resolve() == new_target.resolve()
-        _info(f"Converting {file} from absolute symlink ({target}) to relative ({new_target})")
+        _info(
+            f"Converting {file} from absolute symlink ({target}) to relative ({new_target})"
+        )
         if not dry_run:
             file.unlink()
             file.symlink_to(new_target)

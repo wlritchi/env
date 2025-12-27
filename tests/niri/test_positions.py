@@ -114,7 +114,7 @@ def test_upsert_entries_creates_boot(temp_dirs: tuple[Path, Path]) -> None:
     upsert_entries(app="tmux", workspace_id=1, entries=entries)
 
     data = load_positions()
-    boot_id = list(data["boots"].keys())[0]
+    boot_id = next(iter(data["boots"].keys()))
     boot = data["boots"][boot_id]
 
     assert "tmux" in boot["apps"]
@@ -136,7 +136,7 @@ def test_upsert_entries_merges_apps(temp_dirs: tuple[Path, Path]) -> None:
     )
 
     data = load_positions()
-    boot_id = list(data["boots"].keys())[0]
+    boot_id = next(iter(data["boots"].keys()))
     boot = data["boots"][boot_id]
 
     assert set(boot["apps"]) == {"tmux", "mosh"}
@@ -161,7 +161,7 @@ def test_upsert_entries_removes_stale_same_id(temp_dirs: tuple[Path, Path]) -> N
     )
 
     data = load_positions()
-    boot_id = list(data["boots"].keys())[0]
+    boot_id = next(iter(data["boots"].keys()))
     boot = data["boots"][boot_id]
 
     # Should only exist on workspace 2 now

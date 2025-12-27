@@ -316,15 +316,15 @@ def _setup() -> None:
                         xonsh.dirstack.pushd([dir_name])
                     elif _has_zoxide:
                         try:
-                            cmd = subprocess.run(  # noqa: S603
-                                [
+                            cmd = subprocess.run(  # noqa: S603  # pyright: ignore[reportCallIssue]
+                                [  # noqa: S607
                                     'zoxide',
                                     'query',
                                     '--exclude',
-                                    XSH.env.get('PWD'),
+                                    XSH.env.get('PWD'),  # pyright: ignore[reportArgumentType]
                                     '--',
-                                ]
-                                + args,
+                                    *args,
+                                ],
                                 check=True,
                                 capture_output=True,
                                 encoding='utf-8',
@@ -374,7 +374,7 @@ def _setup() -> None:
             into that shell, in order for the shell to run in the venv.
             Unfortunately, xonsh does not play well with standard venv activation
             scripts. Instead, xonsh provides the vox xontrib, loaded above, which
-            offers similar functionality. This wrapper catches attepts to source venv
+            offers similar functionality. This wrapper catches attempts to source venv
             activation scripts (which wouldn't work anyway, as xonsh's source expects
             only xonsh-flavoured inputs), and converts them into calls to vox."""
 

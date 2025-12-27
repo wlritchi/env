@@ -30,7 +30,7 @@ def find_rightmost_predecessor(
 
     # Spacer is implicit predecessor of all tracked windows
     if SPACER_IDENTITY not in predecessors:
-        predecessors = [SPACER_IDENTITY] + predecessors
+        predecessors = [SPACER_IDENTITY, *predecessors]
 
     rightmost: Window | None = None
     rightmost_col = 0

@@ -1,5 +1,15 @@
-{ lib, rustPlatform, pkg-config, libxkbcommon, wayland, wayland-protocols
-, makeWrapper, sccache, mold, clang }:
+{
+  lib,
+  rustPlatform,
+  pkg-config,
+  libxkbcommon,
+  wayland,
+  wayland-protocols,
+  makeWrapper,
+  sccache,
+  mold,
+  clang,
+}:
 
 rustPlatform.buildRustPackage rec {
   pname = "niri-spacer";
@@ -7,17 +17,31 @@ rustPlatform.buildRustPackage rec {
 
   src = ../../rust-utils/niri-spacer;
 
-  cargoLock = { lockFile = ../../rust-utils/niri-spacer/Cargo.lock; };
+  cargoLock = {
+    lockFile = ../../rust-utils/niri-spacer/Cargo.lock;
+  };
 
-  nativeBuildInputs = [ pkg-config makeWrapper clang mold ];
+  nativeBuildInputs = [
+    pkg-config
+    makeWrapper
+    clang
+    mold
+  ];
 
-  buildInputs = [ libxkbcommon wayland wayland-protocols ];
+  buildInputs = [
+    libxkbcommon
+    wayland
+    wayland-protocols
+  ];
 
   # Enable sccache for faster incremental builds
   RUSTC_WRAPPER = "${sccache}/bin/sccache";
 
   # Skip integration tests that use 'cargo run' - they don't work in Nix sandbox
-  checkFlags = [ "--skip=test_cli_help_flag" "--skip=test_cli_version_flag" ];
+  checkFlags = [
+    "--skip=test_cli_help_flag"
+    "--skip=test_cli_version_flag"
+  ];
 
   # Wayland applications need to find libwayland-client.so at runtime
   postInstall = ''
@@ -26,10 +50,12 @@ rustPlatform.buildRustPackage rec {
   '';
 
   meta = with lib; {
-    description =
-      "A persistent utility to spawn and manage placeholder windows in niri workspaces";
+    description = "A persistent utility to spawn and manage placeholder windows in niri workspaces";
     homepage = "https://github.com/YaLTeR/niri-spacer";
-    license = with licenses; [ mit asl20 ];
+    license = with licenses; [
+      mit
+      asl20
+    ];
     maintainers = [ ];
     platforms = platforms.linux;
   };

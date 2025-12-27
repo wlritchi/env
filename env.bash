@@ -207,7 +207,7 @@ if [ -n "$wlr_interactive" ]; then
         exec tmux new-session -A -s "$term" -c "$(pwd)"
     elif wlr_suspect_tty; then
         warnings+=('tmux - skipping (suspect tty)')
-    elif command -v zellij >/dev/null 2>&1 && false; then # TODO reenable
+    elif command -v zellij >/dev/null 2>&1 && false; then # TODO re-enable
         print_status
         exec zellij options --disable-mouse-mode
     elif command -v tmux >/dev/null 2>&1; then

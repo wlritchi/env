@@ -173,7 +173,7 @@ def test_handle_store_saves_column_order(
 
     # Check positions were saved
     data = positions.load_positions()
-    boot_id = list(data["boots"].keys())[0]
+    boot_id = next(iter(data["boots"].keys()))
     entries = data["boots"][boot_id]["workspaces"]["1"]
 
     # Should have both entries with correct column indices
