@@ -81,6 +81,7 @@ repos:
         language: system
         types_or: [yaml]
         require_serial: true
+        exclude: ^dotfiles/\.config/alacritty/catppuccin/  # vendored themes
 
       - id: codespell
         name: codespell
@@ -138,11 +139,8 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-json
+        exclude: ^dotfiles/\.config/zed/.*\.json$  # Zed uses JSONC (JSON with comments)
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: check-executables-have-shebangs
       - id: mixed-line-ending
-
-ci:
-  autoupdate_schedule: monthly
-  skip: [cargo-audit, cargo-deny]  # Skip these in CI as they're covered by GitHub Actions
