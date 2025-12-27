@@ -5,8 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-from wlrenv.niri import ipc, ordering
-from wlrenv.niri.storage import lookup
+from wlrenv.niri import ipc, ordering, positions
 
 
 def get_detached_tmux_sessions() -> list[str]:
@@ -79,19 +78,21 @@ def _get_window_column(window_id: int, workspace_id: int) -> int | None:
 def restore_tmux() -> None:
     """Restore detached tmux sessions to their saved workspaces."""
     sessions = get_detached_tmux_sessions()
+    restored_entries: dict[int, list[dict[str, int | str]]] = {}
 
     for session in sessions:
         # Skip IDE embedded terminal sessions (7-char hex hash of IDE + project dir)
         if len(session) == 7 and all(c in "0123456789abcdef" for c in session):
             continue
 
-        props = lookup("tmux", session)
+        stable_id = f"tmux:{session}"
+        props = positions.lookup_latest_position(stable_id)
         proc = spawn_terminal(["tmux", "attach-session", "-t", session])
 
         if props:
             window_id = ipc.wait_for_window(pid=proc.pid)
             if window_id:
-                workspace_id = props["workspace"]
+                workspace_id = props["workspace_id"]
                 ipc.configure(window_id, workspace=workspace_id, width=props["width"])
 
                 # Place window in correct column order
@@ -99,10 +100,28 @@ def restore_tmux() -> None:
                 if column is not None:
                     ordering.place_window(
                         window_id=window_id,
-                        identity=f"tmux:{session}",
+                        identity=stable_id,
                         workspace_id=workspace_id,
                         current_column=column,
                     )
+                    # Record entry for position storage
+                    if workspace_id not in restored_entries:
+                        restored_entries[workspace_id] = []
+                    restored_entries[workspace_id].append(
+                        {
+                            "id": stable_id,
+                            "index": column,
+                            "window_id": window_id,
+                            "width": props["width"],
+                        }
+                    )
+
+    # Record restored positions
+    for workspace_id, entries in restored_entries.items():
+        positions.upsert_entries("tmux", workspace_id, entries)
+
+    if restored_entries:
+        positions.prune_dominated_boots(positions.get_boot_id())
 
 
 def restore_mosh() -> None:
@@ -113,10 +132,12 @@ def restore_mosh() -> None:
     their convenience.
     """
     sessions = read_moshen_sessions()
+    restored_entries: dict[int, list[dict[str, int | str]]] = {}
 
     for host, session_name in sessions:
         identity = f"{host}:{session_name}"
-        props = lookup("mosh", identity)
+        stable_id = f"mosh:{identity}"
+        props = positions.lookup_latest_position(stable_id)
         # Prompt before connecting to allow interactive auth at user's convenience
         proc = spawn_terminal(
             [
@@ -132,7 +153,7 @@ def restore_mosh() -> None:
         if props:
             window_id = ipc.wait_for_window(pid=proc.pid)
             if window_id:
-                workspace_id = props["workspace"]
+                workspace_id = props["workspace_id"]
                 ipc.configure(window_id, workspace=workspace_id, width=props["width"])
 
                 # Place window in correct column order
@@ -140,7 +161,25 @@ def restore_mosh() -> None:
                 if column is not None:
                     ordering.place_window(
                         window_id=window_id,
-                        identity=f"mosh:{identity}",
+                        identity=stable_id,
                         workspace_id=workspace_id,
                         current_column=column,
                     )
+                    # Record entry for position storage
+                    if workspace_id not in restored_entries:
+                        restored_entries[workspace_id] = []
+                    restored_entries[workspace_id].append(
+                        {
+                            "id": stable_id,
+                            "index": column,
+                            "window_id": window_id,
+                            "width": props["width"],
+                        }
+                    )
+
+    # Record restored positions
+    for workspace_id, entries in restored_entries.items():
+        positions.upsert_entries("mosh", workspace_id, entries)
+
+    if restored_entries:
+        positions.prune_dominated_boots(positions.get_boot_id())
