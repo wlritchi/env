@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import random
+import shlex
 import subprocess
 import sys
 from collections import defaultdict
@@ -352,6 +353,59 @@ def _setup() -> None:
             _cd([dir_name])
 
         XSH.aliases['mkcd'] = _mkcd
+
+        def _try(args: list[str]) -> None:
+            """Wrapper for try - fresh directories for every vibe."""
+            if not XSH.env:
+                raise RuntimeError('xonsh is not loaded')
+
+            try_path = os.path.expanduser('~/src/tries')
+            try:
+                with (
+                    open('/dev/tty') as tty_in,
+                    open('/dev/tty', 'w') as tty_out,
+                ):
+                    result = subprocess.run(  # noqa: S603
+                        ['try', 'exec', '--path', try_path, *args],  # noqa: S607
+                        stdin=tty_in,
+                        stdout=subprocess.PIPE,
+                        stderr=tty_out,
+                        text=True,
+                    )
+                if result.returncode == 0 and result.stdout.strip():
+                    # Join line continuations (backslash-newline)
+                    script = result.stdout.replace('\\\n', '')
+                    for line in script.strip().split('\n'):
+                        # Skip comments
+                        if line.strip().startswith('#'):
+                            continue
+                        for part in line.split('&&'):
+                            try:
+                                tokens = shlex.split(part)
+                            except ValueError:
+                                print(f'try: shlex parse error for: {part!r}')
+                                continue
+                            if not tokens:
+                                continue
+                            elif tokens[0] == 'cd' and len(tokens) > 1:
+                                _cd([tokens[1]])
+                            elif tokens[0] == 'touch' and len(tokens) > 1:
+                                Path(tokens[1]).touch()
+                            elif (
+                                len(tokens) >= 3
+                                and tokens[0] == 'mkdir'
+                                and tokens[1] == '-p'
+                            ):
+                                os.makedirs(tokens[2], exist_ok=True)
+                            else:
+                                print(f'try: unhandled command: {tokens}')
+                elif result.stdout:
+                    print(result.stdout)
+            except FileNotFoundError:
+                print('try command not found', file=sys.stderr)
+
+        if which('try'):
+            XSH.aliases['try'] = _try
 
         # # temporary workaround for xonsh bug in 0.9.27
         # # see https://github.com/xonsh/xonsh/issues/4243 and https://github.com/xonsh/xonsh/issues/2404

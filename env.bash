@@ -424,6 +424,12 @@ mkcd() {
 }
 
 
+# initialize try (experiment directory manager)
+if [ -n "$wlr_interactive" ] && command -v try >/dev/null 2>&1; then
+    eval "$(try init ~/src/tries)"
+fi
+
+
 [ -n "$wlr_interactive" ] && print_status
 
 

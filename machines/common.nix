@@ -3,9 +3,13 @@
   pkgs,
   lib,
   krew2nix,
+  try,
   ...
 }:
 
+let
+  tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
+in
 {
   options.custom.krewPlugins = lib.mkOption {
     type = lib.types.listOf lib.types.str;
@@ -57,6 +61,7 @@
         (krew2nix.packages.${pkgs.stdenv.hostPlatform.system}.kubectl.withKrewPlugins (
           plugins: map (name: plugins.${name}) config.custom.krewPlugins
         ))
+        tryPkg
       ];
 
     programs.home-manager.enable = true;

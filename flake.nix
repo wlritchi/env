@@ -10,12 +10,17 @@
       url = "github:eigengrau/krew2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    try = {
+      url = "github:tobi/try";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs =
     {
       nixpkgs,
       home-manager,
       krew2nix,
+      try,
       ...
     }:
     {
@@ -25,7 +30,7 @@
           modules = [ ./machines/linux.nix ];
           extraSpecialArgs = {
             hostname = "default";
-            inherit krew2nix;
+            inherit krew2nix try;
           };
         };
         "wlritchi@amygdalin" = home-manager.lib.homeManagerConfiguration {
@@ -33,13 +38,13 @@
           modules = [ ./machines/linux.nix ];
           extraSpecialArgs = {
             hostname = "amygdalin";
-            inherit krew2nix;
+            inherit krew2nix try;
           };
         };
         "luc.ritchie" = home-manager.lib.homeManagerConfiguration {
           pkgs = nixpkgs.legacyPackages.aarch64-darwin;
           modules = [ ./machines/darwin.nix ];
-          extraSpecialArgs = { inherit krew2nix; };
+          extraSpecialArgs = { inherit krew2nix try; };
         };
       };
     };
