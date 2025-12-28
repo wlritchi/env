@@ -32,6 +32,10 @@ return {
       vim.lsp.config("ts_ls", {})
       vim.lsp.config("rust_analyzer", {})
       vim.lsp.config("gopls", {})
+
+      -- ty: Astral's fast Python type checker (not in Mason, installed via uv/pip)
+      vim.lsp.config("ty", {})
+      vim.lsp.enable("ty")
     end,
   },
 
