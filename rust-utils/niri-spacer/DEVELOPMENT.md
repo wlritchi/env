@@ -5,7 +5,7 @@ This document provides instructions for setting up the development environment a
 ## Prerequisites
 
 - **Rust** (MSRV 1.70 or later)
-- **uv** for Python tool management (for pre-commit hooks)
+- **uv** for Python tool management (for prek hooks)
 - **git** for version control
 
 ## Development Setup
@@ -16,18 +16,18 @@ This document provides instructions for setting up the development environment a
 # Install quality assurance tools
 cargo install cargo-audit cargo-deny cargo-llvm-cov
 
-# Install pre-commit using uv
-uv tool install pre-commit
+# Install prek using uv
+uv tool install prek
 ```
 
-### 2. Set Up Pre-commit Hooks
+### 2. Set Up Prek Hooks
 
 ```bash
-# Install pre-commit hooks
-uv tool run pre-commit install
+# Install prek hooks
+uv tool run prek install
 
 # Test hooks on all files (optional)
-uv tool run pre-commit run --all-files
+uv tool run prek run --all-files
 ```
 
 ## Quality Checks
@@ -161,9 +161,9 @@ chmod +x scripts/quality-check.sh
 ./scripts/quality-check.sh
 ```
 
-## Pre-commit Hooks
+## Prek Hooks
 
-The project uses pre-commit hooks to automatically run quality checks before commits. The hooks include:
+The project uses prek hooks to automatically run quality checks before commits. The hooks include:
 
 - **Rust formatting** (`cargo fmt`)
 - **Rust linting** (`cargo clippy`)
@@ -175,7 +175,7 @@ The project uses pre-commit hooks to automatically run quality checks before com
 
 ### Skipping Hooks (Emergency)
 
-If you need to bypass pre-commit hooks in an emergency:
+If you need to bypass prek hooks in an emergency:
 
 ```bash
 git commit --no-verify -m "Emergency commit message"
@@ -240,7 +240,7 @@ cargo test --all-features
 cargo fmt
 
 # Run full quality pipeline
-uv tool run pre-commit run --all-files
+uv tool run prek run --all-files
 ```
 
 ### 4. Before Pushing
@@ -280,7 +280,7 @@ niri-spacer/
 
 ## Configuration Files
 
-- **`.pre-commit-config.yaml`**: Pre-commit hook configuration
+- **`.pre-commit-config.yaml`**: Prek hook configuration
 - **`clippy.toml`**: Clippy linting rules
 - **`rustfmt.toml`**: Code formatting preferences  
 - **`deny.toml`**: License and dependency policies
@@ -289,18 +289,18 @@ niri-spacer/
 
 ## Troubleshooting
 
-### Pre-commit Issues
+### Prek Issues
 
 ```bash
-# Update pre-commit hooks
-uv tool run pre-commit autoupdate
+# Update prek hooks
+uv tool run prek autoupdate
 
-# Clear pre-commit cache
-uv tool run pre-commit clean
+# Clear prek cache
+uv tool run prek clean
 
 # Reinstall hooks
-uv tool run pre-commit uninstall
-uv tool run pre-commit install
+uv tool run prek uninstall
+uv tool run prek install
 ```
 
 ### Coverage Issues

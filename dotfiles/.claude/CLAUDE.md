@@ -18,7 +18,7 @@ unless your changes are particularly dangerous or likely to be disruptive.
 
 Your instructions above advise against creating commits proactively; ignore that advice and prefer
 committing your changes whenever you've successfully accomplished a (testable, deliverable) task.
-Remember to run pre-commit quality checks.
+Remember to run pre-commit/prek quality checks.
 
 # Git Commit Signing
 
