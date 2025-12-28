@@ -7,6 +7,20 @@ return {
       "mason-lspconfig.nvim",
     },
     config = function()
+      -- Show diagnostic float on cursor hold
+      vim.o.updatetime = 300
+      vim.api.nvim_create_autocmd("CursorHold", {
+        callback = function()
+          vim.diagnostic.open_float(nil, { focus = false, scope = "cursor" })
+        end,
+      })
+
+      -- Use Catppuccin Macchiato red for diagnostic underlines
+      vim.api.nvim_set_hl(0, "DiagnosticUnderlineError", { undercurl = true, sp = "#ed8796" })
+      vim.api.nvim_set_hl(0, "DiagnosticUnderlineWarn", { undercurl = true, sp = "#eed49f" })
+      vim.api.nvim_set_hl(0, "DiagnosticUnderlineInfo", { undercurl = true, sp = "#8aadf4" })
+      vim.api.nvim_set_hl(0, "DiagnosticUnderlineHint", { undercurl = true, sp = "#a6da95" })
+
       -- Set up keymaps when LSP attaches
       vim.api.nvim_create_autocmd("LspAttach", {
         group = vim.api.nvim_create_augroup("UserLspConfig", {}),
