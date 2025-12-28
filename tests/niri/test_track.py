@@ -32,6 +32,7 @@ def test_calculate_width_percent_rounds_to_10() -> None:
 
 def test_track_terminals_stores_tmux_session(temp_dirs: tuple[Path, Path]) -> None:
     from wlrenv.niri import positions
+    from wlrenv.niri.identify import ProcessInfo
     from wlrenv.niri.track import track_terminals
 
     mock_window = MagicMock()
@@ -54,9 +55,16 @@ def test_track_terminals_stores_tmux_session(temp_dirs: tuple[Path, Path]) -> No
         patch("wlrenv.niri.track.ipc.get_outputs", return_value=[mock_output]),
         patch("wlrenv.niri.track.ipc.get_workspaces", return_value=[mock_workspace]),
         patch("wlrenv.niri.track.get_child_processes") as mock_children,
-        patch("wlrenv.niri.track.identify_tmux", return_value="dotfiles"),
+        patch(
+            "wlrenv.niri.track.get_tmux_client_sessions",
+            return_value={"/dev/pts/1": "dotfiles"},
+        ),
+        patch("wlrenv.niri.track.get_process_tty", return_value="/dev/pts/1"),
     ):
-        mock_children.return_value = [MagicMock(comm="tmux", args=["tmux"])]
+        # get_child_processes returns list of (pid, ProcessInfo) tuples
+        mock_children.return_value = [
+            (5000, ProcessInfo(comm="tmux: client", args=["tmux"]))
+        ]
         track_terminals()
 
     data = positions.load_positions()
@@ -70,6 +78,7 @@ def test_track_terminals_stores_tmux_session(temp_dirs: tuple[Path, Path]) -> No
 
 def test_track_terminals_saves_column_order(temp_dirs: tuple[Path, Path]) -> None:
     from wlrenv.niri import positions
+    from wlrenv.niri.identify import ProcessInfo
     from wlrenv.niri.track import track_terminals
 
     mock_windows = [
@@ -82,15 +91,33 @@ def test_track_terminals_saves_column_order(temp_dirs: tuple[Path, Path]) -> Non
     mock_output.width = 1000
     mock_workspace = MagicMock(id=1, output="eDP-1")
 
+    # Map each window's child process to a different tty
+    def mock_get_children(pid: int) -> list[tuple[int, ProcessInfo]]:
+        if pid == 100:
+            return [(5001, ProcessInfo(comm="tmux: client", args=["tmux"]))]
+        if pid == 200:
+            return [(5002, ProcessInfo(comm="tmux: client", args=["tmux"]))]
+        return []
+
+    def mock_get_tty(pid: int) -> str | None:
+        if pid == 5001:
+            return "/dev/pts/1"
+        if pid == 5002:
+            return "/dev/pts/2"
+        return None
+
     with (
         patch("wlrenv.niri.track.ipc.get_windows", return_value=mock_windows),
         patch("wlrenv.niri.track.ipc.get_outputs", return_value=[mock_output]),
         patch("wlrenv.niri.track.ipc.get_workspaces", return_value=[mock_workspace]),
-        patch("wlrenv.niri.track.get_child_processes") as mock_children,
-        patch("wlrenv.niri.track.identify_tmux", side_effect=["a", "b"]),
+        patch("wlrenv.niri.track.get_child_processes", side_effect=mock_get_children),
+        patch(
+            "wlrenv.niri.track.get_tmux_client_sessions",
+            return_value={"/dev/pts/1": "a", "/dev/pts/2": "b"},
+        ),
+        patch("wlrenv.niri.track.get_process_tty", side_effect=mock_get_tty),
         patch("wlrenv.niri.track.identify_mosh", return_value=None),
     ):
-        mock_children.return_value = [MagicMock(comm="tmux", args=["tmux"])]
         track_terminals()
 
     data = positions.load_positions()
