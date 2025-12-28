@@ -107,6 +107,14 @@ repos:
         require_serial: true
         fail_fast: true
 
+      - id: ty
+        name: ty
+        entry: uv run ty check
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        require_serial: true
+
       - id: nixfmt
         name: nixfmt
         entry: nixfmt

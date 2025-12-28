@@ -219,7 +219,7 @@ def _setup() -> None:
 
     # set up prompt
     def _prompt() -> str:
-        global _
+        global _  # ty: ignore[unresolved-global]  # xonsh magic variable
         nonlocal gpt_cost_acc, gpt_tokens
 
         rtn_str = ''

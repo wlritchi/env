@@ -58,6 +58,11 @@ packages = [
     "src/wlrenv",
 ]
 
+[tool.ty.src]
+exclude = [
+    "dotfiles/.config/ptpython",  # ptpython not in project deps
+]
+
 [tool.mypy]
 disallow_untyped_defs = true
 explicit_package_bases = true
@@ -113,11 +118,11 @@ select = [
 [dependency-groups]
 dev = [
     "codespell>=2.4.1",
-    "mypy>=1.15.0,<2.0.0",
     "prek>=0.2.25",
     "pyright>=1.1.407,<2.0.0",
     "pytest>=9.0.1,<10.0.0",
     "ruff>=0.9.6,<0.10.0",
+    "ty>=0.0.7",
     "types-tqdm",
     "yamllint>=1.35.1,<2.0.0",
 ]
