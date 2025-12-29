@@ -1,7 +1,6 @@
 {
   config,
   pkgs,
-  lib,
   ...
 }:
 
@@ -80,13 +79,4 @@ in
   # LibreWolf looks for native messaging hosts in ~/.librewolf/native-messaging-hosts/
   home.file.".librewolf/native-messaging-hosts/wlr_librewolf_workspace_tracker.json".source =
     "${nativeMessagingManifest}/wlr_librewolf_workspace_tracker.json";
-
-  # Ensure the native host script is executable (already in repo, just verify)
-  # The script is already part of the wlrenv repo at bin/wayland/wlr-librewolf-native-host
-  # and is made executable in the repo
-
-  # Create state directory
-  home.activation.createLibrewolfStateDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    $DRY_RUN_CMD mkdir -p ${config.home.homeDirectory}/.local/state/librewolf
-  '';
 }
