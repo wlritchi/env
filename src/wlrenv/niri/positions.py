@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import logging
 import os
 import tempfile
 import uuid as uuid_lib
@@ -16,6 +17,8 @@ import cattrs
 from attrs import Factory, define
 
 from wlrenv.niri import config
+
+logger = logging.getLogger(__name__)
 
 
 @define
@@ -296,13 +299,38 @@ def resolve_predecessors_to_window_ids(
     ws_key = str(workspace_id)
 
     if boot_id not in data.boots:
+        logger.info(
+            "resolve_predecessors: boot %s not in data, returning empty",
+            boot_id[:8],
+        )
         return []
 
     boot = data.boots[boot_id]
     if ws_key not in boot.workspaces:
+        logger.info(
+            "resolve_predecessors: workspace %s not in boot %s, returning empty",
+            ws_key,
+            boot_id[:8],
+        )
         return []
 
     entries = boot.workspaces[ws_key]
     id_to_window: dict[str, int] = {e.id: e.window_id for e in entries}
 
-    return [id_to_window[pid] for pid in predecessor_ids if pid in id_to_window]
+    resolved = [id_to_window[pid] for pid in predecessor_ids if pid in id_to_window]
+    missing = [pid for pid in predecessor_ids if pid not in id_to_window]
+
+    if missing:
+        logger.warning(
+            "resolve_predecessors: %d/%d predecessors NOT YET RESTORED: %s",
+            len(missing),
+            len(predecessor_ids),
+            missing,
+        )
+    if resolved:
+        logger.info(
+            "resolve_predecessors: resolved %d predecessors to window IDs",
+            len(resolved),
+        )
+
+    return resolved

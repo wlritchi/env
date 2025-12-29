@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from wlrenv.niri import ipc, positions
 from wlrenv.niri.ipc import Window
+
+logger = logging.getLogger(__name__)
 
 SPACER_IDENTITY = "__spacer__"
 
@@ -121,6 +125,14 @@ def place_window(
     This is the main entry point for window ordering during restore.
     Uses positions.find_predecessors() for cross-app ordering from historical boots.
     """
+    logger.info(
+        "place_window called: window_id=%d identity=%s workspace=%d current_col=%d",
+        window_id,
+        identity,
+        workspace_id,
+        current_column,
+    )
+
     # Parse app from identity (e.g., "tmux:session" -> "tmux")
     app = identity.split(":")[0] if ":" in identity else identity
 
@@ -130,17 +142,29 @@ def place_window(
         this_app=app,
         workspace_id=workspace_id,
     )
+    logger.info(
+        "  [%s] historical predecessors: %s",
+        identity,
+        predecessor_ids,
+    )
 
     # Resolve to window IDs in current boot
     predecessor_window_ids = positions.resolve_predecessors_to_window_ids(
         predecessor_ids=predecessor_ids,
         workspace_id=workspace_id,
     )
+    logger.info(
+        "  [%s] resolved to window IDs: %s (from %d predecessors)",
+        identity,
+        predecessor_window_ids,
+        len(predecessor_ids),
+    )
 
     # Get all windows in workspace to find predecessor columns
     windows = ipc.get_windows()
     window_id_to_column: dict[int, int] = {}
     spacer_column: int | None = None
+    spacer_found = False
 
     for w in windows:
         if w.workspace_id != workspace_id:
@@ -149,6 +173,23 @@ def place_window(
             window_id_to_column[w.id] = w.column
             if w.title == "niri-spacer window":
                 spacer_column = w.column
+                spacer_found = True
+                logger.info(
+                    "  [%s] spacer found: window_id=%d column=%d",
+                    identity,
+                    w.id,
+                    w.column,
+                )
+
+    if not spacer_found:
+        # Log all windows in workspace to help diagnose
+        ws_windows = [w for w in windows if w.workspace_id == workspace_id]
+        logger.warning(
+            "  [%s] SPACER NOT FOUND in workspace %d! Windows present: %s",
+            identity,
+            workspace_id,
+            [(w.id, w.title, w.column) for w in ws_windows],
+        )
 
     # Find rightmost predecessor column
     rightmost_col = 0
@@ -161,9 +202,30 @@ def place_window(
         col = window_id_to_column.get(pred_window_id)
         if col is not None and col > rightmost_col:
             rightmost_col = col
+            logger.info(
+                "  [%s] predecessor window %d at column %d is new rightmost",
+                identity,
+                pred_window_id,
+                col,
+            )
 
     # Target is one right of rightmost predecessor (or column 1 if none)
     target = rightmost_col + 1 if rightmost_col > 0 else 1
+
+    logger.info(
+        "  [%s] spacer_col=%s rightmost_col=%d -> target=%d (current=%d)",
+        identity,
+        spacer_column,
+        rightmost_col,
+        target,
+        current_column,
+    )
+
+    if target == 1 and spacer_column is None:
+        logger.warning(
+            "  [%s] TARGET IS COLUMN 1 WITH NO SPACER - window may end up left of spacer!",
+            identity,
+        )
 
     # Move if needed
     move_to_column(window_id, current_column, target)

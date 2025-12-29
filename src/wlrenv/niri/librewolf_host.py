@@ -4,15 +4,19 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import struct
 import sys
 from collections import defaultdict
 from typing import Any, cast
 
-from wlrenv.niri import ipc, ordering, positions
+from wlrenv.niri import config, ipc, ordering, positions
 from wlrenv.niri.librewolf import UrlMatcher
 from wlrenv.niri.positions import PositionEntry
 from wlrenv.niri.track import calculate_width_percent
+
+logger = logging.getLogger(__name__)
 
 
 def _get_window_column(window_id: int, workspace_id: int) -> int | None:
@@ -108,6 +112,7 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
 def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str, Any]:
     """Handle restore_workspaces action."""
     windows = message.get("windows", [])
+    logger.info("handle_restore: processing %d windows", len(windows))
 
     # Sort by URL count descending for greedy matching
     windows = sorted(windows, key=lambda w: len(w.get("tabs", [])), reverse=True)
@@ -127,11 +132,22 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
 
         if niri_window and props:
             workspace_id = props.workspace_id
+            logger.info(
+                "handle_restore: [%s] restoring to workspace %d width %d",
+                stable_id,
+                workspace_id,
+                props.width,
+            )
             ipc.configure(niri_window.id, workspace=workspace_id, width=props.width)
             moved_count += 1
 
             # Place window in correct column order
             column = _get_window_column(niri_window.id, workspace_id)
+            logger.info(
+                "handle_restore: [%s] after configure, column=%s",
+                stable_id,
+                column,
+            )
             if column is not None:
                 ordering.place_window(
                     window_id=niri_window.id,
@@ -147,6 +163,11 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
                         window_id=niri_window.id,
                         width=props.width,
                     )
+                )
+            else:
+                logger.warning(
+                    "handle_restore: [%s] column is None after configure, skipping placement!",
+                    stable_id,
                 )
 
     # Record restored positions
@@ -178,8 +199,36 @@ def write_message(message: dict[str, Any]) -> None:
     sys.stdout.buffer.flush()
 
 
+def _setup_logging() -> None:
+    """Configure logging for native messaging host.
+
+    Logs to a file since stdout is used for the native messaging protocol.
+    Enabled via NIRI_DEBUG environment variable.
+    """
+    level_str = os.environ.get("NIRI_DEBUG", "").upper()
+    if level_str in ("1", "TRUE", "INFO"):
+        level = logging.INFO
+    elif level_str == "DEBUG":
+        level = logging.DEBUG
+    else:
+        return  # No logging if not enabled
+
+    log_file = config.STATE_DIR / "librewolf-host.log"
+    config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+        filename=str(log_file),
+        filemode="a",
+    )
+    logger.info("=== Native messaging host started ===")
+
+
 def main() -> None:
     """Main loop for native messaging host."""
+    _setup_logging()
     while True:
         message = read_message()
         if message is None:

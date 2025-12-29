@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 
 from wlrenv.niri import ipc, ordering, positions
 from wlrenv.niri.positions import PositionEntry
+
+logger = logging.getLogger(__name__)
 
 
 def get_detached_tmux_sessions() -> list[str]:
@@ -72,7 +75,18 @@ def _get_window_column(window_id: int, workspace_id: int) -> int | None:
     windows = ipc.get_windows()
     for w in windows:
         if w.id == window_id and w.workspace_id == workspace_id:
+            logger.debug(
+                "_get_window_column: window %d in workspace %d -> column %s",
+                window_id,
+                workspace_id,
+                w.column,
+            )
             return w.column
+    logger.warning(
+        "_get_window_column: window %d NOT FOUND in workspace %d",
+        window_id,
+        workspace_id,
+    )
     return None
 
 
@@ -91,13 +105,29 @@ def restore_tmux() -> None:
         proc = spawn_terminal(["tmux", "attach-session", "-t", session])
 
         if props:
+            logger.info(
+                "restore_tmux: restoring %s to workspace %d width %d",
+                stable_id,
+                props.workspace_id,
+                props.width,
+            )
             window_id = ipc.wait_for_window(pid=proc.pid)
             if window_id:
                 workspace_id = props.workspace_id
+                logger.info(
+                    "restore_tmux: [%s] got window_id=%d, configuring...",
+                    stable_id,
+                    window_id,
+                )
                 ipc.configure(window_id, workspace=workspace_id, width=props.width)
 
                 # Place window in correct column order
                 column = _get_window_column(window_id, workspace_id)
+                logger.info(
+                    "restore_tmux: [%s] after configure, column=%s",
+                    stable_id,
+                    column,
+                )
                 if column is not None:
                     ordering.place_window(
                         window_id=window_id,
@@ -115,6 +145,11 @@ def restore_tmux() -> None:
                             window_id=window_id,
                             width=props.width,
                         )
+                    )
+                else:
+                    logger.warning(
+                        "restore_tmux: [%s] column is None after configure, skipping placement!",
+                        stable_id,
                     )
 
     # Record restored positions
@@ -152,13 +187,29 @@ def restore_mosh() -> None:
         )
 
         if props:
+            logger.info(
+                "restore_mosh: restoring %s to workspace %d width %d",
+                stable_id,
+                props.workspace_id,
+                props.width,
+            )
             window_id = ipc.wait_for_window(pid=proc.pid)
             if window_id:
                 workspace_id = props.workspace_id
+                logger.info(
+                    "restore_mosh: [%s] got window_id=%d, configuring...",
+                    stable_id,
+                    window_id,
+                )
                 ipc.configure(window_id, workspace=workspace_id, width=props.width)
 
                 # Place window in correct column order
                 column = _get_window_column(window_id, workspace_id)
+                logger.info(
+                    "restore_mosh: [%s] after configure, column=%s",
+                    stable_id,
+                    column,
+                )
                 if column is not None:
                     ordering.place_window(
                         window_id=window_id,
@@ -176,6 +227,11 @@ def restore_mosh() -> None:
                             window_id=window_id,
                             width=props.width,
                         )
+                    )
+                else:
+                    logger.warning(
+                        "restore_mosh: [%s] column is None after configure, skipping placement!",
+                        stable_id,
                     )
 
     # Record restored positions
