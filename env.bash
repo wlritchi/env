@@ -162,13 +162,15 @@ wlr_detect_ssh() {
 }
 
 wlr_detect_named_term() {
+    # TODO: experiment with using git root instead of pwd for project-based sessions
+    # git_root="$(git rev-parse --show-toplevel 2>/dev/null)" || git_root="$(pwd)"
     if [ -n "$__INTELLIJ_COMMAND_HISTFILE__" ]; then
         {
             pwd
             echo "$__INTELLIJ_COMMAND_HISTFILE__"
         } | sha256sum | cut -c1-7
         return 0
-    elif [ -n "$VSCODE_SHELL_INTEGRATION" ] || [ -n "$ZED_TERM" ]; then
+    elif [ -n "$VSCODE_SHELL_INTEGRATION" ] || [ -n "$ZED_TERM" ] || [ -n "$NVIM" ]; then
         pwd | sha256sum | cut -c1-7
         return 0
     fi
@@ -198,13 +200,13 @@ wlr_suspect_tty() {
 # invoke zellij/tmux, if applicable
 
 if [ -n "$wlr_interactive" ]; then
-    if [ -n "$ZELLIJ" ] || [ -n "$TMUX" ]; then
+    if [ -z "$WLR_NAMED_TERM" ] && term="$(wlr_detect_named_term)"; then
+        print_status
+        WLR_NAMED_TERM="$term" exec tmux new-session -A -s "$term" -c "$(pwd)"
+    elif [ -n "$ZELLIJ" ] || [ -n "$TMUX" ]; then
         true
     elif [ "$WLR_TMUX" == 'n' ]; then
         warnings+=('tmux - skipping (disabled)')
-    elif term="$(wlr_detect_named_term)"; then
-        print_status
-        exec tmux new-session -A -s "$term" -c "$(pwd)"
     elif wlr_suspect_tty; then
         warnings+=('tmux - skipping (suspect tty)')
     elif command -v zellij >/dev/null 2>&1 && false; then # TODO re-enable

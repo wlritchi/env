@@ -42,5 +42,13 @@ vim.opt.smartcase = true
 vim.opt.hlsearch = false
 vim.opt.incsearch = true
 
+-- Keymaps
+vim.keymap.set(
+  "n",
+  "<leader>t",
+  ":belowright 15split | terminal env WLR_XONSH= TMUX= bash<CR>i",
+  { desc = "Open terminal below" }
+)
+
 -- Set up plugins
 require("lazy").setup("plugins")
