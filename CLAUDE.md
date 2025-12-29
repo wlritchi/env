@@ -70,3 +70,4 @@ This repository uses Nix Flakes with home-manager for declarative package and en
 After each session, Claude should update this file with any important learnings about working with this repository.
 
 - **Commit signing is required**: This repo syncs across multiple machines that verify signatures. Do not use `--no-gpg-sign`; wait for the user to have their Yubikey available if signing fails.
+- **Neovim plugin updates**: When updating nvim plugin configurations, ask the user to open nvim and let Lazy sync/update before committing. This ensures `lazy-lock.json` is updated with the correct plugin versions.
