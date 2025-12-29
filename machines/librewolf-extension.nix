@@ -44,7 +44,7 @@ let
     text = builtins.toJSON {
       name = "wlr_librewolf_workspace_tracker";
       description = "niri workspace tracking for LibreWolf";
-      path = "${config.home.homeDirectory}/.wlrenv/bin/wayland/wlr-librewolf-native-host";
+      path = "${config.home.homeDirectory}/.local/bin/wlr-niri-librewolf-host";
       type = "stdio";
       allowed_extensions = [ "librewolf-workspace-tracker@wlrenv" ];
     };

@@ -56,6 +56,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any]:
 def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, Any]:
     """Handle store_mappings_batch action."""
     windows = message.get("windows", [])
+    logger.info("handle_store: processing %d windows", len(windows))
 
     # Sort by URL count descending for greedy matching
     windows = sorted(windows, key=lambda w: len(w.get("tabs", [])), reverse=True)
@@ -63,9 +64,31 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
     # Get niri state once
     outputs = {o.name: o for o in ipc.get_outputs()}
     workspaces = {w.id: w for w in ipc.get_workspaces()}
+    logger.info(
+        "handle_store: niri state has %d outputs, %d workspaces",
+        len(outputs),
+        len(workspaces),
+    )
+
+    # Log all librewolf window titles niri sees for debugging
+    all_niri_windows = ipc.get_windows()
+    librewolf_titles = [
+        (w.id, w.title[:60] if w.title else None)
+        for w in all_niri_windows
+        if w.app_id and "librewolf" in w.app_id.lower()
+    ]
+    logger.info("handle_store: niri librewolf windows: %s", librewolf_titles)
+
+    # Log browser-reported titles for comparison
+    browser_titles = [
+        (w.get("window_title", "")[:60] if w.get("window_title") else None)
+        for w in windows
+    ]
+    logger.info("handle_store: browser-reported titles: %s", browser_titles)
 
     matcher = UrlMatcher.load()
     stored_count = 0
+    matched_window_ids: set[int] = set()
 
     # Collect entries per workspace
     workspace_entries: dict[int, list[PositionEntry]] = defaultdict(list)
@@ -75,9 +98,11 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
         title = win.get("window_title", "")
 
         uuid = matcher.match_or_create(urls)
-        niri_window = ipc.find_window_by_title(title)
+        stable_id = f"librewolf:{uuid}"
+        niri_window = ipc.find_window_by_title(title, exclude_ids=matched_window_ids)
 
         if niri_window:
+            matched_window_ids.add(niri_window.id)
             ws = workspaces.get(niri_window.workspace_id)
             if ws:
                 output = outputs.get(ws.output)
@@ -87,13 +112,40 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
                     )
                     workspace_entries[niri_window.workspace_id].append(
                         PositionEntry(
-                            id=f"librewolf:{uuid}",
+                            id=stable_id,
                             index=niri_window.column,
                             window_id=niri_window.id,
                             width=width,
                         )
                     )
                     stored_count += 1
+                    logger.info(
+                        "handle_store: [%s] matched window_id=%d ws=%d col=%d width=%d",
+                        stable_id,
+                        niri_window.id,
+                        niri_window.workspace_id,
+                        niri_window.column,
+                        width,
+                    )
+                else:
+                    logger.warning(
+                        "handle_store: [%s] window found but output=%s column=%s",
+                        stable_id,
+                        output.name if output else None,
+                        niri_window.column,
+                    )
+            else:
+                logger.warning(
+                    "handle_store: [%s] window found but workspace_id=%d not in workspaces",
+                    stable_id,
+                    niri_window.workspace_id,
+                )
+        else:
+            logger.warning(
+                "handle_store: no niri window found for title=%r (uuid=%s)",
+                title[:50] if title else None,
+                uuid,
+            )
 
     # Upsert entries per workspace
     for workspace_id, entries in workspace_entries.items():
@@ -106,6 +158,7 @@ def handle_store(message: dict[str, Any], request_id: str | None) -> dict[str, A
         positions.prune_dominated_boots(positions.get_boot_id())
 
     matcher.save()
+    logger.info("handle_store: completed, stored_count=%d", stored_count)
     return {"success": True, "stored_count": stored_count, "request_id": request_id}
 
 
@@ -119,6 +172,7 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
 
     matcher = UrlMatcher.load()
     moved_count = 0
+    matched_window_ids: set[int] = set()
     restored_entries: dict[int, list[PositionEntry]] = defaultdict(list)
 
     for win in windows:
@@ -128,9 +182,10 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
         uuid = matcher.match_or_create(urls)
         stable_id = f"librewolf:{uuid}"
         props = positions.lookup_latest_position(stable_id)
-        niri_window = ipc.find_window_by_title(title)
+        niri_window = ipc.find_window_by_title(title, exclude_ids=matched_window_ids)
 
         if niri_window and props:
+            matched_window_ids.add(niri_window.id)
             workspace_id = props.workspace_id
             logger.info(
                 "handle_restore: [%s] restoring to workspace %d width %d",
@@ -178,6 +233,7 @@ def handle_restore(message: dict[str, Any], request_id: str | None) -> dict[str,
         positions.prune_dominated_boots(positions.get_boot_id())
 
     matcher.save()
+    logger.info("handle_restore: completed, moved_count=%d", moved_count)
     return {"success": True, "moved_count": moved_count, "request_id": request_id}
 
 

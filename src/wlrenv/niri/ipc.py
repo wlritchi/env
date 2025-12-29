@@ -125,12 +125,42 @@ def get_workspaces() -> list[Workspace]:
     return [Workspace(id=w["id"], output=w["output"]) for w in data]
 
 
-def find_window_by_title(title: str) -> Window | None:
-    """Find a window by exact title match."""
+def find_window_by_title(
+    title: str,
+    exclude_ids: set[int] | None = None,
+) -> Window | None:
+    """Find a window by title match.
+
+    Matches if:
+    1. Exact match, OR
+    2. Window title starts with the search title followed by a separator
+       (handles browser suffixes like " — LibreWolf")
+
+    Args:
+        title: The title to search for
+        exclude_ids: Window IDs to skip (for matching multiple windows with same title)
+    """
+    if not title:
+        return None
+
+    if exclude_ids is None:
+        exclude_ids = set()
+
     windows = get_windows()
     for w in windows:
+        if w.id in exclude_ids:
+            continue
+        if not w.title:
+            continue
+        # Exact match
         if w.title == title:
             return w
+        # Prefix match: title + separator (space followed by dash variants)
+        # Handles " — LibreWolf", " - LibreWolf", etc.
+        if w.title.startswith(title) and len(w.title) > len(title):
+            next_chars = w.title[len(title) : len(title) + 3]
+            if next_chars.startswith(" —") or next_chars.startswith(" -"):
+                return w
     return None
 
 
