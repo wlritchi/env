@@ -17,6 +17,11 @@ fi
 # set up git config for env
 git -C "$WLR_ENV_PATH" config --local gpg.ssh.allowedSignersFile "$WLR_ENV_PATH/.allowed_signers"
 
+# Disable fsmonitor to avoid socket files breaking Nix's path: input
+# (fsmonitor creates .git/**/fsmonitor--daemon.ipc which Nix can't handle)
+git -C "$WLR_ENV_PATH" config --local core.fsmonitor false
+git -C "$WLR_ENV_PATH" submodule foreach --quiet 'git config --local core.fsmonitor false'
+
 if command -v tmux >/dev/null 2>&1; then
     if ! [ -e "$HOME/.tmux/plugins/tpm" ]; then
         mkdir -p ~/.tmux/plugins/
