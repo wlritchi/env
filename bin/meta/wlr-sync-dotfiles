@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Private repo detection
+PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
+HAS_PRIVATE=false
+[[ -d "$PRIVATE_ENV_PATH" ]] && HAS_PRIVATE=true
+
 print_diff() {
     if command -v delta >/dev/null 2>&1; then
         delta "$@" || true
@@ -55,43 +60,105 @@ sync_dir() {
 }
 
 render_file() {
-    current="$WLR_ENV_PATH/dotfiles/$1"
-    tmp=
-    final="$current"
+    local path="$1"
+    local base_file=""
+    local source=""
+    local uses_private=false
 
-    patches=()
-    if [ -n "$HOSTNAME" ] && [ -f "$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch" ]; then
-        patches+=("$WLR_ENV_PATH/patches/host/$HOSTNAME/$1.patch")
-    fi
-    if [ -n "$(uname)" ] && [ -f "$WLR_ENV_PATH/patches/uname/$(uname)/$1.patch" ]; then
-        patches+=("$WLR_ENV_PATH/patches/uname/$(uname)/$1.patch")
+    # Step 1: Determine base file (private shadows public)
+    if $HAS_PRIVATE && [ -f "$PRIVATE_ENV_PATH/dotfiles/$path" ]; then
+        base_file="$PRIVATE_ENV_PATH/dotfiles/$path"
+        source="private"
+        uses_private=true
+    elif [ -f "$WLR_ENV_PATH/dotfiles/$path" ]; then
+        base_file="$WLR_ENV_PATH/dotfiles/$path"
+        source="public"
+    else
+        # No base file found
+        return 1
     fi
 
-    needs_patch=
+    # Step 2: Collect patches (uname before host = general before specific)
+    local patches=()
+    local uname_val
+    uname_val="$(uname)"
+
+    if [ "$source" = "private" ]; then
+        # Private source: only private patches apply
+        if [ -n "$uname_val" ] && [ -f "$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch" ]; then
+            patches+=("$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch")
+            uses_private=true
+        fi
+        if [ -n "$HOSTNAME" ] && [ -f "$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch" ]; then
+            patches+=("$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch")
+            uses_private=true
+        fi
+    else
+        # Public source: public patches, then private patches layer on top
+        if [ -n "$uname_val" ] && [ -f "$WLR_ENV_PATH/patches/uname/$uname_val/$path.patch" ]; then
+            patches+=("$WLR_ENV_PATH/patches/uname/$uname_val/$path.patch")
+        fi
+        if [ -n "$HOSTNAME" ] && [ -f "$WLR_ENV_PATH/patches/host/$HOSTNAME/$path.patch" ]; then
+            patches+=("$WLR_ENV_PATH/patches/host/$HOSTNAME/$path.patch")
+        fi
+        if $HAS_PRIVATE; then
+            if [ -n "$uname_val" ] && [ -f "$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch" ]; then
+                patches+=("$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch")
+                uses_private=true
+            fi
+            if [ -n "$HOSTNAME" ] && [ -f "$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch" ]; then
+                patches+=("$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch")
+                uses_private=true
+            fi
+        fi
+    fi
+
+    # Step 3: Determine rendered location
+    local rendered_dir
+    if $uses_private; then
+        rendered_dir="$PRIVATE_ENV_PATH/rendered"
+    else
+        rendered_dir="$WLR_ENV_PATH/rendered"
+    fi
+
+    # If no patches, return the base file directly
+    if [ ${#patches[@]} -eq 0 ]; then
+        echo "$base_file"
+        return 0
+    fi
+
+    # Check if re-rendering is needed
+    local final="$rendered_dir/$path"
+    local needs_patch=
+    local current="$base_file"
+
+    mkdir -p "$(dirname "$final")"
     for patch in "${patches[@]}"; do
-        final="$WLR_ENV_PATH/rendered/$1"
-        mkdir -p "$(dirname "$final")"
         if ! [ -f "$final" ] || ! is_newer "$final" "$patch" || ! is_newer "$final" "$current"; then
             needs_patch=y
+            break
         fi
     done
 
     if [ -n "$needs_patch" ]; then
+        local tmp=""
+        current="$base_file"
         for patch in "${patches[@]}"; do
             if [ -n "$tmp" ]; then
                 rm "$tmp"
             fi
             tmp="$(mktemp)"
-            next="$tmp"
-            patch "$current" "$patch" -o "$next" >/dev/null
-            current="$next"
+            patch "$current" "$patch" -o "$tmp" >/dev/null
+            current="$tmp"
         done
         mv "$current" "$final"
     fi
+
     echo "$final"
 }
 
 link_file() {
+    local rendered
     rendered="$(realpath "$(render_file "$1")")"
     if [ -L "$HOME/$1" ]; then
         actual_target="$(realpath "$HOME/$1")"
@@ -114,15 +181,35 @@ link_file() {
     fi
 }
 
-while IFS= read filename <&3; do
+# Discover all dotfile paths from both repos
+declare -A seen_paths
+dotfile_paths=()
+
+# Scan public repo
+while IFS= read -r filename; do
     relative="${filename#"$WLR_ENV_PATH/dotfiles/"}"
-    if [ "$relative" == "$filename" ]; then
-        wlr-warn "update: failed to match filename $filename against expected subdirectory"
-        continue
+    if [ "$relative" != "$filename" ] && [ -z "${seen_paths[$relative]:-}" ]; then
+        seen_paths["$relative"]=1
+        dotfile_paths+=("$relative")
     fi
+done < <(find -L "$WLR_ENV_PATH/dotfiles" -type f 2>/dev/null || true)
+
+# Scan private repo if it exists
+if $HAS_PRIVATE && [ -d "$PRIVATE_ENV_PATH/dotfiles" ]; then
+    while IFS= read -r filename; do
+        relative="${filename#"$PRIVATE_ENV_PATH/dotfiles/"}"
+        if [ "$relative" != "$filename" ] && [ -z "${seen_paths[$relative]:-}" ]; then
+            seen_paths["$relative"]=1
+            dotfile_paths+=("$relative")
+        fi
+    done < <(find -L "$PRIVATE_ENV_PATH/dotfiles" -type f 2>/dev/null || true)
+fi
+
+# Process each unique dotfile
+for relative in "${dotfile_paths[@]}"; do
     dir="${relative%/*}"
     if [ "$dir" != "$relative" ]; then
         sync_dir "$dir" || continue
     fi
     link_file "$relative"
-done 3< <( find -L "$WLR_ENV_PATH/dotfiles" -type f 2>/dev/null || true )
+done
