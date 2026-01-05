@@ -5,10 +5,10 @@ set -euo pipefail
 #   zero for success requiring re-executing the environment
 #   nonzero for skipped/no-op update or error
 
-UPDATE_URL="https://github.com/wlritchi/env"
-
 force=
 [ "${1:-}" == '--force' ] && force=y
+
+PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
 
 if [ -z "$force" ]; then
     if [ -e "$WLR_ENV_PATH/.last-update-check" ] && [ -z "$(find "$WLR_ENV_PATH/.last-update-check" -mmin +60 -print -quit)" ]; then
@@ -23,48 +23,115 @@ fi
 
 wlr-working 'update check'
 
-# find remote for non-interactive updates
-update_remote=
-while IFS= read remote <&3; do
-    if [ "$(git -C "$WLR_ENV_PATH" remote get-url "$remote")" == "https://github.com/wlritchi/env" ]; then
-        update_remote="$remote"
-        break
+# Update a single repo with signature verification
+# Args: repo_path remote_url allowed_signers_file
+# Returns: 0 if updated, 1 if no changes or error
+update_repo() {
+    local repo_path="$1"
+    local remote_url="$2"
+    local allowed_signers="$3"
+    local repo_name
+    repo_name="$(basename "$repo_path")"
+
+    if [[ ! -d "$repo_path" ]]; then
+        return 1
     fi
-done 3< <( git -C "$WLR_ENV_PATH" remote )
 
-if [ -z "$update_remote" ]; then
-    git -C "$WLR_ENV_PATH" remote add updates "$UPDATE_URL"
-    update_remote=updates
+    # Find or create remote for updates
+    local update_remote=""
+    while IFS= read -r remote; do
+        if [ "$(git -C "$repo_path" remote get-url "$remote" 2>/dev/null)" == "$remote_url" ]; then
+            update_remote="$remote"
+            break
+        fi
+    done < <(git -C "$repo_path" remote)
+
+    if [ -z "$update_remote" ]; then
+        git -C "$repo_path" remote add updates "$remote_url"
+        update_remote=updates
+    fi
+
+    # SECURITY: Read allowed signers from current validated HEAD BEFORE fetching
+    # This prevents an attacker from modifying the allowed signers in a malicious commit
+    local signers_content=""
+    if [[ -f "$allowed_signers" ]]; then
+        signers_content="$(cat "$allowed_signers")"
+    else
+        wlr-err "$repo_name: no allowed signers file found at $allowed_signers"
+        return 1
+    fi
+
+    git -C "$repo_path" fetch "$update_remote"
+    local local_commit remote_commit
+    local_commit="$(git -C "$repo_path" rev-parse HEAD)"
+    remote_commit="$(git -C "$repo_path" rev-parse "$update_remote/main")"
+
+    # If nothing to do, exit early
+    if [ -z "$force" ] && [ "$local_commit" == "$remote_commit" ]; then
+        wlr-good "$repo_name: no new changes"
+        return 1
+    fi
+
+    # Verify signature using the signers from BEFORE the fetch
+    # Create a temp file with the pre-fetch signers content
+    local temp_signers
+    temp_signers="$(mktemp)"
+    echo "$signers_content" > "$temp_signers"
+    trap 'rm -f "$temp_signers"' RETURN
+
+    # gpg.program=/dev/null - disable validation of GPG signatures entirely
+    # gpg.ssh.allowedSignersFile - only accept SSH signatures from our known-good list
+    if ! git -C "$repo_path" -c gpg.program=/dev/null -c gpg.ssh.allowedSignersFile="$temp_signers" verify-commit "$remote_commit"; then
+        wlr-err "$repo_name: update failed, bad signature"
+        return 1
+    fi
+
+    git -C "$repo_path" merge --ff-only "$remote_commit"
+    git -C "$repo_path" submodule update --init --recursive
+
+    local new_local_commit
+    new_local_commit="$(git -C "$repo_path" rev-parse HEAD)"
+
+    if [ "$local_commit" != "$new_local_commit" ]; then
+        return 0  # Updated
+    fi
+    return 1  # No change
+}
+
+# Track if any repo was updated
+any_updated=
+
+# Update public repo first (it contains the update scripts)
+PUBLIC_REMOTE_URL="https://github.com/wlritchi/env"
+if update_repo "$WLR_ENV_PATH" "$PUBLIC_REMOTE_URL" "$WLR_ENV_PATH/.allowed_signers"; then
+    any_updated=y
 fi
 
-git -C "$WLR_ENV_PATH" fetch "$update_remote"
-local_commit="$(git -C "$WLR_ENV_PATH" rev-parse HEAD)"
-remote_commit="$(git -C "$WLR_ENV_PATH" rev-parse "$update_remote/main")"
-
-# if nothing to do, exit early
-if [ -z "$force" ]; then
-    if [ "$local_commit" == "$remote_commit" ]; then
-        wlr-good 'update check succeeded, no new changes'
-        touch "$WLR_ENV_PATH/.last-update-check"
-        exit 1
+# Update private repo if it exists
+if [[ -d "$PRIVATE_ENV_PATH" ]]; then
+    # Private repo uses its own remote URL and allowed signers
+    PRIVATE_REMOTE_URL="$(git -C "$PRIVATE_ENV_PATH" remote get-url origin 2>/dev/null || echo "")"
+    if [[ -n "$PRIVATE_REMOTE_URL" ]]; then
+        if update_repo "$PRIVATE_ENV_PATH" "$PRIVATE_REMOTE_URL" "$PRIVATE_ENV_PATH/.allowed_signers"; then
+            any_updated=y
+        fi
     fi
 fi
 
-# check signature
-# gpg.program=/dev/null - disable validation of GPG signatures entirely
-# gpg.ssh.allowedSignersFile - only accept SSH signatures from our existing known-good list
-if ! git -C "$WLR_ENV_PATH" -c gpg.program=/dev/null -c gpg.ssh.allowedSignersFile="$WLR_ENV_PATH/.allowed_signers" verify-commit "$remote_commit"; then
-    wlr-err 'update failed, bad signature'
-    exit 1
-fi
-
-git -C "$WLR_ENV_PATH" merge --ff-only "$remote_commit"
-git -C "$WLR_ENV_PATH" submodule update --init --recursive
-new_local_commit="$(git -C "$WLR_ENV_PATH" rev-parse HEAD)"
-
-if [ "$local_commit" != "$new_local_commit" ]; then
-    "$WLR_ENV_PATH/hooks/post-upgrade"
+# Run post-upgrade hooks if anything was updated
+if [[ -n "$any_updated" ]]; then
+    # Run public repo hooks first
+    if [[ -x "$WLR_ENV_PATH/hooks/post-upgrade" ]]; then
+        "$WLR_ENV_PATH/hooks/post-upgrade"
+    fi
+    # Run private repo hooks if they exist
+    if [[ -x "$PRIVATE_ENV_PATH/hooks/post-upgrade" ]]; then
+        "$PRIVATE_ENV_PATH/hooks/post-upgrade"
+    fi
 fi
 
 touch "$WLR_ENV_PATH/.last-update-check"
-wlr-good 'update succeeded'
+wlr-good 'update check complete'
+
+# Exit 0 only if something was updated (signals re-exec needed)
+[[ -n "$any_updated" ]]
