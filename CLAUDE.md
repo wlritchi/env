@@ -60,6 +60,13 @@ This repository uses Nix Flakes with home-manager for declarative package and en
 - **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash (takes precedence over `~/.local/bin`)
 - **Special integrations**: Uses krew2nix for declarative kubectl plugin management
 
+### macOS: nix-darwin and Homebrew
+On macOS, `wlr-nix-rebuild` also runs nix-darwin (via `darwin-rebuild`) for system-level config:
+- **Config file**: `machines/darwin-system.nix` - system-level macOS settings
+- **Homebrew casks**: For apps that need to self-update (e.g., Docker) or aren't in nixpkgs
+- **When to use Homebrew**: Only for apps that manage their own updates. Prefer nixpkgs for everything else - you get reproducibility and rollback.
+- **Config naming**: Darwin configs use underscores instead of dots (e.g., `luc_ritchie` not `luc.ritchie`) due to nix-darwin limitations
+
 ## Environment Integration
 - Integration with development environment tools (nodenv, pyenv, etc.)
 - Terminal multiplexer support (tmux, zellij)

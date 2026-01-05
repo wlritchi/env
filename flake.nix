@@ -6,6 +6,19 @@
       url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-darwin = {
+      url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-homebrew.url = "github:zhaofengli/nix-homebrew";
+    homebrew-core = {
+      url = "github:homebrew/homebrew-core";
+      flake = false;
+    };
+    homebrew-cask = {
+      url = "github:homebrew/homebrew-cask";
+      flake = false;
+    };
     krew2nix = {
       url = "github:eigengrau/krew2nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -19,6 +32,10 @@
     {
       nixpkgs,
       home-manager,
+      nix-darwin,
+      nix-homebrew,
+      homebrew-core,
+      homebrew-cask,
       krew2nix,
       try,
       ...
@@ -45,6 +62,19 @@
           pkgs = nixpkgs.legacyPackages.aarch64-darwin;
           modules = [ ./machines/darwin.nix ];
           extraSpecialArgs = { inherit krew2nix try; };
+        };
+      };
+      darwinConfigurations = {
+        luc_ritchie = nix-darwin.lib.darwinSystem {
+          system = "aarch64-darwin";
+          modules = [
+            nix-homebrew.darwinModules.nix-homebrew
+            ./machines/darwin-system.nix
+          ];
+          specialArgs = {
+            username = "luc.ritchie";
+            inherit homebrew-core homebrew-cask;
+          };
         };
       };
     };

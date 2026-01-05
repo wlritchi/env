@@ -42,15 +42,43 @@ config_exists() {
     nix eval --json ".#homeConfigurations" --apply 'x: builtins.attrNames x' 2>/dev/null | grep -q "\"${config}\""
 }
 
-# Try user@hostname first, fallback to just username
+# Determine which config to use (user@hostname if exists, otherwise just user)
+NIX_PROFILE="${USER}"
 if SHORT_HOSTNAME=$(get_short_hostname); then
-    CONFIG="${USER}@${SHORT_HOSTNAME}"
-    if config_exists "${CONFIG}"; then
-        "${home_manager[@]}" switch --flake ".#${CONFIG}"
-        exit 0
+    HOST_PROFILE="${USER}@${SHORT_HOSTNAME}"
+    if config_exists "${HOST_PROFILE}"; then
+        NIX_PROFILE="${HOST_PROFILE}"
     else
-        wlr-warn "Config for ${CONFIG} not found, falling back to ${USER}"
+        wlr-warn "Config for ${HOST_PROFILE} not found, falling back to ${USER}"
     fi
 fi
 
-"${home_manager[@]}" switch --flake ".#${USER}"
+"${home_manager[@]}" switch --flake ".#${NIX_PROFILE}"
+
+# On macOS, also run darwin-rebuild for system-level config (Homebrew casks, etc.)
+if [ "$(uname -s)" = "Darwin" ]; then
+    nix_darwin=(
+        nix
+        run
+        nix-darwin
+        --
+    )
+    # Replace dots with underscores for darwin config name (nix-darwin doesn't handle dots well)
+    DARWIN_PROFILE="${NIX_PROFILE//./_}"
+
+    # Build first (no sudo needed) to check if anything changed
+    "${nix_darwin[@]}" build --flake ".#${DARWIN_PROFILE}"
+
+    # Compare new build to current system - only activate if different
+    NEW_SYSTEM="$(readlink ./result)"
+    CURRENT_SYSTEM="$(readlink /run/current-system 2>/dev/null || echo "")"
+
+    if [ "${NEW_SYSTEM}" != "${CURRENT_SYSTEM}" ]; then
+        sudo "${nix_darwin[@]}" switch --flake ".#${DARWIN_PROFILE}"
+    else
+        echo "nix-darwin: no changes to activate"
+    fi
+
+    # Clean up result symlink
+    rm -f ./result
+fi
