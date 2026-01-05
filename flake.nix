@@ -2,25 +2,25 @@
   description = "home-manager config";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/release-25.11";
-    home-manager = {
-      url = "github:nix-community/home-manager/release-25.11";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    nix-darwin = {
-      url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
-    homebrew-core = {
-      url = "github:homebrew/homebrew-core";
-      flake = false;
-    };
     homebrew-cask = {
       url = "github:homebrew/homebrew-cask";
       flake = false;
     };
+    homebrew-core = {
+      url = "github:homebrew/homebrew-core";
+      flake = false;
+    };
+    home-manager = {
+      url = "github:nix-community/home-manager/release-25.11";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     krew2nix = {
       url = "github:eigengrau/krew2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-darwin = {
+      url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     try = {
@@ -30,13 +30,13 @@
   };
   outputs =
     {
-      nixpkgs,
+      homebrew-cask,
+      homebrew-core,
       home-manager,
+      krew2nix,
+      nixpkgs,
       nix-darwin,
       nix-homebrew,
-      homebrew-core,
-      homebrew-cask,
-      krew2nix,
       try,
       ...
     }:
@@ -73,7 +73,7 @@
           ];
           specialArgs = {
             username = "luc.ritchie";
-            inherit homebrew-core homebrew-cask;
+            inherit homebrew-cask homebrew-core;
           };
         };
       };
