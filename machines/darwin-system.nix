@@ -36,6 +36,7 @@
       cleanup = "none";
     };
     casks = [
+      "linearmouse"
       "middleclick"
     ];
   };
