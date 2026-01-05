@@ -60,8 +60,6 @@ in
       awscli2
       bash
       coreutils-full
-      docker
-      docker-buildx
       ghostty-bin
       karabiner-elements
       passage
@@ -73,10 +71,6 @@ in
       pinOllama.ollama
     ])
     ++ [ secwrap ];
-
-  home.file.".docker/cli-plugins/docker-buildx" = {
-    source = "${pkgs.docker-buildx}/libexec/docker/cli-plugins/docker-buildx";
-  };
 
   # Keyboard layouts must be copied, not symlinked (macOS ignores symlinks)
   home.activation.copyKeyboardLayouts = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
