@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Get current month's first day in YYYYMM01 format
+since_date=$(date +%Y%m01)
+
+# Fetch usage data
+usage=$(bunx ccusage --since "$since_date" -j 2>/dev/null || echo '{"daily":[],"totals":{"totalCost":0}}')
+
+# Extract and format costs
+today=$(date +%Y-%m-%d)
+last_date=$(echo "$usage" | jq -r '.daily[-1].date // ""')
+if [[ "$last_date" == "$today" ]]; then
+    daily=$(echo "$usage" | jq -r '.daily[-1].totalCost // 0')
+else
+    daily=0
+fi
+monthly=$(echo "$usage" | jq -r '.totals.totalCost // 0')
+
+# Format with 2 decimal places
+daily_fmt=$(printf '%.2f' "$daily")
+monthly_fmt=$(printf '%.2f' "$monthly")
+
+# Menu bar display (use U+2758 LIGHT VERTICAL BAR to avoid SwiftBar pipe delimiter)
+echo "\$${daily_fmt}  ❘  \$${monthly_fmt}"
+echo "---"
+echo "Claude Code Usage"
+echo "Today: \$${daily_fmt}"
+echo "This Month: \$${monthly_fmt}"
+echo "---"
+echo "Refresh | refresh=true"

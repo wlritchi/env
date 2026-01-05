@@ -36,8 +36,10 @@
       cleanup = "none";
     };
     casks = [
+      "jordanbaird-ice"
       "linearmouse"
       "middleclick"
+      "swiftbar"
     ];
   };
 }
