@@ -30,6 +30,10 @@ let
   browserpass-native-passage = import ./pkgs/browserpass-native-passage.nix {
     inherit pkgs age-with-plugins;
   };
+  secwrap = import ./pkgs/secwrap.nix {
+    inherit pkgs;
+    backend = "passage";
+  };
 in
 {
   imports = [
@@ -43,30 +47,32 @@ in
 
   fonts.fontconfig.enable = true;
 
-  home.packages = with pkgs; [
-    # Fonts
-    fira-code
-    nerd-fonts.fira-code
+  home.packages =
+    (with pkgs; [
+      # Fonts
+      fira-code
+      nerd-fonts.fira-code
 
-    aerospace
-    age-plugin-se
-    age-with-plugins
-    autokbisw
-    awscli2
-    bash
-    coreutils-full
-    docker
-    docker-buildx
-    ghostty-bin
-    karabiner-elements
-    passage
-    procps # for the watch command
-    secretive
-    teleport
-    pinAcli.acli
-    pinDevspace.devspace
-    pinOllama.ollama
-  ];
+      aerospace
+      age-plugin-se
+      age-with-plugins
+      autokbisw
+      awscli2
+      bash
+      coreutils-full
+      docker
+      docker-buildx
+      ghostty-bin
+      karabiner-elements
+      passage
+      procps # for the watch command
+      secretive
+      teleport
+      pinAcli.acli
+      pinDevspace.devspace
+      pinOllama.ollama
+    ])
+    ++ [ secwrap ];
 
   home.file.".docker/cli-plugins/docker-buildx" = {
     source = "${pkgs.docker-buildx}/libexec/docker/cli-plugins/docker-buildx";

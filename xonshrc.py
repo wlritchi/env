@@ -284,6 +284,12 @@ def _setup() -> None:
         if which('k9sx'):
             XSH.aliases['k9s'] = 'k9sx'
 
+        # secwrap: wrap commands with secrets from pass/passage
+        if which('secwrap'):
+            for cmd in ('aws', 'claude'):
+                if which(cmd):
+                    XSH.aliases[cmd] = f'secwrap {cmd}'
+
         if which('sshx'):
             XSH.aliases['ssh'] = 'sshx'
         if which('sshfsx'):

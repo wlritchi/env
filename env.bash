@@ -394,6 +394,14 @@ command -v yay-shim >/dev/null 2>&1 && alias yay='yay-shim'
 
 command -v k9sx > /dev/null 2>&1 && alias k9s='k9sx'
 
+# secwrap: wrap commands with secrets from pass/passage
+if command -v secwrap >/dev/null 2>&1; then
+    for cmd in aws claude; do
+        command -v "$cmd" >/dev/null 2>&1 && alias "$cmd=secwrap $cmd"
+    done
+    unset cmd
+fi
+
 command -v sshx > /dev/null 2>&1 && alias ssh='sshx'
 command -v sshfsx > /dev/null 2>&1 && alias sshfs='sshfsx'
 command -v moshx > /dev/null 2>&1 && alias mosh='moshx'
