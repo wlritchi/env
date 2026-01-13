@@ -257,6 +257,14 @@ while IFS=$'\n' read wlr_env_subdir; do
 done < <(find "$WLR_ENV_PATH/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
 unset wlr_env_subdir
 
+# add private repo bin directories to PATH
+if [ -d "$HOME/.wlrenv-private/bin" ]; then
+    while IFS=$'\n' read wlr_env_private_subdir; do
+        ensurepath "$wlr_env_private_subdir"
+    done < <(find "$HOME/.wlrenv-private/bin" -mindepth 1 -maxdepth 1 -type d -not -name .git)
+    unset wlr_env_private_subdir
+fi
+
 
 # set up fnm
 if command -v fnm >/dev/null 2>&1; then
