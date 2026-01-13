@@ -40,10 +40,33 @@
       try,
       ...
     }:
+
+    let
+      allowUnfreePredicate =
+        pkg:
+        let
+          name = nixpkgs.lib.getName pkg;
+        in
+        builtins.elem name [
+          # list of packages
+        ];
+
+      mkPkgs =
+        system:
+        import nixpkgs {
+          inherit system;
+          config = { inherit allowUnfreePredicate; };
+        };
+
+      pkgsLinux = mkPkgs "x86_64-linux";
+      pkgsDarwin = mkPkgs "aarch64-darwin";
+    in
     {
+      lib = { inherit allowUnfreePredicate; };
+
       homeConfigurations = {
         wlritchi = home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+          pkgs = pkgsLinux;
           modules = [ ./machines/linux.nix ];
           extraSpecialArgs = {
             hostname = "default";
@@ -51,7 +74,7 @@
           };
         };
         "wlritchi@amygdalin" = home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+          pkgs = pkgsLinux;
           modules = [ ./machines/linux.nix ];
           extraSpecialArgs = {
             hostname = "amygdalin";
@@ -59,7 +82,7 @@
           };
         };
         "luc.ritchie" = home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.aarch64-darwin;
+          pkgs = pkgsDarwin;
           modules = [ ./machines/darwin.nix ];
           extraSpecialArgs = { inherit krew2nix try; };
         };
