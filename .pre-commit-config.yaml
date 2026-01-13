@@ -141,9 +141,9 @@ repos:
     rev: v4.5.0
     hooks:
       - id: trailing-whitespace
-        exclude: '(\.md|\.patch)$'
+        exclude: '(\.md|\.patch|linearmouse\.json)$'
       - id: end-of-file-fixer
-        exclude: '\.md$'
+        exclude: '(\.md|linearmouse\.json)$'
       - id: check-yaml
       - id: check-toml
       - id: check-json
