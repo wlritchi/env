@@ -45,3 +45,61 @@ for you to use them.
 # Implementing plans (for Superpowers)
 
 Use subagent-driven plan execution unless the user requests otherwise.
+
+# Tools
+
+Use ripgrep (`rg`) instead of `grep` for searching.
+
+If a specialized agent is available to handle tasks in some area, USE IT! Even if you've got access
+to the tools yourself, it's better to let appropriate agents deal with the task-specific context.
+
+# One-off scripts
+
+If you're writing a one-off script outside the context of a full Python project, use this template
+so you can run it with dependencies:
+
+```python
+#!/usr/bin/env -S uv run -qs
+# vim: filetype=python
+
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+# ]
+# ///
+
+def main() -> None:
+    pass
+
+if __name__ == '__main__':
+    main()
+```
+
+# Code quality
+
+- ALWAYS include type hints on parameters and return types, including special methods like
+    `__init__`. Also include hints on any variables where the type may be unclear. Use modern
+    hints, e.g. `list[int] | None` rather than `Optional[List[int]]`.
+- After making changes to a file, ALWAYS run an autoformatter on the file. If you have trouble with
+    the official way to run the formatter, for Python try `uv tool run ruff` or `uv tool run black`
+    (depending on which formatter is configured) or just `ruff` or `black` as a fallback. For JS
+    and TS, if you have trouble, try `fnm exec npx prettier`, `npx prettier`, or just `prettier`.
+
+IT IS VERY IMPORTANT THAT YOU RUN THE AUTOFORMATTER. Your editing tools omit trailing newlines,
+which WILL cause the linters to fail in most projects.
+
+If you are making additional changes to fix a linter error or pre-commit hook, ALWAYS STAGE YOUR
+CHANGES AFTER MAKING THEM. Not all repositories correctly implement lint-staged or similar, so you
+MUST make sure the linters are checking the same code you will be committing.
+
+If a pre-commit hook reports some kind of issue, be careful: the commit probably did not succeed,
+so future attempts at the commit should use the original message, not a message describing how the
+linter issue was fixed. NEVER make a commit message referencing the linter unless you are SURE that
+the previous commit succeeded despite the error.
+
+# Python test code style
+
+Use `mocker: MockerFixture` and `mocker.patch` rather than the `@patch` and `@patch.object`
+decorators.
+
+When creating a `MagicMock`, ALWAYS pass the `spec` parameter.
