@@ -51,11 +51,22 @@
           # list of packages
         ];
 
+      aerospaceOverlay = final: prev: {
+        aerospace = prev.aerospace.overrideAttrs (oldAttrs: rec {
+          version = "0.20.2-Beta";
+          src = prev.fetchzip {
+            url = "https://github.com/nikitabobko/AeroSpace/releases/download/v${version}/AeroSpace-v${version}.zip";
+            sha256 = "sha256-PyWHtM38XPNkkEZ0kACPia0doR46FRpmSoNdsOhU4uw=";
+          };
+        });
+      };
+
       mkPkgs =
         system:
         import nixpkgs {
           inherit system;
           config = { inherit allowUnfreePredicate; };
+          overlays = [ aerospaceOverlay ];
         };
 
       pkgsLinux = mkPkgs "x86_64-linux";
