@@ -46,6 +46,15 @@ for you to use them.
 
 Use subagent-driven plan execution unless the user requests otherwise.
 
+The skill may direct you to read a plan fully before implementing. DO NOT reread plans that you
+just wrote, unless your context window has been compacted and you only have a summary of the plan.
+
+If you're continuing implementation after a compaction, DO read the design plan and implementation
+plan in full.
+
+After a compaction, if you're in the middle of implementing but the implementing plans skill was
+not automatically loaded, DO (re)run it to review the instructions.
+
 # Tools
 
 Use ripgrep (`rg`) instead of `grep` for searching.
