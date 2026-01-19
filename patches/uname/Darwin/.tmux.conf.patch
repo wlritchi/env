@@ -1,0 +1,16 @@
+diff --git a/dotfiles/.tmux.conf b/dotfiles/.tmux.conf
+--- a/dotfiles/.tmux.conf
++++ b/dotfiles/.tmux.conf
+@@ -31,6 +31,12 @@ set-environment -g COLORTERM truecolor
+
+ set -g set-clipboard on
+
++# mouse mode: enables scroll, selection, and middle-click handling in tmux
++set -g mouse on
++
++# middle-click pastes from system clipboard (not tmux buffer or selection)
++bind-key -T root MouseDown2Pane select-pane -t = \; run "pbpaste | tmux load-buffer -" \; paste-buffer -dp
++
+ ### keybinds
+
+ # switch tabs with Ctrl-Page{Up,Down}, move tabs with Shift-<same>
