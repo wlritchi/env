@@ -5,12 +5,32 @@
     "ANTHROPIC_MODEL": "opus",
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-4-5"
   },
+  "permissions": {
+    "allow": [
+      "Read(~/a2a/**)",
+      "Write(~/a2a/**)",
+      "Edit(~/a2a/**)",
+      "Bash(mkdir -p ~/a2a:*)",
+      "Bash(touch ~/a2a:*)",
+      "Bash(cat > ~/a2a:*)",
+      "Bash(cat ~/a2a:*)",
+      "Bash(ls ~/a2a:*)",
+      "Bash([ -d ~/a2a:*)",
+      "Bash([ -f ~/a2a:*)",
+      "Bash(for f in ~/a2a:*)",
+      "Bash(for i in {1..:*)"
+    ],
+    "additionalDirectories": [
+      "~/a2a"
+    ]
+  },
   "enabledPlugins": {
     "a2a@wlr-cc-plugins": true,
     "agent-sdk-dev@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
     "context7@claude-plugins-official": true,
+    "forgejo@wlr-cc-plugins": true,
     "frontend-design@claude-plugins-official": true,
     "github@claude-plugins-official": true,
     "gopls-lsp@claude-plugins-official": true,
@@ -27,11 +47,6 @@
     "superpowers@superpowers-marketplace": true,
     "swift-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true
-  },
-  "permissions": {
-    "additionalDirectories": [
-      "~/a2a"
-    ]
   },
   "alwaysThinkingEnabled": true
 }
