@@ -351,11 +351,18 @@ def _setup() -> None:
         XSH.aliases['cd'] = _cd
 
         def _mkcd(args: list[str]) -> int | None:
+            parents = False
+            if args and args[0] == '-p':
+                parents = True
+                args = args[1:]
             if len(args) != 1:
-                print('Usage: mkcd DIRECTORY', file=sys.stderr)
+                print('Usage: mkcd [-p] DIRECTORY', file=sys.stderr)
                 return 1
             dir_name = args[0]
-            os.mkdir(dir_name)
+            if parents:
+                os.makedirs(dir_name)
+            else:
+                os.mkdir(dir_name)
             _cd([dir_name])
 
         XSH.aliases['mkcd'] = _mkcd

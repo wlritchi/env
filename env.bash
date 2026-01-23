@@ -433,11 +433,16 @@ fi
 alias cd='__cd'
 
 mkcd() {
+    local mkdir_opts=()
+    if [ "$1" = "-p" ]; then
+        mkdir_opts+=(-p)
+        shift
+    fi
     if [ $# -ne 1 ]; then
-        printf 'Usage: mkcd DIRECTORY\n' >&2
+        printf 'Usage: mkcd [-p] DIRECTORY\n' >&2
         return 1
     fi
-    mkdir "$1"
+    mkdir "${mkdir_opts[@]}" "$1"
     pushd "$1" >/dev/null
 }
 
