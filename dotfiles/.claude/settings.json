@@ -7,6 +7,11 @@
   },
   "permissions": {
     "allow": [
+      "Skill(a2a:*)",
+      "Skill(opinionated-setup:*)",
+      "Skill(ralph-loop:ralph-loop)",
+      "Skill(skill-feedback:*)",
+      "Skill(superpowers:*)",
       "Read(~/a2a/**)",
       "Write(~/a2a/**)",
       "Edit(~/a2a/**)",
