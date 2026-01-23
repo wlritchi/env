@@ -20,10 +20,7 @@
       "Bash(cat > ~/a2a:*)",
       "Bash(cat ~/a2a:*)",
       "Bash(ls ~/a2a:*)",
-      "Bash([ -d ~/a2a:*)",
-      "Bash([ -f ~/a2a:*)",
-      "Bash(for f in ~/a2a:*)",
-      "Bash(for i in {1..:*)"
+      "Bash(ls -la ~/a2a/**:*)"
     ],
     "additionalDirectories": [
       "~/a2a"
