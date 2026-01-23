@@ -12,6 +12,8 @@
       "Skill(ralph-loop:ralph-loop)",
       "Skill(skill-feedback:*)",
       "Skill(superpowers:*)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
       "Read(~/a2a/**)",
       "Write(~/a2a/**)",
       "Edit(~/a2a/**)",
