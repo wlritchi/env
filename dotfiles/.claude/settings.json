@@ -3,7 +3,10 @@
   "env": {
     "BASH_DEFAULT_TIMEOUT_MS": "3600000",
     "ANTHROPIC_MODEL": "opus",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-4-5"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-4-5",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otel.wlritchi.com",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"
   },
   "permissions": {
     "allow": [
