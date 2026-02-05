@@ -1,4 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-exec npx @anthropic-ai/claude-code -p --allowedTools Edit,Replace "$@"
