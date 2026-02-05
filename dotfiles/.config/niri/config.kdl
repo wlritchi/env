@@ -550,6 +550,13 @@ environment {
     TERMINAL "alacritty"
     // use xwayland-satellite by default
     DISPLAY ":0"
+    // Clear shell reentrancy guards so terminals start fresh
+    WLR_TMUX null
+    WLR_XONSH null
+    WLR_NAMED_TERM null
+    WLR_FIRST_SHELL null
+    TMUX null
+    ZELLIJ null
 }
 
 spawn-at-startup "bash" "-c" "command -v niri-spacer && niri-spacer"
