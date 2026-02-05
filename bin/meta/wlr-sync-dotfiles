@@ -143,12 +143,19 @@ render_file() {
     if [ -n "$needs_patch" ]; then
         local tmp=""
         current="$base_file"
-        for patch in "${patches[@]}"; do
+        for patchfile in "${patches[@]}"; do
             if [ -n "$tmp" ]; then
                 rm "$tmp"
             fi
             tmp="$(mktemp)"
-            patch "$current" "$patch" -o "$tmp" >/dev/null
+            if ! patch "$current" "$patchfile" -o "$tmp" >/dev/null 2>&1; then
+                wlr-err "Failed to apply patch: $patchfile"
+                wlr-err "  to file: $path (base: $base_file)"
+                # Show what went wrong
+                patch "$current" "$patchfile" -o /dev/null --verbose 2>&1 | head -20 || true
+                [ -n "$tmp" ] && rm -f "$tmp"
+                return 1
+            fi
             current="$tmp"
         done
         mv "$current" "$final"
@@ -158,8 +165,13 @@ render_file() {
 }
 
 link_file() {
+    local rendered_raw
+    if ! rendered_raw="$(render_file "$1")"; then
+        wlr-err "Skipping $1 due to patch failure"
+        return 1
+    fi
     local rendered
-    rendered="$(realpath "$(render_file "$1")")"
+    rendered="$(realpath "$rendered_raw")"
     if [ -L "$HOME/$1" ]; then
         actual_target="$(realpath "$HOME/$1")"
         if [ "$rendered" != "$actual_target" ]; then
@@ -206,10 +218,23 @@ if $HAS_PRIVATE && [ -d "$PRIVATE_ENV_PATH/dotfiles" ]; then
 fi
 
 # Process each unique dotfile
+failed_files=()
 for relative in "${dotfile_paths[@]}"; do
     dir="${relative%/*}"
     if [ "$dir" != "$relative" ]; then
         sync_dir "$dir" || continue
     fi
-    link_file "$relative"
+    if ! link_file "$relative"; then
+        failed_files+=("$relative")
+    fi
 done
+
+# Report summary if there were failures
+if [ ${#failed_files[@]} -gt 0 ]; then
+    wlr-err ""
+    wlr-err "Failed to sync ${#failed_files[@]} file(s):"
+    for f in "${failed_files[@]}"; do
+        wlr-err "  - $f"
+    done
+    exit 1
+fi
