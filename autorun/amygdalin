@@ -1,8 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-while ! grep -q amdgpu /proc/modules >/dev/null || ! lspci -k -d ::03xx | grep -q amdgpu >/dev/null; do
-    echo Waiting for amdgpu driver to load...
+exec &> >(tee -a /tmp/amygdalin-autorun.log)
+echo "=== $(date) ==="
+
+# Wait for DRM device nodes to appear (not just driver binding)
+while ! [ -e /dev/dri/card1 ] && ! [ -e /dev/dri/card2 ]; do
+    echo "Waiting for DRM devices..."
     sleep 1
 done
-exec niri-session
+echo "DRM devices ready: $(ls /dev/dri/card* 2>/dev/null)"
+
+echo "starting niri-session"
+niri-session
+echo "niri-session exited with code $?"
