@@ -61,19 +61,21 @@
         });
       };
 
+      overlays = [ aerospaceOverlay ];
+
       mkPkgs =
         system:
         import nixpkgs {
           inherit system;
           config = { inherit allowUnfreePredicate; };
-          overlays = [ aerospaceOverlay ];
+          inherit overlays;
         };
 
       pkgsLinux = mkPkgs "x86_64-linux";
       pkgsDarwin = mkPkgs "aarch64-darwin";
     in
     {
-      lib = { inherit allowUnfreePredicate; };
+      lib = { inherit allowUnfreePredicate overlays; };
 
       homeConfigurations = {
         wlritchi = home-manager.lib.homeManagerConfiguration {
