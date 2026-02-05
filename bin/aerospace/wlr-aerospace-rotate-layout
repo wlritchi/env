@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Rotate through layouts: h_tiles -> v_tiles -> h_accordion -> h_tiles
+# h_accordion is used as a pseudo-fullscreen mode
+
+LAYOUTS=(h_tiles v_tiles h_accordion)
+
+# Get current layout of the focused window's parent container
+current=$(aerospace list-windows --focused --format "%{window-parent-container-layout}")
+
+# Find current index and rotate to next
+next_layout="${LAYOUTS[0]}"  # default to first if not found
+for i in "${!LAYOUTS[@]}"; do
+    if [[ "${LAYOUTS[$i]}" == "$current" ]]; then
+        next_index=$(( (i + 1) % ${#LAYOUTS[@]} ))
+        next_layout="${LAYOUTS[$next_index]}"
+        break
+    fi
+done
+
+aerospace layout "$next_layout"

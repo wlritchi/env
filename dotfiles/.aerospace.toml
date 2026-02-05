@@ -54,7 +54,7 @@ PATH = '~/.nix-profile/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$
 
 # All possible commands: https://nikitabobko.github.io/AeroSpace/commands
 
-alt-space = 'layout h_tiles h_accordion'
+alt-space = 'exec-and-forget ~/.wlrenv/bin/aerospace/wlr-aerospace-rotate-layout'
 alt-shift-enter = 'exec-and-forget open -n -a Ghostty.app --args --working-directory=$HOME'
 alt-backtick = 'exec-and-forget open -n -a Ghostty.app --args -e ~/.nix-profile/bin/k9s'
 
