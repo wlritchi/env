@@ -17,6 +17,12 @@
   # Set the primary user
   system.primaryUser = username;
 
+  # System preferences
+  system.defaults.NSGlobalDomain = {
+    # Disable press-and-hold for accent menu, enable key repeat instead
+    ApplePressAndHoldEnabled = false;
+  };
+
   # Configure nix-homebrew
   nix-homebrew = {
     enable = true;
