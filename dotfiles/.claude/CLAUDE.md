@@ -90,12 +90,12 @@ if __name__ == '__main__':
     `__init__`. Also include hints on any variables where the type may be unclear. Use modern
     hints, e.g. `list[int] | None` rather than `Optional[List[int]]`.
 - After making changes to a file, ALWAYS run an autoformatter on the file. If you have trouble with
-    the official way to run the formatter, for Python try `uv tool run ruff` or `uv tool run black`
-    (depending on which formatter is configured) or just `ruff` or `black` as a fallback. For JS
-    and TS, if you have trouble, try `fnm exec npx prettier`, `npx prettier`, or just `prettier`.
+    the official way to run the formatter, for Python try `uv tool run ruff` or just `ruff` as a
+    fallback. For JS and TS, if you have trouble, try `fnm exec npx prettier`, `npx prettier`, or
+    just `prettier`.
 
-IT IS VERY IMPORTANT THAT YOU RUN THE AUTOFORMATTER. Your editing tools omit trailing newlines,
-which WILL cause the linters to fail in most projects.
+IT IS VERY IMPORTANT THAT YOU RUN THE AUTOFORMATTER. Your editing tools omit trailing newlines in
+some versions of the harness, which WILL cause the linters to fail in most projects.
 
 If you are making additional changes to fix a linter error or pre-commit hook, ALWAYS STAGE YOUR
 CHANGES AFTER MAKING THEM. Not all repositories correctly implement lint-staged or similar, so you
