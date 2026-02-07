@@ -4,8 +4,7 @@ set -euo pipefail
 # Isolated Claude Code environment using Bun
 # Recovery: rm -rf ~/.claude-bun && claude
 
-# Pin to 2.1.23 to work around high-CPU crashes on startup in later versions
-CLAUDE_VERSION="2.1.23"
+CLAUDE_VERSION="2.1.32"
 
 # BUN_INSTALL controls where Bun puts global packages and binaries:
 #   $BUN_INSTALL/install/global/node_modules/  - packages
@@ -25,7 +24,7 @@ fi
 
 # Bootstrap if claude not installed
 if ! [ -x "$CLAUDE_BIN" ]; then
-    echo "Installing Claude Code v$CLAUDE_VERSION..." >&2
+    echo "Installing Claude Code $CLAUDE_VERSION..." >&2
     "$BUN" install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
 fi
 
