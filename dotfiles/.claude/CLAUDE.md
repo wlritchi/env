@@ -42,6 +42,9 @@ Use in-project git worktrees when working on large multi-step tasks in repos tha
 uncommitted changes. In clean repos, worktrees are not necessary unless the user specifically asks
 for you to use them.
 
+Do NOT create worktrees adjacent to the repository; instead, place them under a `.worktrees/`
+folder inside the root repository. If `.worktrees/` isn't gitignored, add it to the root gitignore.
+
 # Implementing plans (for Superpowers)
 
 Use subagent-driven plan execution unless the user requests otherwise.
