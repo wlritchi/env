@@ -544,6 +544,91 @@ binds {
     XF86MonBrightnessUp { spawn "light" "-A" "10"; }
     XF86MonBrightnessDown { spawn "light" "-U" "10"; }
 
+    // === WINDOWNAV keybinds ===
+    // Synthetic keybinds emitted by the ZSA Moonlander WINDOWNAV layer.
+    // Reference: ~/qmk_firmware/docs/windownav-host-keybinds.md
+
+    // --- Directional: Window scope (no scope modifier) ---
+    // Navigate
+    F13 { focus-column-left; }
+    F14 { focus-window-up; }
+    F15 { focus-window-down; }
+    F16 { focus-column-right; }
+    // Move
+    Shift+F13 { move-column-left; }
+    Shift+F14 { move-window-up; }
+    Shift+F15 { move-window-down; }
+    Shift+F16 { move-column-right; }
+    // Resize
+    Ctrl+F13 { set-column-width "-10%"; }
+    Ctrl+F14 { set-window-height "-10%"; }
+    Ctrl+F15 { set-window-height "+10%"; }
+    Ctrl+F16 { set-column-width "+10%"; }
+
+    // --- Directional: Workspace scope (Alt modifier) ---
+    // Only up/down are meaningful in niri (workspaces are vertical).
+    // Navigate
+    Alt+F14 { focus-workspace-up; }
+    Alt+F15 { focus-workspace-down; }
+    // Move
+    Alt+Shift+F14 { move-column-to-workspace-up; }
+    Alt+Shift+F15 { move-column-to-workspace-down; }
+
+    // --- Directional: Monitor scope (Alt+Super modifier) ---
+    // Navigate
+    Alt+Super+F13 { focus-monitor-left; }
+    Alt+Super+F14 { focus-monitor-up; }
+    Alt+Super+F15 { focus-monitor-down; }
+    Alt+Super+F16 { focus-monitor-right; }
+    // Move
+    Alt+Super+Shift+F13 { move-column-to-monitor-left; }
+    Alt+Super+Shift+F14 { move-column-to-monitor-up; }
+    Alt+Super+Shift+F15 { move-column-to-monitor-down; }
+    Alt+Super+Shift+F16 { move-column-to-monitor-right; }
+
+    // --- Consume/Emit (Window scope, right-side only) ---
+    F20 { consume-window-into-column; }
+    F24 { expel-window-from-column; }
+
+    // --- One-shot: Window scope (Ctrl+Shift base) ---
+    Ctrl+Shift+F { fullscreen-window; }
+    Ctrl+Shift+V { toggle-window-floating; }
+    Ctrl+Shift+X { close-window; }
+    Ctrl+Shift+A { spawn "alacritty"; }
+
+    // --- One-shot: Workspace scope (Ctrl+Shift+Alt base) ---
+    Ctrl+Shift+Alt+F { maximize-column; }
+
+    // --- Absolute workspace (Ctrl+Alt+Super + number) ---
+    Ctrl+Alt+Super+1 { focus-workspace 1; }
+    Ctrl+Alt+Super+2 { focus-workspace 2; }
+    Ctrl+Alt+Super+3 { focus-workspace 3; }
+    Ctrl+Alt+Super+4 { focus-workspace 4; }
+    Ctrl+Alt+Super+5 { focus-workspace 5; }
+    Ctrl+Alt+Super+6 { focus-workspace 6; }
+    Ctrl+Alt+Super+7 { focus-workspace 7; }
+    Ctrl+Alt+Super+8 { focus-workspace 8; }
+    Ctrl+Alt+Super+9 { focus-workspace 9; }
+    Ctrl+Alt+Super+Shift+1 { move-column-to-workspace 1; }
+    Ctrl+Alt+Super+Shift+2 { move-column-to-workspace 2; }
+    Ctrl+Alt+Super+Shift+3 { move-column-to-workspace 3; }
+    Ctrl+Alt+Super+Shift+4 { move-column-to-workspace 4; }
+    Ctrl+Alt+Super+Shift+5 { move-column-to-workspace 5; }
+    Ctrl+Alt+Super+Shift+6 { move-column-to-workspace 6; }
+    Ctrl+Alt+Super+Shift+7 { move-column-to-workspace 7; }
+    Ctrl+Alt+Super+Shift+8 { move-column-to-workspace 8; }
+    Ctrl+Alt+Super+Shift+9 { move-column-to-workspace 9; }
+
+    // --- Launchers ---
+    Alt+Shift+T { spawn "yubikey-oath-dmenu" "--type" "--menu-cmd" "fuzzel -dp 'TOTP >'"; }
+
+    // --- Scratchpads (Ctrl+Alt+Shift / MEH) ---
+    // TODO: configure scratchpad applications
+    // Ctrl+Alt+Shift+N { ... }  // notes
+    // Ctrl+Alt+Shift+T { ... }  // terminal
+    // Ctrl+Alt+Shift+L { ... }  // LLM/agent
+    // Ctrl+Alt+Shift+C { ... }  // calculator
+
 }
 
 environment {
