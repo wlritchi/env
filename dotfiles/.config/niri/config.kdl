@@ -549,45 +549,49 @@ binds {
     // Reference: ~/qmk_firmware/docs/windownav-host-keybinds.md
 
     // --- Directional: Window scope (no scope modifier) ---
+    // XKB inet(evdev) remaps F13-F16 to XF86 keysyms:
+    //   F13=XF86Tools, F14=XF86Launch5, F15=XF86Launch6, F16=XF86Launch7
     // Navigate
-    F13 { focus-column-left; }
-    F14 { focus-window-up; }
-    F15 { focus-window-down; }
-    F16 { focus-column-right; }
+    XF86Tools { focus-column-left; }
+    XF86Launch5 { focus-window-up; }
+    XF86Launch6 { focus-window-down; }
+    XF86Launch7 { focus-column-right; }
     // Move
-    Shift+F13 { move-column-left; }
-    Shift+F14 { move-window-up; }
-    Shift+F15 { move-window-down; }
-    Shift+F16 { move-column-right; }
+    Shift+XF86Tools { move-column-left; }
+    Shift+XF86Launch5 { move-window-up; }
+    Shift+XF86Launch6 { move-window-down; }
+    Shift+XF86Launch7 { move-column-right; }
     // Resize
-    Ctrl+F13 { set-column-width "-10%"; }
-    Ctrl+F14 { set-window-height "-10%"; }
-    Ctrl+F15 { set-window-height "+10%"; }
-    Ctrl+F16 { set-column-width "+10%"; }
+    Ctrl+XF86Tools { set-column-width "-10%"; }
+    Ctrl+XF86Launch5 { set-window-height "-10%"; }
+    Ctrl+XF86Launch6 { set-window-height "+10%"; }
+    Ctrl+XF86Launch7 { set-column-width "+10%"; }
 
     // --- Directional: Workspace scope (Alt modifier) ---
     // Only up/down are meaningful in niri (workspaces are vertical).
     // Navigate
-    Alt+F14 { focus-workspace-up; }
-    Alt+F15 { focus-workspace-down; }
+    Alt+XF86Launch5 { focus-workspace-up; }
+    Alt+XF86Launch6 { focus-workspace-down; }
     // Move
-    Alt+Shift+F14 { move-column-to-workspace-up; }
-    Alt+Shift+F15 { move-column-to-workspace-down; }
+    Alt+Shift+XF86Launch5 { move-column-to-workspace-up; }
+    Alt+Shift+XF86Launch6 { move-column-to-workspace-down; }
 
     // --- Directional: Monitor scope (Alt+Super modifier) ---
     // Navigate
-    Alt+Super+F13 { focus-monitor-left; }
-    Alt+Super+F14 { focus-monitor-up; }
-    Alt+Super+F15 { focus-monitor-down; }
-    Alt+Super+F16 { focus-monitor-right; }
+    Alt+Super+XF86Tools { focus-monitor-left; }
+    Alt+Super+XF86Launch5 { focus-monitor-up; }
+    Alt+Super+XF86Launch6 { focus-monitor-down; }
+    Alt+Super+XF86Launch7 { focus-monitor-right; }
     // Move
-    Alt+Super+Shift+F13 { move-column-to-monitor-left; }
-    Alt+Super+Shift+F14 { move-column-to-monitor-up; }
-    Alt+Super+Shift+F15 { move-column-to-monitor-down; }
-    Alt+Super+Shift+F16 { move-column-to-monitor-right; }
+    Alt+Super+Shift+XF86Tools { move-column-to-monitor-left; }
+    Alt+Super+Shift+XF86Launch5 { move-column-to-monitor-up; }
+    Alt+Super+Shift+XF86Launch6 { move-column-to-monitor-down; }
+    Alt+Super+Shift+XF86Launch7 { move-column-to-monitor-right; }
 
     // --- Consume/Emit (Window scope, right-side only) ---
-    F20 { consume-window-into-column; }
+    // F20 maps to XF86AudioMicMute in inet(evdev), which conflicts with
+    // the actual mic mute key binding above. Needs custom XKB remap to fix.
+    // F20 { consume-window-into-column; }
     F24 { expel-window-from-column; }
 
     // --- One-shot: Window scope (Ctrl+Shift base) ---
