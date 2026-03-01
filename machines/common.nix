@@ -9,6 +9,7 @@
 
 let
   entire = pkgs.callPackage ./pkgs/entire.nix { };
+  delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
 in
 {
@@ -29,7 +30,6 @@ in
         bat
         bun
         csvq
-        delta
         eza
         fnm
         fzf
@@ -62,6 +62,7 @@ in
         (krew2nix.packages.${pkgs.stdenv.hostPlatform.system}.kubectl.withKrewPlugins (
           plugins: map (name: plugins.${name}) config.custom.krewPlugins
         ))
+        delta-realpath
         entire
         tryPkg
       ];
