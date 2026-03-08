@@ -16,3 +16,51 @@ window-padding-y = 2
 # Behavior
 copy-on-select = clipboard
 quit-after-last-window-closed = true
+
+# === WINDOWNAV keybinds ===
+# Terminal emulator side of the WINDOWNAV pane-scope and tab keybind pipeline.
+# Translates keyboard F13-F24 + modifier events into custom CSI escape sequences
+# that tmux binds via user-keys. See docs/windownav-host-keybinds.md.
+# Note: On Linux, these bindings are inert because XKB remaps F13-F24 to XF86
+# keysyms that Ghostty doesn't recognize. Ghostty Linux support is deferred.
+
+# Pane navigate (Super + F13-F16)
+keybind = super+f13=text:\x1b[200~
+keybind = super+f14=text:\x1b[201~
+keybind = super+f15=text:\x1b[202~
+keybind = super+f16=text:\x1b[203~
+
+# Pane move (Super+Shift + F13-F16)
+keybind = super+shift+f13=text:\x1b[204~
+keybind = super+shift+f14=text:\x1b[205~
+keybind = super+shift+f15=text:\x1b[206~
+keybind = super+shift+f16=text:\x1b[207~
+
+# Pane resize (Super+Ctrl + F13-F16)
+keybind = super+ctrl+f13=text:\x1b[208~
+keybind = super+ctrl+f14=text:\x1b[209~
+keybind = super+ctrl+f15=text:\x1b[210~
+keybind = super+ctrl+f16=text:\x1b[211~
+
+# Pane consume (Super + F17-F20)
+keybind = super+f17=text:\x1b[212~
+keybind = super+f18=text:\x1b[213~
+keybind = super+f19=text:\x1b[214~
+keybind = super+f20=text:\x1b[215~
+
+# Pane emit (Super + F21-F24)
+keybind = super+f21=text:\x1b[216~
+keybind = super+f22=text:\x1b[217~
+keybind = super+f23=text:\x1b[218~
+keybind = super+f24=text:\x1b[219~
+
+# Pane one-shot (Ctrl+Shift+Super + letter)
+keybind = super+ctrl+shift+f=text:\x1b[220~
+keybind = super+ctrl+shift+x=text:\x1b[221~
+keybind = super+ctrl+shift+a=text:\x1b[222~
+
+# Tab operations (Ctrl+Alt + F13/F16)
+keybind = ctrl+alt+f13=text:\x1b[223~
+keybind = ctrl+alt+f16=text:\x1b[224~
+keybind = ctrl+alt+shift+f13=text:\x1b[225~
+keybind = ctrl+alt+shift+f16=text:\x1b[226~
