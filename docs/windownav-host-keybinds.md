@@ -372,9 +372,57 @@ depending on XKB keysym names. Check niri's documentation for the exact syntax.
 
 ### tmux-specific notes
 
-tmux cannot bind F13-F24 with modifier combinations directly. Use a tmux plugin
-or intermediate keybind relay. Alternatively, configure the terminal emulator to
-translate Super+F13-F24 into tmux-compatible escape sequences.
+tmux cannot bind F13-F24 or XF86 keysyms directly. Instead, terminal emulators
+translate key events into custom CSI escape sequences, and tmux binds those
+sequences via `user-keys`.
+
+#### Escape sequence convention
+
+Custom CSI sequences `\e[200~` through `\e[226~` encode pane-scope and tab
+operations. These are well outside the standard F-key range (`\e[1~`-`\e[34~`).
+
+| Sequence | Operation | Keyboard keybind |
+|----------|-----------|------------------|
+| `\e[200~` | Navigate pane left | Super+F13 |
+| `\e[201~` | Navigate pane up | Super+F14 |
+| `\e[202~` | Navigate pane down | Super+F15 |
+| `\e[203~` | Navigate pane right | Super+F16 |
+| `\e[204~` | Move pane left | Super+Shift+F13 |
+| `\e[205~` | Move pane up | Super+Shift+F14 |
+| `\e[206~` | Move pane down | Super+Shift+F15 |
+| `\e[207~` | Move pane right | Super+Shift+F16 |
+| `\e[208~` | Resize pane left | Super+Ctrl+F13 |
+| `\e[209~` | Resize pane up | Super+Ctrl+F14 |
+| `\e[210~` | Resize pane down | Super+Ctrl+F15 |
+| `\e[211~` | Resize pane right | Super+Ctrl+F16 |
+| `\e[212~` | Consume pane from left | Super+F17 |
+| `\e[213~` | Consume pane from up | Super+F18 |
+| `\e[214~` | Consume pane from down | Super+F19 |
+| `\e[215~` | Consume pane from right | Super+F20 |
+| `\e[216~` | Emit pane left | Super+F21 |
+| `\e[217~` | Emit pane up | Super+F22 |
+| `\e[218~` | Emit pane down | Super+F23 |
+| `\e[219~` | Emit pane right | Super+F24 |
+| `\e[220~` | Zoom pane | Ctrl+Shift+Super+F |
+| `\e[221~` | Close pane | Ctrl+Shift+Super+X |
+| `\e[222~` | Create pane (vsplit) | Ctrl+Shift+Super+A |
+| `\e[223~` | Tab navigate left | Ctrl+Alt+F13 |
+| `\e[224~` | Tab navigate right | Ctrl+Alt+F16 |
+| `\e[225~` | Tab move left | Ctrl+Alt+Shift+F13 |
+| `\e[226~` | Tab move right | Ctrl+Alt+Shift+F16 |
+
+#### Terminal emulator configuration
+
+On Linux, XKB `inet(evdev)` remaps F13-F24 to XF86\* keysyms. Terminal emulators
+must bind by evdev scancode (Alacritty: `key = 183` for F13) or by the XF86
+keysym name. On macOS, F13-F24 are native and can be bound by name.
+
+| Terminal | Linux binding method | macOS binding method |
+|----------|---------------------|---------------------|
+| Alacritty | evdev scancode (`key = 183`) | F-key name (`key = "F13"`) |
+| Ghostty | Not supported (deferred) | F-key name (`keybind = super+f13=...`) |
+
+Evdev scancodes for F13-F24: 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194.
 
 ### macOS (Aerospace) notes
 
