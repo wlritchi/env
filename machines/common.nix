@@ -48,6 +48,7 @@ in
         nnn
         onefetch
         prek
+        qmk
         ripgrep
         rustup
         sccache
