@@ -792,6 +792,278 @@ chars = """
 """
 key = "NumpadEnter"
 
+# === WINDOWNAV keybinds ===
+# Terminal emulator side of the WINDOWNAV pane-scope and tab keybind pipeline.
+# Translates keyboard F13-F24 + modifier events into custom CSI escape sequences
+# that tmux binds via user-keys. See docs/windownav-host-keybinds.md.
+#
+# Each operation has two bindings:
+#   - By evdev scancode (key = NNN): matches on Linux where XKB remaps F13-F24
+#   - By F-key name (key = "F13"): matches on macOS where F13-F24 are native
+# One-shot letter-key bindings use key names (work on both platforms).
+
+# --- Pane navigate (Super + F13-F16) ---
+[[keyboard.bindings]]
+key = 183
+mods = "Super"
+chars = "\u001b[200~"
+
+[[keyboard.bindings]]
+key = "F13"
+mods = "Super"
+chars = "\u001b[200~"
+
+[[keyboard.bindings]]
+key = 184
+mods = "Super"
+chars = "\u001b[201~"
+
+[[keyboard.bindings]]
+key = "F14"
+mods = "Super"
+chars = "\u001b[201~"
+
+[[keyboard.bindings]]
+key = 185
+mods = "Super"
+chars = "\u001b[202~"
+
+[[keyboard.bindings]]
+key = "F15"
+mods = "Super"
+chars = "\u001b[202~"
+
+[[keyboard.bindings]]
+key = 186
+mods = "Super"
+chars = "\u001b[203~"
+
+[[keyboard.bindings]]
+key = "F16"
+mods = "Super"
+chars = "\u001b[203~"
+
+# --- Pane move (Super+Shift + F13-F16) ---
+[[keyboard.bindings]]
+key = 183
+mods = "Super|Shift"
+chars = "\u001b[204~"
+
+[[keyboard.bindings]]
+key = "F13"
+mods = "Super|Shift"
+chars = "\u001b[204~"
+
+[[keyboard.bindings]]
+key = 184
+mods = "Super|Shift"
+chars = "\u001b[205~"
+
+[[keyboard.bindings]]
+key = "F14"
+mods = "Super|Shift"
+chars = "\u001b[205~"
+
+[[keyboard.bindings]]
+key = 185
+mods = "Super|Shift"
+chars = "\u001b[206~"
+
+[[keyboard.bindings]]
+key = "F15"
+mods = "Super|Shift"
+chars = "\u001b[206~"
+
+[[keyboard.bindings]]
+key = 186
+mods = "Super|Shift"
+chars = "\u001b[207~"
+
+[[keyboard.bindings]]
+key = "F16"
+mods = "Super|Shift"
+chars = "\u001b[207~"
+
+# --- Pane resize (Super+Ctrl + F13-F16) ---
+[[keyboard.bindings]]
+key = 183
+mods = "Super|Control"
+chars = "\u001b[208~"
+
+[[keyboard.bindings]]
+key = "F13"
+mods = "Super|Control"
+chars = "\u001b[208~"
+
+[[keyboard.bindings]]
+key = 184
+mods = "Super|Control"
+chars = "\u001b[209~"
+
+[[keyboard.bindings]]
+key = "F14"
+mods = "Super|Control"
+chars = "\u001b[209~"
+
+[[keyboard.bindings]]
+key = 185
+mods = "Super|Control"
+chars = "\u001b[210~"
+
+[[keyboard.bindings]]
+key = "F15"
+mods = "Super|Control"
+chars = "\u001b[210~"
+
+[[keyboard.bindings]]
+key = 186
+mods = "Super|Control"
+chars = "\u001b[211~"
+
+[[keyboard.bindings]]
+key = "F16"
+mods = "Super|Control"
+chars = "\u001b[211~"
+
+# --- Pane consume (Super + F17-F20) ---
+[[keyboard.bindings]]
+key = 187
+mods = "Super"
+chars = "\u001b[212~"
+
+[[keyboard.bindings]]
+key = "F17"
+mods = "Super"
+chars = "\u001b[212~"
+
+[[keyboard.bindings]]
+key = 188
+mods = "Super"
+chars = "\u001b[213~"
+
+[[keyboard.bindings]]
+key = "F18"
+mods = "Super"
+chars = "\u001b[213~"
+
+[[keyboard.bindings]]
+key = 189
+mods = "Super"
+chars = "\u001b[214~"
+
+[[keyboard.bindings]]
+key = "F19"
+mods = "Super"
+chars = "\u001b[214~"
+
+[[keyboard.bindings]]
+key = 190
+mods = "Super"
+chars = "\u001b[215~"
+
+[[keyboard.bindings]]
+key = "F20"
+mods = "Super"
+chars = "\u001b[215~"
+
+# --- Pane emit (Super + F21-F24) ---
+[[keyboard.bindings]]
+key = 191
+mods = "Super"
+chars = "\u001b[216~"
+
+[[keyboard.bindings]]
+key = "F21"
+mods = "Super"
+chars = "\u001b[216~"
+
+[[keyboard.bindings]]
+key = 192
+mods = "Super"
+chars = "\u001b[217~"
+
+[[keyboard.bindings]]
+key = "F22"
+mods = "Super"
+chars = "\u001b[217~"
+
+[[keyboard.bindings]]
+key = 193
+mods = "Super"
+chars = "\u001b[218~"
+
+[[keyboard.bindings]]
+key = "F23"
+mods = "Super"
+chars = "\u001b[218~"
+
+[[keyboard.bindings]]
+key = 194
+mods = "Super"
+chars = "\u001b[219~"
+
+[[keyboard.bindings]]
+key = "F24"
+mods = "Super"
+chars = "\u001b[219~"
+
+# --- Pane one-shot (Ctrl+Shift+Super + letter) ---
+[[keyboard.bindings]]
+key = "F"
+mods = "Control|Shift|Super"
+chars = "\u001b[220~"
+
+[[keyboard.bindings]]
+key = "X"
+mods = "Control|Shift|Super"
+chars = "\u001b[221~"
+
+[[keyboard.bindings]]
+key = "A"
+mods = "Control|Shift|Super"
+chars = "\u001b[222~"
+
+# --- Tab operations (Ctrl+Alt + F13/F16) ---
+[[keyboard.bindings]]
+key = 183
+mods = "Control|Alt"
+chars = "\u001b[223~"
+
+[[keyboard.bindings]]
+key = "F13"
+mods = "Control|Alt"
+chars = "\u001b[223~"
+
+[[keyboard.bindings]]
+key = 186
+mods = "Control|Alt"
+chars = "\u001b[224~"
+
+[[keyboard.bindings]]
+key = "F16"
+mods = "Control|Alt"
+chars = "\u001b[224~"
+
+[[keyboard.bindings]]
+key = 183
+mods = "Control|Alt|Shift"
+chars = "\u001b[225~"
+
+[[keyboard.bindings]]
+key = "F13"
+mods = "Control|Alt|Shift"
+chars = "\u001b[225~"
+
+[[keyboard.bindings]]
+key = 186
+mods = "Control|Alt|Shift"
+chars = "\u001b[226~"
+
+[[keyboard.bindings]]
+key = "F16"
+mods = "Control|Alt|Shift"
+chars = "\u001b[226~"
+
 [mouse]
 hide_when_typing = false
 
