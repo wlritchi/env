@@ -81,7 +81,7 @@ ensure_repo() {
         git clone --recurse-submodules "$FORK_URL" "$QMK_DIR"
     else
         info "Updating QMK firmware..."
-        if ! git -C "$QMK_DIR" pull --ff-only 2>/dev/null; then
+        if ! git -C "$QMK_DIR" pull --ff-only --recurse-submodules 2>/dev/null; then
             warn "Failed to pull (local changes or diverged history) — building with current state"
         fi
     fi
