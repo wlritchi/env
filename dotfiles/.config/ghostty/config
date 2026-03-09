@@ -54,13 +54,15 @@ keybind = super+f22=text:\x1b[217~
 keybind = super+f23=text:\x1b[218~
 keybind = super+f24=text:\x1b[219~
 
-# Pane one-shot (Ctrl+Shift+Super + letter)
-keybind = super+ctrl+shift+f=text:\x1b[220~
-keybind = super+ctrl+shift+x=text:\x1b[221~
-keybind = super+ctrl+shift+a=text:\x1b[222~
+# Pane one-shot (Ctrl+Shift+Super + F17-F21)
+keybind = super+ctrl+shift+f17=text:\x1b[220~
+keybind = super+ctrl+shift+f18=text:\x1b[221~
+keybind = super+ctrl+shift+f19=text:\x1b[222~
+keybind = super+ctrl+shift+f20=text:\x1b[223~
+keybind = super+ctrl+shift+f21=text:\x1b[224~
 
 # Tab operations (Ctrl+Alt + F13/F16)
-keybind = ctrl+alt+f13=text:\x1b[223~
-keybind = ctrl+alt+f16=text:\x1b[224~
-keybind = ctrl+alt+shift+f13=text:\x1b[225~
-keybind = ctrl+alt+shift+f16=text:\x1b[226~
+keybind = ctrl+alt+f13=text:\x1b[225~
+keybind = ctrl+alt+f16=text:\x1b[226~
+keybind = ctrl+alt+shift+f13=text:\x1b[227~
+keybind = ctrl+alt+shift+f16=text:\x1b[228~

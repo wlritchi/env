@@ -595,13 +595,14 @@ binds {
     F24 { expel-window-from-column; }
 
     // --- One-shot: Window scope (Ctrl+Shift base) ---
-    Ctrl+Shift+F { fullscreen-window; }
-    Ctrl+Shift+V { toggle-window-floating; }
-    Ctrl+Shift+X { close-window; }
-    Ctrl+Shift+A { spawn "alacritty"; }
+    Ctrl+Shift+XF86Launch8 { fullscreen-window; }        // F17 = fullscreen
+    Ctrl+Shift+XF86Launch9 { toggle-window-floating; }   // F18 = float
+    Ctrl+Shift+F19 { close-window; }                     // F19 = close
+    Ctrl+Shift+XF86AudioMicMute { spawn "alacritty"; }   // F20 = create
+    Ctrl+Shift+XF86TouchpadToggle { maximize-column; }   // F21 = zoom
 
     // --- One-shot: Workspace scope (Ctrl+Shift+Alt base) ---
-    Ctrl+Shift+Alt+F { maximize-column; }
+    Ctrl+Shift+Alt+XF86TouchpadToggle { maximize-column; }  // F21 = zoom
 
     // --- Absolute workspace (Ctrl+Alt+Super + number) ---
     Ctrl+Alt+Super+1 { focus-workspace 1; }

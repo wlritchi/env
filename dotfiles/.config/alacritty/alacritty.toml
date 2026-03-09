@@ -800,7 +800,7 @@ key = "NumpadEnter"
 # Each operation has two bindings:
 #   - By evdev scancode (key = NNN): matches on Linux where XKB remaps F13-F24
 #   - By F-key name (key = "F13"): matches on macOS where F13-F24 are native
-# One-shot letter-key bindings use key names (work on both platforms).
+# One-shot bindings use F17-F21 scancodes (Linux) and names (macOS).
 
 # --- Pane navigate (Super + F13-F16) ---
 [[keyboard.bindings]]
@@ -1007,62 +1007,106 @@ key = "F24"
 mods = "Super"
 chars = "\u001b[219~"
 
-# --- Pane one-shot (Ctrl+Shift+Super + letter) ---
+# --- Pane one-shot (Ctrl+Shift+Super + F17-F21) ---
+# Fullscreen pane (F17)
 [[keyboard.bindings]]
-key = "F"
+key = 187
 mods = "Control|Shift|Super"
 chars = "\u001b[220~"
 
 [[keyboard.bindings]]
-key = "X"
+key = "F17"
+mods = "Control|Shift|Super"
+chars = "\u001b[220~"
+
+# Float pane (F18)
+[[keyboard.bindings]]
+key = 188
 mods = "Control|Shift|Super"
 chars = "\u001b[221~"
 
 [[keyboard.bindings]]
-key = "A"
+key = "F18"
+mods = "Control|Shift|Super"
+chars = "\u001b[221~"
+
+# Close pane (F19)
+[[keyboard.bindings]]
+key = 189
 mods = "Control|Shift|Super"
 chars = "\u001b[222~"
 
+[[keyboard.bindings]]
+key = "F19"
+mods = "Control|Shift|Super"
+chars = "\u001b[222~"
+
+# Create pane (F20)
+[[keyboard.bindings]]
+key = 190
+mods = "Control|Shift|Super"
+chars = "\u001b[223~"
+
+[[keyboard.bindings]]
+key = "F20"
+mods = "Control|Shift|Super"
+chars = "\u001b[223~"
+
+# Zoom pane (F21)
+[[keyboard.bindings]]
+key = 191
+mods = "Control|Shift|Super"
+chars = "\u001b[224~"
+
+[[keyboard.bindings]]
+key = "F21"
+mods = "Control|Shift|Super"
+chars = "\u001b[224~"
+
 # --- Tab operations (Ctrl+Alt + F13/F16) ---
+# Tab navigate left
 [[keyboard.bindings]]
 key = 183
 mods = "Control|Alt"
-chars = "\u001b[223~"
-
-[[keyboard.bindings]]
-key = "F13"
-mods = "Control|Alt"
-chars = "\u001b[223~"
-
-[[keyboard.bindings]]
-key = 186
-mods = "Control|Alt"
-chars = "\u001b[224~"
-
-[[keyboard.bindings]]
-key = "F16"
-mods = "Control|Alt"
-chars = "\u001b[224~"
-
-[[keyboard.bindings]]
-key = 183
-mods = "Control|Alt|Shift"
 chars = "\u001b[225~"
 
 [[keyboard.bindings]]
 key = "F13"
-mods = "Control|Alt|Shift"
+mods = "Control|Alt"
 chars = "\u001b[225~"
 
+# Tab navigate right
 [[keyboard.bindings]]
 key = 186
-mods = "Control|Alt|Shift"
+mods = "Control|Alt"
 chars = "\u001b[226~"
 
 [[keyboard.bindings]]
 key = "F16"
-mods = "Control|Alt|Shift"
+mods = "Control|Alt"
 chars = "\u001b[226~"
+
+# Tab move left
+[[keyboard.bindings]]
+key = 183
+mods = "Control|Alt|Shift"
+chars = "\u001b[227~"
+
+[[keyboard.bindings]]
+key = "F13"
+mods = "Control|Alt|Shift"
+chars = "\u001b[227~"
+
+# Tab move right
+[[keyboard.bindings]]
+key = 186
+mods = "Control|Alt|Shift"
+chars = "\u001b[228~"
+
+[[keyboard.bindings]]
+key = "F16"
+mods = "Control|Alt|Shift"
+chars = "\u001b[228~"
 
 [mouse]
 hide_when_typing = false
