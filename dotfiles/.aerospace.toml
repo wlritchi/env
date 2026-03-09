@@ -119,10 +119,10 @@ alt-cmd-down = 'workspace next'
 
 # --- Directional: Window scope (no scope modifier) ---
 # Navigate
-f13 = 'focus left'
-f14 = 'focus up'
-f15 = 'focus down'
-f16 = 'focus right'
+f13 = 'focus left --boundaries-action wrap-around-the-workspace'
+f14 = 'focus up --boundaries-action wrap-around-the-workspace'
+f15 = 'focus down --boundaries-action wrap-around-the-workspace'
+f16 = 'focus right --boundaries-action wrap-around-the-workspace'
 # Move
 shift-f13 = 'move left'
 shift-f14 = 'move up'
