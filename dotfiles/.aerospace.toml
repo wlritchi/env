@@ -111,6 +111,85 @@ alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 alt-cmd-up = 'workspace prev'
 alt-cmd-down = 'workspace next'
 
+# === WINDOWNAV keybinds ===
+# Synthetic keybinds from ZSA Moonlander WINDOWNAV layer.
+# On macOS, F13-F20 are native key names (no XKB remapping needed).
+# Pane scope (Cmd+F-keys) passes through to Ghostty -> tmux (not bound here).
+# Reference: ~/qmk_firmware/docs/windownav-host-keybinds.md
+
+# --- Directional: Window scope (no scope modifier) ---
+# Navigate
+f13 = 'focus left'
+f14 = 'focus up'
+f15 = 'focus down'
+f16 = 'focus right'
+# Move
+shift-f13 = 'move left'
+shift-f14 = 'move up'
+shift-f15 = 'move down'
+shift-f16 = 'move right'
+# Resize
+ctrl-f13 = 'resize width -50'
+ctrl-f14 = 'resize height -50'
+ctrl-f15 = 'resize height +50'
+ctrl-f16 = 'resize width +50'
+
+# --- Directional: Workspace scope (Alt modifier) ---
+# Navigate
+alt-f14 = 'workspace prev'
+alt-f15 = 'workspace next'
+# Move (follow window)
+alt-shift-f14 = 'move-node-to-workspace --focus-follows-window prev'
+alt-shift-f15 = 'move-node-to-workspace --focus-follows-window next'
+
+# --- Directional: Monitor scope (Alt+Cmd modifier) ---
+# Navigate
+alt-cmd-f13 = 'focus-monitor left'
+alt-cmd-f14 = 'focus-monitor up'
+alt-cmd-f15 = 'focus-monitor down'
+alt-cmd-f16 = 'focus-monitor right'
+# Move (follow window)
+alt-cmd-shift-f13 = 'move-node-to-monitor --focus-follows-window left'
+alt-cmd-shift-f14 = 'move-node-to-monitor --focus-follows-window up'
+alt-cmd-shift-f15 = 'move-node-to-monitor --focus-follows-window down'
+alt-cmd-shift-f16 = 'move-node-to-monitor --focus-follows-window right'
+
+# --- Consume (F17-F20, Window scope) ---
+# join-with is the closest AeroSpace equivalent to niri's consume-window-into-column
+f17 = 'join-with left'
+f18 = 'join-with up'
+f19 = 'join-with down'
+f20 = 'join-with right'
+
+# --- Emit (F21-F24) --- NOT SUPPORTED by AeroSpace (max f20)
+
+# --- One-shot: Window scope (Ctrl+Shift + F17-F20) ---
+ctrl-shift-f17 = 'fullscreen'
+ctrl-shift-f18 = 'layout floating tiling'
+ctrl-shift-f19 = 'close --quit-if-last-window'
+ctrl-shift-f20 = 'exec-and-forget open -n -a Ghostty.app --args --working-directory=$HOME'
+# ctrl-shift-f21 would be zoom — NOT SUPPORTED (f21)
+
+# --- Absolute workspace (Ctrl+Alt+Cmd + number, no follow) ---
+ctrl-alt-cmd-1 = 'workspace 1'
+ctrl-alt-cmd-2 = 'workspace 2'
+ctrl-alt-cmd-3 = 'workspace 3'
+ctrl-alt-cmd-4 = 'workspace 4'
+ctrl-alt-cmd-5 = 'workspace 5'
+ctrl-alt-cmd-6 = 'workspace 6'
+ctrl-alt-cmd-7 = 'workspace 7'
+ctrl-alt-cmd-8 = 'workspace 8'
+ctrl-alt-cmd-9 = 'workspace 9'
+ctrl-alt-cmd-shift-1 = 'move-node-to-workspace 1'
+ctrl-alt-cmd-shift-2 = 'move-node-to-workspace 2'
+ctrl-alt-cmd-shift-3 = 'move-node-to-workspace 3'
+ctrl-alt-cmd-shift-4 = 'move-node-to-workspace 4'
+ctrl-alt-cmd-shift-5 = 'move-node-to-workspace 5'
+ctrl-alt-cmd-shift-6 = 'move-node-to-workspace 6'
+ctrl-alt-cmd-shift-7 = 'move-node-to-workspace 7'
+ctrl-alt-cmd-shift-8 = 'move-node-to-workspace 8'
+ctrl-alt-cmd-shift-9 = 'move-node-to-workspace 9'
+
 [workspace-to-monitor-force-assignment]
 1 = ['main']
 2 = ['VS228', 1]
