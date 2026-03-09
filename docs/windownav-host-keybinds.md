@@ -172,35 +172,40 @@ The host application receiving focus should handle these keybinds.
 
 ## One-Shot Scoped Actions
 
-These use Ctrl+Shift as a base modifier, plus scope modifiers, plus a letter key.
+These use Ctrl+Shift as a base modifier, plus scope modifiers, plus an F-key.
 
-| Operation          | Letter key |
-|--------------------|------------|
-| Fullscreen / zoom  | F          |
-| Float toggle       | V          |
-| Close              | X          |
-| Create / add       | A          |
+| Operation          | F-key |
+|--------------------|-------|
+| Fullscreen         | F17   |
+| Float toggle       | F18   |
+| Close              | F19   |
+| Create / add       | F20   |
+| Zoom               | F21   |
 
 ### Full one-shot keybind matrix
 
 | Operation                  | Keybind                   |
 |----------------------------|---------------------------|
-| Fullscreen window          | Ctrl+Shift+F              |
-| Fullscreen workspace       | Ctrl+Shift+Alt+F          |
-| Fullscreen/zoom pane       | Ctrl+Shift+Super+F        |
-| Fullscreen monitor         | Ctrl+Shift+Alt+Super+F    |
-| Float window               | Ctrl+Shift+V              |
-| Float workspace            | Ctrl+Shift+Alt+V          |
-| Float pane                 | Ctrl+Shift+Super+V        |
-| Float monitor              | Ctrl+Shift+Alt+Super+V    |
-| Close window               | Ctrl+Shift+X              |
-| Close workspace            | Ctrl+Shift+Alt+X          |
-| Close pane                 | Ctrl+Shift+Super+X        |
-| Close monitor              | Ctrl+Shift+Alt+Super+X    |
-| Create window              | Ctrl+Shift+A              |
-| Create workspace           | Ctrl+Shift+Alt+A          |
-| Create pane                | Ctrl+Shift+Super+A        |
-| Create monitor             | Ctrl+Shift+Alt+Super+A    |
+| Fullscreen window          | Ctrl+Shift+F17            |
+| Fullscreen workspace       | Ctrl+Shift+Alt+F17        |
+| Fullscreen/zoom pane       | Ctrl+Shift+Super+F17      |
+| Fullscreen monitor         | Ctrl+Shift+Alt+Super+F17  |
+| Float window               | Ctrl+Shift+F18            |
+| Float workspace            | Ctrl+Shift+Alt+F18        |
+| Float pane                 | Ctrl+Shift+Super+F18      |
+| Float monitor              | Ctrl+Shift+Alt+Super+F18  |
+| Close window               | Ctrl+Shift+F19            |
+| Close workspace            | Ctrl+Shift+Alt+F19        |
+| Close pane                 | Ctrl+Shift+Super+F19      |
+| Close monitor              | Ctrl+Shift+Alt+Super+F19  |
+| Create window              | Ctrl+Shift+F20            |
+| Create workspace           | Ctrl+Shift+Alt+F20        |
+| Create pane                | Ctrl+Shift+Super+F20      |
+| Create monitor             | Ctrl+Shift+Alt+Super+F20  |
+| Zoom window                | Ctrl+Shift+F21            |
+| Zoom workspace             | Ctrl+Shift+Alt+F21        |
+| Zoom pane                  | Ctrl+Shift+Super+F21      |
+| Zoom monitor               | Ctrl+Shift+Alt+Super+F21  |
 
 Not all scope+action combinations are meaningful. For example, "fullscreen
 monitor" or "create monitor" may not have WM equivalents. Leave these unbound.
@@ -214,6 +219,8 @@ Typical useful mappings:
 - **Create window**: open a new terminal window
 - **Create pane**: split pane in tmux
 - **Create workspace**: create a new workspace (if WM supports it)
+- **Zoom window**: maximize column/window in WM (distinct from fullscreen)
+- **Zoom pane**: toggle tmux zoom (same as fullscreen pane)
 
 ---
 
@@ -309,14 +316,6 @@ The Super modifier identifies pane-scope operations. The WM should be configured
 to pass Super+F13-F24 and Super+{other keys} through to the focused application,
 or the terminal multiplexer should be configured to intercept them.
 
-### Letter keys in one-shot actions
-
-The letter keys (F, V, X, A) sent for one-shot actions are literal keyboard
-scancodes, not affected by the host keyboard layout. On a QWERTY host, these
-will be received as F, V, X, A. On a Dvorak host, the WM receives the same
-scancodes but may display or match them differently depending on whether it
-operates on keysyms or keycodes.
-
 ### Linux XKB keysym remapping (important!)
 
 On Linux, the XKB `inet(evdev)` overlay remaps F13-F24 to XF86\* keysyms.
@@ -361,8 +360,8 @@ binds {
     Shift+XF86Launch5 { move-column-to-workspace-up; }
     // ... etc.
 
-    // One-shot: fullscreen
-    Ctrl+Shift+F { fullscreen-window; }
+    // One-shot: fullscreen (F17 = XF86Launch8)
+    Ctrl+Shift+XF86Launch8 { fullscreen-window; }
     // ... etc.
 }
 ```
@@ -378,7 +377,7 @@ sequences via `user-keys`.
 
 #### Escape sequence convention
 
-Custom CSI sequences `\e[200~` through `\e[226~` encode pane-scope and tab
+Custom CSI sequences `\e[200~` through `\e[228~` encode pane-scope and tab
 operations. These are well outside the standard F-key range (`\e[1~`-`\e[34~`).
 
 | Sequence | Operation | Keyboard keybind |
@@ -403,13 +402,15 @@ operations. These are well outside the standard F-key range (`\e[1~`-`\e[34~`).
 | `\e[217~` | Emit pane up | Super+F22 |
 | `\e[218~` | Emit pane down | Super+F23 |
 | `\e[219~` | Emit pane right | Super+F24 |
-| `\e[220~` | Zoom pane | Ctrl+Shift+Super+F |
-| `\e[221~` | Close pane | Ctrl+Shift+Super+X |
-| `\e[222~` | Create pane (vsplit) | Ctrl+Shift+Super+A |
-| `\e[223~` | Tab navigate left | Ctrl+Alt+F13 |
-| `\e[224~` | Tab navigate right | Ctrl+Alt+F16 |
-| `\e[225~` | Tab move left | Ctrl+Alt+Shift+F13 |
-| `\e[226~` | Tab move right | Ctrl+Alt+Shift+F16 |
+| `\e[220~` | Fullscreen pane | Ctrl+Shift+Super+F17 |
+| `\e[221~` | Float pane | Ctrl+Shift+Super+F18 |
+| `\e[222~` | Close pane | Ctrl+Shift+Super+F19 |
+| `\e[223~` | Create pane (vsplit) | Ctrl+Shift+Super+F20 |
+| `\e[224~` | Zoom pane | Ctrl+Shift+Super+F21 |
+| `\e[225~` | Tab navigate left | Ctrl+Alt+F13 |
+| `\e[226~` | Tab navigate right | Ctrl+Alt+F16 |
+| `\e[227~` | Tab move left | Ctrl+Alt+Shift+F13 |
+| `\e[228~` | Tab move right | Ctrl+Alt+Shift+F16 |
 
 #### Terminal emulator configuration
 
