@@ -181,6 +181,8 @@ These use Ctrl+Shift as a base modifier, plus scope modifiers, plus an F-key.
 | Close              | F19   |
 | Create / add       | F20   |
 | Zoom               | F21   |
+| Split horizontal   | F22   |
+| Split vertical     | F23   |
 
 ### Full one-shot keybind matrix
 
@@ -206,9 +208,14 @@ These use Ctrl+Shift as a base modifier, plus scope modifiers, plus an F-key.
 | Zoom workspace             | Ctrl+Shift+Alt+F21        |
 | Zoom pane                  | Ctrl+Shift+Super+F21      |
 | Zoom monitor               | Ctrl+Shift+Alt+Super+F21  |
+| Split horizontal pane      | Ctrl+Shift+Super+F22      |
+| Split vertical pane        | Ctrl+Shift+Super+F23      |
 
 Not all scope+action combinations are meaningful. For example, "fullscreen
 monitor" or "create monitor" may not have WM equivalents. Leave these unbound.
+
+Split operations are only meaningful at the pane scope. Other scopes should
+leave these unbound.
 
 Typical useful mappings:
 - **Fullscreen window**: toggle fullscreen in WM
@@ -217,10 +224,12 @@ Typical useful mappings:
 - **Close window**: close window in WM
 - **Close pane**: close pane in tmux
 - **Create window**: open a new terminal window
-- **Create pane**: split pane in tmux
+- **Create pane**: new window in tmux (dedicated split keys handle splitting)
 - **Create workspace**: create a new workspace (if WM supports it)
 - **Zoom window**: maximize column/window in WM (distinct from fullscreen)
 - **Zoom pane**: toggle tmux zoom (same as fullscreen pane)
+- **Split horizontal pane**: split tmux pane with horizontal divider (top/bottom)
+- **Split vertical pane**: split tmux pane with vertical divider (left/right)
 
 ---
 
@@ -377,7 +386,7 @@ sequences via `user-keys`.
 
 #### Escape sequence convention
 
-Custom CSI sequences `\e[200~` through `\e[228~` encode pane-scope and tab
+Custom CSI sequences `\e[200~` through `\e[230~` encode pane-scope and tab
 operations. These are well outside the standard F-key range (`\e[1~`-`\e[34~`).
 
 | Sequence | Operation | Keyboard keybind |
@@ -405,12 +414,14 @@ operations. These are well outside the standard F-key range (`\e[1~`-`\e[34~`).
 | `\e[220~` | Fullscreen pane | Ctrl+Shift+Super+F17 |
 | `\e[221~` | Float pane | Ctrl+Shift+Super+F18 |
 | `\e[222~` | Close pane | Ctrl+Shift+Super+F19 |
-| `\e[223~` | Create pane (vsplit) | Ctrl+Shift+Super+F20 |
+| `\e[223~` | Create pane (new window) | Ctrl+Shift+Super+F20 |
 | `\e[224~` | Zoom pane | Ctrl+Shift+Super+F21 |
 | `\e[225~` | Tab navigate left | Ctrl+Alt+F13 |
 | `\e[226~` | Tab navigate right | Ctrl+Alt+F16 |
 | `\e[227~` | Tab move left | Ctrl+Alt+Shift+F13 |
 | `\e[228~` | Tab move right | Ctrl+Alt+Shift+F16 |
+| `\e[229~` | Split horizontal pane | Ctrl+Shift+Super+F22 |
+| `\e[230~` | Split vertical pane | Ctrl+Shift+Super+F23 |
 
 #### Terminal emulator configuration
 

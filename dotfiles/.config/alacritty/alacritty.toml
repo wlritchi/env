@@ -1063,6 +1063,28 @@ key = "F21"
 mods = "Control|Shift|Super"
 chars = "\u001b[224~"
 
+# Split horizontal (F22)
+[[keyboard.bindings]]
+key = 192
+mods = "Control|Shift|Super"
+chars = "\u001b[229~"
+
+[[keyboard.bindings]]
+key = "F22"
+mods = "Control|Shift|Super"
+chars = "\u001b[229~"
+
+# Split vertical (F23)
+[[keyboard.bindings]]
+key = 193
+mods = "Control|Shift|Super"
+chars = "\u001b[230~"
+
+[[keyboard.bindings]]
+key = "F23"
+mods = "Control|Shift|Super"
+chars = "\u001b[230~"
+
 # --- Tab operations (Ctrl+Alt + F13/F16) ---
 # Tab navigate left
 [[keyboard.bindings]]
