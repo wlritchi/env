@@ -24,6 +24,7 @@ in
   ++ hostImports;
 
   custom.krewPlugins = [
+    "modify-secret"
     "rabbitmq"
     "rook-ceph"
   ];
