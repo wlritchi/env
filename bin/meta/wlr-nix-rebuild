@@ -50,18 +50,24 @@ config_exists() {
     nix eval --json ".#homeConfigurations" --apply 'x: builtins.attrNames x' 2>/dev/null | grep -q "\"${config}\""
 }
 
+# Detect current system for config lookup
+NIX_SYSTEM="$(nix eval --impure --expr builtins.currentSystem --raw 2>/dev/null)" || {
+    wlr-err "Failed to detect nix system"
+    exit 1
+}
+
 # Determine which config to use (user@hostname if exists, otherwise just user)
 NIX_PROFILE="${USER}"
 if SHORT_HOSTNAME=$(get_short_hostname); then
     HOST_PROFILE="${USER}@${SHORT_HOSTNAME}"
-    if config_exists "${HOST_PROFILE}"; then
+    if config_exists "${HOST_PROFILE}/${NIX_SYSTEM}"; then
         NIX_PROFILE="${HOST_PROFILE}"
     else
         wlr-warn "Config for ${HOST_PROFILE} not found, falling back to ${USER}"
     fi
 fi
 
-"${home_manager[@]}" switch --flake "${FLAKE_PATH}#${NIX_PROFILE}"
+"${home_manager[@]}" switch --flake "${FLAKE_PATH}#${NIX_PROFILE}/${NIX_SYSTEM}"
 
 # On macOS, also run darwin-rebuild for system-level config (Homebrew casks, etc.)
 if [ "$(uname -s)" = "Darwin" ]; then

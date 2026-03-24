@@ -71,35 +71,66 @@
           inherit overlays;
         };
 
-      pkgsLinux = mkPkgs "x86_64-linux";
-      pkgsDarwin = mkPkgs "aarch64-darwin";
+      linuxSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      darwinSystems = [ "aarch64-darwin" ];
+
+      # Generate homeConfigurations keyed as "name/system" for each supported system
+      mkLinuxHome =
+        system:
+        {
+          name,
+          hostname ? "default",
+        }:
+        {
+          name = "${name}/${system}";
+          value = home-manager.lib.homeManagerConfiguration {
+            pkgs = mkPkgs system;
+            modules = [ ./machines/linux.nix ];
+            extraSpecialArgs = {
+              inherit hostname krew2nix try;
+            };
+          };
+        };
+
+      mkDarwinHome =
+        system:
+        { name }:
+        {
+          name = "${name}/${system}";
+          value = home-manager.lib.homeManagerConfiguration {
+            pkgs = mkPkgs system;
+            modules = [ ./machines/darwin.nix ];
+            extraSpecialArgs = { inherit krew2nix try; };
+          };
+        };
+
+      linuxConfigs = [
+        {
+          name = "wlritchi";
+          hostname = "default";
+        }
+        {
+          name = "wlritchi@amygdalin";
+          hostname = "amygdalin";
+        }
+      ];
+
+      darwinConfigs = [
+        { name = "luc.ritchie"; }
+      ];
+
+      homeConfigs =
+        (builtins.concatMap (system: map (mkLinuxHome system) linuxConfigs) linuxSystems)
+        ++ (builtins.concatMap (system: map (mkDarwinHome system) darwinConfigs) darwinSystems);
     in
     {
       lib = { inherit allowUnfreePredicate overlays; };
 
-      homeConfigurations = {
-        wlritchi = home-manager.lib.homeManagerConfiguration {
-          pkgs = pkgsLinux;
-          modules = [ ./machines/linux.nix ];
-          extraSpecialArgs = {
-            hostname = "default";
-            inherit krew2nix try;
-          };
-        };
-        "wlritchi@amygdalin" = home-manager.lib.homeManagerConfiguration {
-          pkgs = pkgsLinux;
-          modules = [ ./machines/linux.nix ];
-          extraSpecialArgs = {
-            hostname = "amygdalin";
-            inherit krew2nix try;
-          };
-        };
-        "luc.ritchie" = home-manager.lib.homeManagerConfiguration {
-          pkgs = pkgsDarwin;
-          modules = [ ./machines/darwin.nix ];
-          extraSpecialArgs = { inherit krew2nix try; };
-        };
-      };
+      homeConfigurations = builtins.listToAttrs homeConfigs;
+
       darwinConfigurations = {
         luc_ritchie = nix-darwin.lib.darwinSystem {
           system = "aarch64-darwin";
