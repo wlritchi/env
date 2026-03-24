@@ -36,12 +36,15 @@
       }
     },
     "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
       "locked": {
-        "lastModified": 1659877975,
-        "narHash": "sha256-zllb8aq3YO3h8B/U0/J1WBgAL8EX5yWf5pMj3G0NAmc=",
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
         "owner": "numtide",
         "repo": "flake-utils",
-        "rev": "c0e246b9b83f637f4681389ecabcb2681b4f3af0",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
         "type": "github"
       },
       "original": {
@@ -103,23 +106,40 @@
         "type": "github"
       }
     },
+    "krew-index": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1774309694,
+        "narHash": "sha256-bbAopeDJFmbHxhkFhvp03Jca0/WcyMXRR3DChdO3eYo=",
+        "owner": "kubernetes-sigs",
+        "repo": "krew-index",
+        "rev": "b8e37bda442e7ab7ecf7b1f7ab88d1006c684860",
+        "type": "github"
+      },
+      "original": {
+        "owner": "kubernetes-sigs",
+        "repo": "krew-index",
+        "type": "github"
+      }
+    },
     "krew2nix": {
       "inputs": {
         "flake-utils": "flake-utils",
+        "krew-index": "krew-index",
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1716272275,
-        "narHash": "sha256-JWDyPhAJp263EVVsGrKwrJU+xdDReHsDmSe7A190/Cg=",
-        "owner": "eigengrau",
+        "lastModified": 1774346325,
+        "narHash": "sha256-YhQj4VHUXYef/XESuUdrljBE1JsB148SYHpBxRxurlI=",
+        "owner": "wlritchi",
         "repo": "krew2nix",
-        "rev": "0c1fecaab044dba1249c5d09366891ec467b4ad2",
+        "rev": "f844766ca83f6285592968c6feac11bd66780c44",
         "type": "github"
       },
       "original": {
-        "owner": "eigengrau",
+        "owner": "wlritchi",
         "repo": "krew2nix",
         "type": "github"
       }
@@ -204,6 +224,21 @@
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs",
         "try": "try"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
       }
     },
     "try": {

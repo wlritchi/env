@@ -16,7 +16,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     krew2nix = {
-      url = "github:eigengrau/krew2nix";
+      url = "github:wlritchi/krew2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-darwin = {
