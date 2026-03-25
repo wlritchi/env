@@ -45,7 +45,10 @@ for you to use them.
 Do NOT create worktrees adjacent to the repository; instead, place them under a `.worktrees/`
 folder inside the root repository. If `.worktrees/` isn't gitignored, add it to the root gitignore.
 
-# Implementing plans (for Superpowers)
+# Using plans (for Superpowers)
+
+Use `docs/specs/` for design specs and `docs/plans/` for implementation plans, not
+`docs/superpowers/specs/` or `docs/superpowers/plans/`.
 
 Use subagent-driven plan execution unless the user requests otherwise.
 
