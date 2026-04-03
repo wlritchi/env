@@ -71,60 +71,44 @@
           inherit overlays;
         };
 
-      linuxSystems = [
+      systems = [
         "x86_64-linux"
         "aarch64-linux"
+        "aarch64-darwin"
       ];
-      darwinSystems = [ "aarch64-darwin" ];
 
       # Generate homeConfigurations keyed as "name/system" for each supported system
-      mkLinuxHome =
-        system:
+      mkHome =
         {
           name,
           hostname ? "default",
         }:
+        system:
+        let
+          platformModule =
+            if builtins.match ".*-darwin" system != null then ./machines/darwin.nix else ./machines/linux.nix;
+        in
         {
           name = "${name}/${system}";
           value = home-manager.lib.homeManagerConfiguration {
             pkgs = mkPkgs system;
-            modules = [ ./machines/linux.nix ];
+            modules = [ platformModule ];
             extraSpecialArgs = {
               inherit hostname krew2nix try;
             };
           };
         };
 
-      mkDarwinHome =
-        system:
-        { name }:
-        {
-          name = "${name}/${system}";
-          value = home-manager.lib.homeManagerConfiguration {
-            pkgs = mkPkgs system;
-            modules = [ ./machines/darwin.nix ];
-            extraSpecialArgs = { inherit krew2nix try; };
-          };
-        };
-
-      linuxConfigs = [
-        {
-          name = "wlritchi";
-          hostname = "default";
-        }
+      homeConfigs' = [
+        { name = "wlritchi"; }
         {
           name = "wlritchi@amygdalin";
           hostname = "amygdalin";
         }
-      ];
-
-      darwinConfigs = [
         { name = "luc.ritchie"; }
       ];
 
-      homeConfigs =
-        (builtins.concatMap (system: map (mkLinuxHome system) linuxConfigs) linuxSystems)
-        ++ (builtins.concatMap (system: map (mkDarwinHome system) darwinConfigs) darwinSystems);
+      homeConfigs = builtins.concatMap (cfg: map (mkHome cfg) systems) homeConfigs';
     in
     {
       lib = { inherit allowUnfreePredicate overlays; };

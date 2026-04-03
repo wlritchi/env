@@ -2,10 +2,13 @@
   config,
   pkgs,
   lib,
+  hostname ? "default",
   ...
 }:
 
 let
+  hostModule = ./hosts + "/${hostname}.nix";
+  hostImports = lib.optional (builtins.pathExists hostModule) hostModule;
   secretive = pkgs.callPackage ./pkgs/secretive.nix { };
   age-with-plugins = import ./pkgs/age-with-plugins.nix { inherit pkgs; };
   browserpass-native-passage = import ./pkgs/browserpass-native-passage.nix {
@@ -20,7 +23,8 @@ in
   imports = [
     ./common.nix
     ./launchd-services.nix
-  ];
+  ]
+  ++ hostImports;
 
   home.username = "luc.ritchie";
   home.homeDirectory = "/Users/luc.ritchie";
