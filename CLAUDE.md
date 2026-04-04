@@ -50,12 +50,13 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
 
 ## Nix Integration
 This repository uses Nix Flakes with home-manager for declarative package and environment management:
-- **Flake configuration**: `flake.nix` defines home-manager configurations for different hosts
+- **Flake configuration**: `flake.nix` defines a single `homeConfigurations.default` that uses impure evaluation to resolve system, hostname, and username from environment variables (`NIX_SYSTEM`, `NIX_HOSTNAME`, `USER`)
 - **Package declarations**: `machines/common.nix` declares common packages across all systems
 - **Custom packages**: `machines/pkgs/` contains Nix derivations for local packages (e.g., Rust utilities)
-- **Platform-specific configs**: `machines/linux.nix` and `machines/darwin.nix` for OS-specific settings
-- **Host-specific overrides**: `machines/hosts/{hostname}.nix` for machine-specific customizations
-- **Apply changes**: `wlr-nix-rebuild` to rebuild home-manager environment
+- **Platform-specific configs**: `machines/linux.nix` and `machines/darwin.nix` for OS-specific settings, selected automatically based on the system
+- **Host-specific overrides**: `machines/hosts/{hostname}.nix` for machine-specific customizations (loaded if file exists, on both Linux and macOS)
+- **Apply changes**: `wlr-nix-rebuild` to rebuild home-manager environment (passes `--impure` and exports `NIX_HOSTNAME` automatically)
+- **Cross-platform QA**: Override `NIX_SYSTEM` to evaluate configs for other platforms (e.g., `NIX_SYSTEM=aarch64-darwin wlr-nix-rebuild`)
 - **Update dependencies**: `wlr-update-locks` updates flake.lock (and other lockfiles)
 - **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash (takes precedence over `~/.local/bin`)
 - **Special integrations**: Uses krew2nix for declarative kubectl plugin management
@@ -65,7 +66,6 @@ On macOS, `wlr-nix-rebuild` also runs nix-darwin (via `darwin-rebuild`) for syst
 - **Config file**: `machines/darwin-system.nix` - system-level macOS settings
 - **Homebrew casks**: For apps that need to self-update (e.g., Docker) or aren't in nixpkgs
 - **When to use Homebrew**: Only for apps that manage their own updates. Prefer nixpkgs for everything else - you get reproducibility and rollback.
-- **Config naming**: Darwin configs use underscores instead of dots (e.g., `luc_ritchie` not `luc.ritchie`) due to nix-darwin limitations
 
 ## Environment Integration
 - Integration with development environment tools (nodenv, pyenv, etc.)
