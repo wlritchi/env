@@ -22,8 +22,15 @@ if ! [ -x "$BUN" ]; then
     exit 1
 fi
 
-# Bootstrap if claude not installed
-if ! [ -x "$CLAUDE_BIN" ]; then
+# Bootstrap or upgrade if needed
+if [ -x "$CLAUDE_BIN" ]; then
+    INSTALLED_VERSION=$("$BUN" "$CLAUDE_BIN" --version 2>/dev/null | head -1 | sed 's/ .*//')
+    if [ "$INSTALLED_VERSION" != "$CLAUDE_VERSION" ]; then
+        echo "Claude Code $INSTALLED_VERSION -> $CLAUDE_VERSION, reinstalling..." >&2
+        rm -rf "$BUN_INSTALL"
+        "$BUN" install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
+    fi
+else
     echo "Installing Claude Code $CLAUDE_VERSION..." >&2
     "$BUN" install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
 fi
