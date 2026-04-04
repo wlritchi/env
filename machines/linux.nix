@@ -3,6 +3,7 @@
   pkgs,
   lib,
   hostname ? "default",
+  username ? "wlritchi",
   ...
 }:
 
@@ -39,7 +40,7 @@ in
       secwrap
     ];
 
-  home.username = "wlritchi";
-  home.homeDirectory = "/home/wlritchi";
+  home.username = username;
+  home.homeDirectory = "/home/${username}";
   home.stateVersion = "25.11";
 }

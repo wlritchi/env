@@ -71,61 +71,51 @@
           inherit overlays;
         };
 
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "aarch64-darwin"
-      ];
-
-      # Generate homeConfigurations keyed as "name/system" for each supported system
-      mkHome =
-        {
-          name,
-          hostname ? "default",
-        }:
-        system:
+      # Impure: resolve system, hostname, and username from environment
+      system =
         let
-          platformModule =
-            if builtins.match ".*-darwin" system != null then ./machines/darwin.nix else ./machines/linux.nix;
+          env = builtins.getEnv "NIX_SYSTEM";
         in
-        {
-          name = "${name}/${system}";
-          value = home-manager.lib.homeManagerConfiguration {
-            pkgs = mkPkgs system;
-            modules = [ platformModule ];
-            extraSpecialArgs = {
-              inherit hostname krew2nix try;
-            };
-          };
-        };
+        if env != "" then env else builtins.currentSystem;
+      hostname =
+        let
+          env = builtins.getEnv "NIX_HOSTNAME";
+        in
+        if env != "" then env else "default";
+      username =
+        let
+          env = builtins.getEnv "USER";
+        in
+        if env != "" then env else "unknown";
 
-      homeConfigs' = [
-        { name = "wlritchi"; }
-        {
-          name = "wlritchi@amygdalin";
-          hostname = "amygdalin";
-        }
-        { name = "luc.ritchie"; }
-      ];
-
-      homeConfigs = builtins.concatMap (cfg: map (mkHome cfg) systems) homeConfigs';
+      pkgs = mkPkgs system;
+      isDarwin = builtins.match ".*-darwin" system != null;
+      platformModule = if isDarwin then ./machines/darwin.nix else ./machines/linux.nix;
     in
     {
       lib = { inherit allowUnfreePredicate overlays; };
 
-      homeConfigurations = builtins.listToAttrs homeConfigs;
+      homeConfigurations.default = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+        modules = [ platformModule ];
+        extraSpecialArgs = {
+          inherit
+            hostname
+            username
+            krew2nix
+            try
+            ;
+        };
+      };
 
-      darwinConfigurations = {
-        luc_ritchie = nix-darwin.lib.darwinSystem {
-          system = "aarch64-darwin";
-          modules = [
-            nix-homebrew.darwinModules.nix-homebrew
-            ./machines/darwin-system.nix
-          ];
-          specialArgs = {
-            username = "luc.ritchie";
-            inherit homebrew-cask homebrew-core;
-          };
+      darwinConfigurations.default = nix-darwin.lib.darwinSystem {
+        inherit system;
+        modules = [
+          nix-homebrew.darwinModules.nix-homebrew
+          ./machines/darwin-system.nix
+        ];
+        specialArgs = {
+          inherit username homebrew-cask homebrew-core;
         };
       };
     };

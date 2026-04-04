@@ -3,6 +3,7 @@
   pkgs,
   lib,
   hostname ? "default",
+  username ? "luc.ritchie",
   ...
 }:
 
@@ -26,8 +27,8 @@ in
   ]
   ++ hostImports;
 
-  home.username = "luc.ritchie";
-  home.homeDirectory = "/Users/luc.ritchie";
+  home.username = username;
+  home.homeDirectory = "/Users/${username}";
   home.stateVersion = "25.11";
 
   fonts.fontconfig.enable = true;

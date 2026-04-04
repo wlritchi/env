@@ -17,6 +17,26 @@ fi
 cd "$FLAKE_PATH"
 
 export NIX_CONFIG="experimental-features = nix-command flakes"
+
+# Export hostname for impure flake evaluation
+# Get short hostname with fallback chain
+get_short_hostname() {
+    local hn
+    if command -v hostname >/dev/null 2>&1; then
+        hn=$(hostname -s 2>/dev/null) && [ -n "$hn" ] && echo "$hn" && return 0
+    fi
+    if hn=$(uname -n 2>/dev/null) && [ -n "$hn" ]; then
+        echo "${hn%%.*}"
+        return 0
+    fi
+    if [ -f /proc/sys/kernel/hostname ]; then
+        hn=$(cat /proc/sys/kernel/hostname 2>/dev/null) && [ -n "$hn" ] && echo "${hn%%.*}" && return 0
+    fi
+    return 1
+}
+export NIX_HOSTNAME
+NIX_HOSTNAME="$(get_short_hostname)" || NIX_HOSTNAME="default"
+
 home_manager=(
     nix
     run
@@ -24,50 +44,7 @@ home_manager=(
     --
 )
 
-# Get short hostname with fallback chain
-get_short_hostname() {
-    local hn
-    # Try hostname -s first (most traditional)
-    if command -v hostname >/dev/null 2>&1; then
-        hn=$(hostname -s 2>/dev/null) && [ -n "$hn" ] && echo "$hn" && return 0
-    fi
-    # Fall back to uname -n (POSIX-compliant, very portable)
-    if hn=$(uname -n 2>/dev/null) && [ -n "$hn" ]; then
-        # Strip domain if present to get short hostname
-        echo "${hn%%.*}"
-        return 0
-    fi
-    # Fall back to /proc/sys/kernel/hostname on Linux
-    if [ -f /proc/sys/kernel/hostname ]; then
-        hn=$(cat /proc/sys/kernel/hostname 2>/dev/null) && [ -n "$hn" ] && echo "${hn%%.*}" && return 0
-    fi
-    return 1
-}
-
-# Check if a config exists in the flake
-config_exists() {
-    local config="$1"
-    nix eval --json ".#homeConfigurations" --apply 'x: builtins.attrNames x' 2>/dev/null | grep -q "\"${config}\""
-}
-
-# Detect current system for config lookup
-NIX_SYSTEM="$(nix eval --impure --expr builtins.currentSystem --raw 2>/dev/null)" || {
-    wlr-err "Failed to detect nix system"
-    exit 1
-}
-
-# Determine which config to use (user@hostname if exists, otherwise just user)
-NIX_PROFILE="${USER}"
-if SHORT_HOSTNAME=$(get_short_hostname); then
-    HOST_PROFILE="${USER}@${SHORT_HOSTNAME}"
-    if config_exists "${HOST_PROFILE}/${NIX_SYSTEM}"; then
-        NIX_PROFILE="${HOST_PROFILE}"
-    else
-        wlr-warn "Config for ${HOST_PROFILE} not found, falling back to ${USER}"
-    fi
-fi
-
-"${home_manager[@]}" switch --flake "${FLAKE_PATH}#${NIX_PROFILE}/${NIX_SYSTEM}"
+"${home_manager[@]}" switch --impure --flake "${FLAKE_PATH}#default"
 
 # On macOS, also run darwin-rebuild for system-level config (Homebrew casks, etc.)
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -77,18 +54,15 @@ if [ "$(uname -s)" = "Darwin" ]; then
         nix-darwin
         --
     )
-    # Replace dots with underscores for darwin config name (nix-darwin doesn't handle dots well)
-    DARWIN_PROFILE="${NIX_PROFILE//./_}"
-
     # Build first (no sudo needed) to check if anything changed
-    "${nix_darwin[@]}" build --flake "${FLAKE_PATH}#${DARWIN_PROFILE}"
+    "${nix_darwin[@]}" build --impure --flake "${FLAKE_PATH}#default"
 
     # Compare new build to current system - only activate if different
     NEW_SYSTEM="$(readlink ./result)"
     CURRENT_SYSTEM="$(readlink /run/current-system 2>/dev/null || echo "")"
 
     if [ "${NEW_SYSTEM}" != "${CURRENT_SYSTEM}" ]; then
-        sudo "${nix_darwin[@]}" switch --flake "${FLAKE_PATH}#${DARWIN_PROFILE}"
+        sudo "${nix_darwin[@]}" switch --impure --flake "${FLAKE_PATH}#default"
     else
         echo "nix-darwin: no changes to activate"
     fi
