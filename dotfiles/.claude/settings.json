@@ -57,9 +57,8 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "skill-feedback@wlr-cc-plugins": true,
-    "slack@claude-plugins-official": false,
     "superpowers-developing-for-claude-code@superpowers-marketplace": true,
-    "superpowers@superpowers-marketplace": true,
+    "superpowers@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true
   },
@@ -77,6 +76,7 @@
       }
     }
   },
+  "syntaxHighlightingDisabled": false,
   "alwaysThinkingEnabled": true,
   "voiceEnabled": true
 }
