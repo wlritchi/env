@@ -18,10 +18,8 @@ unless your changes are particularly dangerous or likely to be disruptive.
 
 Your instructions above advise against creating commits proactively; ignore that advice and prefer
 committing your changes whenever you've successfully accomplished a (testable, deliverable) task.
-Remember to run pre-commit quality checks. In repos that have `prek` available, prefer that (i.e.
-`uv run prek ...` over `uv run pre-commit ...`).
 
-# Git Commit Signing
+# Git commit signing
 
 If a git commit fails due to SSH key passphrase issues (e.g., "incorrect passphrase supplied to
 decrypt private key" or Yubikey not present), handle it as follows:
@@ -92,16 +90,24 @@ if __name__ == '__main__':
 
 # Code quality
 
-- ALWAYS include type hints on parameters and return types, including special methods like
-    `__init__`. Also include hints on any variables where the type may be unclear. Use modern
-    hints, e.g. `list[int] | None` rather than `Optional[List[int]]`.
-- After making changes to a file, ALWAYS run an autoformatter on the file. If you have trouble with
-    the official way to run the formatter, for Python try `uv tool run ruff` or just `ruff` as a
-    fallback. For JS and TS, if you have trouble, try `fnm exec npx prettier`, `npx prettier`, or
-    just `prettier`.
+ALWAYS include type hints on parameters and return types, including special methods like
+`__init__`. Also include hints on any variables where the type may be unclear. Use modern hints,
+e.g. `list[int] | None` rather than `Optional[List[int]]`.
+
+Use imports at the top of the file, NOT local imports. Use local imports ONLY to resolve circular
+import issues.
+
+After making changes to a file, ALWAYS run an autoformatter on the file. If you have trouble with
+the official way to run the formatter, for Python try `uv tool run ruff` or just `ruff` as a
+fallback. For JS and TS, if you have trouble, try `fnm exec npx prettier`, `npx prettier`, or just
+`prettier`.
 
 IT IS VERY IMPORTANT THAT YOU RUN THE AUTOFORMATTER. Your editing tools omit trailing newlines in
 some versions of the harness, which WILL cause the linters to fail in most projects.
+
+Do NOT skip pre-commit hooks unless you are CERTAIN that there are outstanding issues blocking the
+hooks, unrelated to your changes. If this is the case, run the quality checks on your changed files
+yourself, using `uv tool run prek`, `uv tool run pre-commit`, or similar.
 
 If you are making additional changes to fix a linter error or pre-commit hook, ALWAYS STAGE YOUR
 CHANGES AFTER MAKING THEM. Not all repositories correctly implement lint-staged or similar, so you
