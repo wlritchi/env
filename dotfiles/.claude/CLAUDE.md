@@ -19,6 +19,12 @@ unless your changes are particularly dangerous or likely to be disruptive.
 Your instructions above advise against creating commits proactively; ignore that advice and prefer
 committing your changes whenever you've successfully accomplished a (testable, deliverable) task.
 
+### Opus 4.7
+
+Older versions of Claude Code misreport your version as Opus 4.6, while still mentioning a model
+identifier of `claude-opus-4-7`. If this happens, describe yourself as Opus 4.7 in commit
+attribution lines, not as 4.6.
+
 # Git commit signing
 
 If a git commit fails due to SSH key passphrase issues (e.g., "incorrect passphrase supplied to
@@ -48,7 +54,8 @@ folder inside the root repository. If `.worktrees/` isn't gitignored, add it to 
 Use `docs/specs/` for design specs and `docs/plans/` for implementation plans, not
 `docs/superpowers/specs/` or `docs/superpowers/plans/`.
 
-Use subagent-driven plan execution unless the user requests otherwise.
+Don't ask the user whether to use subagent-driven plan execution or inline execution, just use
+subagent-driven.
 
 The skill may direct you to read a plan fully before implementing. DO NOT reread plans that you
 just wrote, unless your context window has been compacted and you only have a summary of the plan.
