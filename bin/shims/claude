@@ -4,7 +4,7 @@ set -euo pipefail
 # Isolated Claude Code environment using Bun
 # Recovery: rm -rf ~/.claude-bun_* && claude
 
-CLAUDE_VERSION="2.1.92"
+CLAUDE_VERSION="2.1.112"
 
 # Shim-level `--version X.Y.Z` (or `-v X.Y.Z`) selects a target version and is
 # consumed here. Bare `--version` / `-v` (no following argument) falls through.
