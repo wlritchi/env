@@ -78,5 +78,6 @@
   },
   "syntaxHighlightingDisabled": false,
   "alwaysThinkingEnabled": true,
+  "showThinkingSummaries": true,
   "voiceEnabled": true
 }

@@ -44,5 +44,11 @@ else
     "$BUN" install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
 fi
 
+# Inject --thinking-display summarized for versions >= 2.1.94 (when flag was added).
+# Prepending lets user args override if they pass their own --thinking-display.
+if [ "$(printf '%s\n' "2.1.94" "$CLAUDE_VERSION" | sort -V | head -1)" = "2.1.94" ]; then
+    set -- --thinking-display summarized "$@"
+fi
+
 # Execute claude with Bun
 exec "$BUN" "$CLAUDE_BIN" "$@"
