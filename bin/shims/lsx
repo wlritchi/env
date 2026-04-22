@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# In Claude Code, fall back to plain ls. eza is mostly a drop-in, but
+# agents occasionally trip on subtle differences (e.g. `-t` sort order).
+if [ "${CLAUDECODE:-}" = "1" ]; then
+    exec ls "$@"
+fi
+
 # Workaround for eza 0.23.0 regression where no arguments causes it to read
 # stdin, which breaks when stdin is /dev/null (e.g. in Claude Code).
 # See https://github.com/eza-community/eza/issues/1568
