@@ -203,6 +203,12 @@ class BinaryPatcher(Patcher):
 # but applies against the Bun install path rather than ~/.claude/local.
 TEXT_PATCHER_V1 = TextPatcher(
     revision=1,
+    # `default-display-summarized` targets a `.display??void 0:void 0` fallback
+    # that first appears in 2.1.108. Older releases don't ship that API-side
+    # thinking.display plumbing, so the patch would be a no-op there — and a
+    # required no-op still counts as a failure. TEXT_PATCHER_V0 handles the
+    # 2.1.108-and-below case with just the two render-side patches.
+    min_version="2.1.108",
     max_version="2.1.113",
     patches=(
         # 1. Drop the early-return guard that hides the thinking case when a
@@ -244,6 +250,18 @@ TEXT_PATCHER_V1 = TextPatcher(
         re.compile(r"isTranscriptMode:true,"),
         re.compile(r'\.display\?\?"summarized":void 0'),
     ),
+)
+
+
+# Subset patcher for 2.1.107 and older: the two render-side patches only. The
+# API-side `.display??void 0:void 0` fallback that TEXT_PATCHER_V1 targets
+# didn't exist yet, but the summarized thinking.display plumbing it defaults
+# also didn't exist, so these releases don't need it.
+TEXT_PATCHER_V0 = TextPatcher(
+    revision=1,
+    max_version="2.1.108",
+    patches=TEXT_PATCHER_V1.patches[:2],
+    verify=TEXT_PATCHER_V1.verify[:2],
 )
 
 
@@ -301,7 +319,7 @@ BINARY_PATCHER_V1 = BinaryPatcher(
 )
 
 
-PATCHERS: tuple[Patcher, ...] = (TEXT_PATCHER_V1, BINARY_PATCHER_V1)
+PATCHERS: tuple[Patcher, ...] = (TEXT_PATCHER_V0, TEXT_PATCHER_V1, BINARY_PATCHER_V1)
 
 
 def pick_patcher(version: str) -> Patcher | None:
