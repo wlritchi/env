@@ -61,7 +61,42 @@
         });
       };
 
-      overlays = [ aerospaceOverlay ];
+      # Pin bun to 1.3.13 until nixpkgs#508770 lands; required for Claude Code
+      # v2.1.113+ post-install hook compatibility. Override `src` directly
+      # rather than `passthru.sources` because release-25.11's bun uses
+      # `mkDerivation rec`, which freezes `src` against pre-override scope.
+      bunOverlay = final: prev: {
+        bun = prev.bun.overrideAttrs (oldAttrs: {
+          version = "1.3.13";
+          __intentionallyOverridingVersion = true;
+          src =
+            {
+              "aarch64-darwin" = prev.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-darwin-aarch64.zip";
+                hash = "sha256-VGfj9l26Umuf6pjwzOBO+vwMY+Fpcz7Ce4dqOtMtoZA=";
+              };
+              "aarch64-linux" = prev.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-aarch64.zip";
+                hash = "sha256-cLrkGzkIsKEg4eWMXIrzDnSvrjuNEbDT/djnh937SyI=";
+              };
+              "x86_64-darwin" = prev.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-darwin-x64-baseline.zip";
+                hash = "sha256-qYumpIDyL9qbNDYmuQak4mqlNhi/hdK8WSjs8rpF8O0=";
+              };
+              "x86_64-linux" = prev.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-x64.zip";
+                hash = "sha256-ecB3H6i5LDOq5B4VoODTB+qZ0OLwAxfHHGxTI3p44lo=";
+              };
+            }
+            .${prev.stdenvNoCC.hostPlatform.system}
+              or (throw "Unsupported system for bun override: ${prev.stdenvNoCC.hostPlatform.system}");
+        });
+      };
+
+      overlays = [
+        aerospaceOverlay
+        bunOverlay
+      ];
 
       mkPkgs =
         system:
