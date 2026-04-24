@@ -36,9 +36,19 @@ BUN_PATH = HOME / ".nix-profile" / "bin" / "bun"
 # was added in 2.1.94; below that, Claude Code has no --thinking-display flag.
 THINKING_DISPLAY_FLAG_MIN = "2.1.94"
 
+# 2.1.113 restructured the package: bin/claude is now a symlink to a native
+# binary living in a platform-specific optional dep (e.g.
+# @anthropic-ai/claude-code-<platform>/claude) rather than a bun-runnable JS
+# script. For these versions the shim execs the binary directly.
+NATIVE_BINARY_MIN = "2.1.113"
+
 
 def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(x) for x in v.split("."))
+
+
+def uses_native_binary(version: str) -> bool:
+    return version_tuple(version) >= version_tuple(NATIVE_BINARY_MIN)
 
 
 # ---------------------------------------------------------------------------
@@ -208,17 +218,31 @@ def claude_bin(bun_install: Path) -> Path:
     return bun_install / "bin" / "claude"
 
 
-def installed_version(bin_path: Path) -> str | None:
+def installed_version(bin_path: Path, version: str) -> str | None:
+    """Query the installed Claude Code version, or None if unavailable.
+
+    ``version`` selects the invocation style: pre-2.1.113 bin/claude is a
+    bun-runnable JS script; 2.1.113+ is a native binary executed directly.
+    """
+    if uses_native_binary(version):
+        argv = [str(bin_path), "--version"]
+    else:
+        argv = [str(BUN_PATH), str(bin_path), "--version"]
     try:
         result = subprocess.run(  # noqa: S603  # trusted constant paths
-            [str(BUN_PATH), str(bin_path), "--version"],
+            argv,
             check=True,
             capture_output=True,
-            text=True,
         )
     except (OSError, subprocess.CalledProcessError):
         return None
-    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    # Decode manually so a stray non-UTF-8 byte (e.g. when bun tries to parse
+    # an ELF as JS and dumps the header) returns None instead of crashing.
+    try:
+        stdout = result.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    first_line = stdout.splitlines()[0] if stdout else ""
     return first_line.split(" ", 1)[0] or None
 
 
@@ -234,7 +258,7 @@ def bun_global_install(bun_install: Path, version: str) -> None:
 def ensure_installed(bun_install: Path, version: str, patcher: Patcher | None) -> None:
     bin_path = claude_bin(bun_install)
     if bin_path.is_file():
-        current = installed_version(bin_path)
+        current = installed_version(bin_path, version)
         if current == version:
             return
         print(f"Claude Code {current} -> {version}, reinstalling...", file=sys.stderr)
@@ -242,7 +266,24 @@ def ensure_installed(bun_install: Path, version: str, patcher: Patcher | None) -
     else:
         print(f"Installing Claude Code {version}...", file=sys.stderr)
 
-    bun_global_install(bun_install, version)
+    try:
+        bun_global_install(bun_install, version)
+    except subprocess.CalledProcessError:
+        # 2.1.113+ ships a postinstall hook (`node install.cjs`) that Bun
+        # 1.3.x mis-parses (it trips over the platform-native binary as if it
+        # were JS) and exits non-zero. But Bun wires bin/claude directly to
+        # that native binary during resolve, so the install is still usable.
+        # Accept it iff --version reports the target version.
+        if not uses_native_binary(version):
+            raise
+        if installed_version(bin_path, version) != version:
+            raise
+        print(
+            "bun install exited non-zero (known Bun 1.3.x + claude-code 2.1.113+ "
+            "postinstall bug); binary is in place and reports the expected "
+            "version, continuing.",
+            file=sys.stderr,
+        )
 
     if patcher is not None:
         print(
@@ -291,11 +332,16 @@ def main(argv: list[str]) -> int:
         forwarded = ["--thinking-display", "summarized", *forwarded]
 
     env = {**os.environ, "BUN_INSTALL": str(bun_install)}
-    os.execve(  # noqa: S606  # shell-less exec by design
-        str(BUN_PATH),
-        [str(BUN_PATH), str(claude_bin(bun_install)), *forwarded],
-        env,
-    )
+    bin_path = claude_bin(bun_install)
+    if uses_native_binary(shim.version):
+        # Native binary: exec directly, bypassing bun.
+        os.execve(str(bin_path), [str(bin_path), *forwarded], env)  # noqa: S606
+    else:
+        os.execve(  # noqa: S606  # shell-less exec by design
+            str(BUN_PATH),
+            [str(BUN_PATH), str(bin_path), *forwarded],
+            env,
+        )
 
 
 if __name__ == "__main__":
