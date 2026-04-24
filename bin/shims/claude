@@ -25,8 +25,10 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import override
 
 DEFAULT_CLAUDE_VERSION = "2.1.112"
 HOME = Path.home()
@@ -60,22 +62,27 @@ class PatchError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class Patch:
+class TextPatch:
     name: str
     pattern: re.Pattern[str]
     replacement: str
 
 
 @dataclass(frozen=True)
+class BinaryPatch:
+    name: str
+    pattern: re.Pattern[bytes]
+    # Callable invoked by re.subn for each match; MUST return bytes of the same
+    # width as ``match.group(0)`` so Mach-O / ELF offsets stay valid.
+    replacement: Callable[[re.Match[bytes]], bytes]
+
+
+@dataclass(frozen=True, kw_only=True)
 class Patcher:
     # Bump ``revision`` whenever the patch set changes in a way that requires a
     # fresh install (new pattern, tweaked replacement, etc.). A new revision
     # means a new directory, so prior installs stay side-by-side as fallbacks.
     revision: int
-    patches: tuple[Patch, ...]
-    # Regexes that MUST match after all patches have been applied. Guards
-    # against a newer CLI whose structure made a pattern a silent no-op.
-    verify: tuple[re.Pattern[str], ...]
     min_version: str | None = None  # inclusive; None = no lower bound
     max_version: str | None = None  # EXCLUSIVE; None = no upper bound
 
@@ -87,8 +94,31 @@ class Patcher:
             return False
         return True
 
-    def apply(self, cli_js: Path) -> None:
-        text = cli_js.read_text()
+    def apply(self, install_dir: Path) -> None:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, kw_only=True)
+class TextPatcher(Patcher):
+    """Patches the bundled ``cli.js`` (pre-2.1.113 JS-script layout)."""
+
+    patches: tuple[TextPatch, ...]
+    # Regexes that MUST match after all patches have been applied. Guards
+    # against a newer CLI whose structure made a pattern a silent no-op.
+    verify: tuple[re.Pattern[str], ...]
+
+    @override
+    def apply(self, install_dir: Path) -> None:
+        target = (
+            install_dir
+            / "install"
+            / "global"
+            / "node_modules"
+            / "@anthropic-ai"
+            / "claude-code"
+            / "cli.js"
+        )
+        text = target.read_text()
         for patch in self.patches:
             new_text, count = patch.pattern.subn(patch.replacement, text)
             if count == 0:
@@ -97,21 +127,88 @@ class Patcher:
         for marker in self.verify:
             if not marker.search(text):
                 raise PatchError(f"post-apply verification failed: {marker.pattern!r}")
-        cli_js.write_text(text)
+        target.write_text(text)
 
 
-# Revision 1: enable expanded thinking blocks with summarized API output on
-# Claude Code versions that pre-date the built-in behavior (< 2.1.113).
+@dataclass(frozen=True, kw_only=True)
+class BinaryPatcher(Patcher):
+    """Patches the Bun-compiled native binary (2.1.113+ layout).
+
+    Edits are length-preserving so Mach-O load commands / ELF section offsets
+    stay valid. On macOS the binary is Developer ID-signed with hardened
+    runtime; any byte change invalidates the signature and the kernel
+    SIGKILLs on exec. We re-sign ad-hoc after patching. On Linux there is
+    no codesigning equivalent (stock dynamically-linked ELF, no IMA xattrs,
+    no signature section), so we skip that step.
+    """
+
+    patches: tuple[BinaryPatch, ...]
+    verify: tuple[re.Pattern[bytes], ...]
+
+    @override
+    def apply(self, install_dir: Path) -> None:
+        # bin/claude is a symlink into the platform-specific optional dep
+        # (e.g. @anthropic-ai/claude-code-linux-x64/claude). Resolve so we
+        # modify the actual binary, not the symlink.
+        target = (install_dir / "bin" / "claude").resolve()
+        data = target.read_bytes()
+        for patch in self.patches:
+            new_data, count = patch.pattern.subn(patch.replacement, data)
+            if count == 0:
+                raise PatchError(f"patch {patch.name!r} did not match anything")
+            if len(new_data) != len(data):
+                raise PatchError(
+                    f"patch {patch.name!r} violated length preservation: "
+                    f"{len(data)} -> {len(new_data)} bytes"
+                )
+            data = new_data
+        for marker in self.verify:
+            if not marker.search(data):
+                raise PatchError(f"post-apply verification failed: {marker.pattern!r}")
+        target.write_bytes(data)
+        if sys.platform == "darwin":
+            self._codesign(target)
+        self._smoke_test(target)
+
+    @staticmethod
+    def _codesign(target: Path) -> None:
+        # Absolute path: codesign ships in /usr/bin on every macOS install, and
+        # pinning it avoids PATH-lookup footguns (and satisfies S607).
+        result = subprocess.run(  # noqa: S603  # trusted absolute path
+            ["/usr/bin/codesign", "--force", "--sign", "-", str(target)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise PatchError(f"codesign failed: {detail}")
+
+    @staticmethod
+    def _smoke_test(target: Path) -> None:
+        try:
+            result = subprocess.run(  # noqa: S603  # trusted path
+                [str(target), "--version"],
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise PatchError(f"patched binary failed smoke test: {exc}") from exc
+        if result.returncode != 0:
+            raise PatchError(f"patched binary exited {result.returncode} on --version")
+
+
+# Text patcher (cli.js): enable expanded thinking blocks with summarized API
+# output on Claude Code versions that pre-date the built-in behavior (< 2.1.113).
 # Mirrors https://gist.github.com/phpmypython/148a942a34e19635770ec3383a865da8
 # but applies against the Bun install path rather than ~/.claude/local.
-PATCHER_V1 = Patcher(
+TEXT_PATCHER_V1 = TextPatcher(
     revision=1,
     max_version="2.1.113",
     patches=(
         # 1. Drop the early-return guard that hides the thinking case when a
         #    couple of flags are unset:
         #       case"thinking":{if(!A&&!B)return null;  ->  case"thinking":{
-        Patch(
+        TextPatch(
             name="drop-thinking-early-return",
             pattern=re.compile(
                 r'(case"thinking":\{)if\(![A-Za-z$_]+(?:&&![A-Za-z$_]+)+\)return null;'
@@ -121,7 +218,7 @@ PATCHER_V1 = Patcher(
         # 2. Force isTranscriptMode true in the thinking block render so the
         #    block always expands:
         #       createElement(X,{...,isTranscriptMode:VAR,  ->  ...:true,
-        Patch(
+        TextPatch(
             name="force-transcript-mode",
             pattern=re.compile(
                 r"(createElement\([A-Za-z0-9$_]+,\{addMargin:[A-Za-z$_]+,"
@@ -133,7 +230,7 @@ PATCHER_V1 = Patcher(
         #    models actually return content (undefined is treated as omitted):
         #       .display??void 0:void 0  ->  .display??"summarized":void 0
         #    Only the ?? fallback changes; the ternary-false branch stays.
-        Patch(
+        TextPatch(
             name="default-display-summarized",
             pattern=re.compile(r"\.display\?\?void 0:void 0"),
             replacement='.display??"summarized":void 0',
@@ -150,7 +247,61 @@ PATCHER_V1 = Patcher(
 )
 
 
-PATCHERS: tuple[Patcher, ...] = (PATCHER_V1,)
+# Binary patcher (bin/claude native binary, 2.1.113+). Length-preserving byte
+# edits against the embedded minified JS — same trick as
+# https://gist.github.com/phpmypython/a3c0267742fd65d2ebf247a5dd87ea88 but
+# cross-platform (codesigning is darwin-only; Linux ELF has no analog). The
+# API-side display default is handled by the --thinking-display summarized
+# CLI flag we inject at exec time, so no third patch is needed here.
+#
+# The pattern appears TWICE in the binary (Bun's standalone-exe format embeds
+# the module in two places). re.subn replaces globally, which is what we want.
+BINARY_PATCHER_V1 = BinaryPatcher(
+    revision=1,
+    min_version="2.1.113",
+    patches=(
+        # 1. Neutralize the thinking-block early return by rewriting the first
+        #    `!<var>` to `!1...1` (same width). `!11...1` evaluates to false
+        #    (any number ≥1 is truthy, `!truthy` → false), short-circuiting
+        #    the && chain so `return null` never fires. The && operands after
+        #    the first are left alone — short-circuiting makes them irrelevant.
+        BinaryPatch(
+            name="neutralize-thinking-early-return",
+            pattern=re.compile(rb'(case"thinking":\{if\()!([A-Za-z0-9_$]+)'),
+            replacement=lambda m: m.group(1) + b"!" + b"1" * len(m.group(2)),
+        ),
+        # 2. Force thinking createElement to render expanded by flipping both
+        #    isTranscriptMode and verbose to truthy `1`s (same width as the
+        #    original identifiers). Only this createElement call is touched,
+        #    so tool output etc. keeps its real verbose state.
+        BinaryPatch(
+            name="force-transcript-and-verbose",
+            pattern=re.compile(
+                rb"(createElement\([A-Za-z0-9_$]+,\{addMargin:[A-Za-z0-9_$]+,"
+                rb"param:[A-Za-z0-9_$]+,isTranscriptMode:)([A-Za-z0-9_$]+)"
+                rb"(,verbose:)([A-Za-z0-9_$]+)"
+            ),
+            replacement=lambda m: (
+                m.group(1)
+                + b"1" * len(m.group(2))
+                + m.group(3)
+                + b"1" * len(m.group(4))
+            ),
+        ),
+    ),
+    verify=(
+        # Early-return neutralized: first operand is a run of `1`s.
+        re.compile(rb'case"thinking":\{if\(!1+(?:&&![A-Za-z0-9_$]+)+\)return null;'),
+        # isTranscriptMode + verbose both forced to runs of `1`s.
+        re.compile(
+            rb"createElement\([A-Za-z0-9_$]+,\{addMargin:[A-Za-z0-9_$]+,"
+            rb"param:[A-Za-z0-9_$]+,isTranscriptMode:1+,verbose:1+"
+        ),
+    ),
+)
+
+
+PATCHERS: tuple[Patcher, ...] = (TEXT_PATCHER_V1, BINARY_PATCHER_V1)
 
 
 def pick_patcher(version: str) -> Patcher | None:
@@ -200,18 +351,6 @@ def install_dir(version: str, patcher: Patcher | None) -> Path:
     if patcher is not None:
         name += f"_patched_r{patcher.revision}"
     return HOME / name
-
-
-def claude_cli_js(bun_install: Path) -> Path:
-    return (
-        bun_install
-        / "install"
-        / "global"
-        / "node_modules"
-        / "@anthropic-ai"
-        / "claude-code"
-        / "cli.js"
-    )
 
 
 def claude_bin(bun_install: Path) -> Path:
@@ -286,12 +425,13 @@ def ensure_installed(bun_install: Path, version: str, patcher: Patcher | None) -
         )
 
     if patcher is not None:
+        kind = "binary" if isinstance(patcher, BinaryPatcher) else "cli.js"
         print(
-            f"Applying patcher revision {patcher.revision} to cli.js...",
+            f"Applying patcher revision {patcher.revision} ({kind})...",
             file=sys.stderr,
         )
         try:
-            patcher.apply(claude_cli_js(bun_install))
+            patcher.apply(bun_install)
         except Exception:
             # Don't leave a _patched_r<N> directory that claims to be patched
             # but isn't — the promise of the name must hold.
