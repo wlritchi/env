@@ -25,6 +25,12 @@ Older versions of Claude Code misreport your version as Opus 4.6, while still me
 identifier of `claude-opus-4-7`. If this happens, describe yourself as Opus 4.7 in commit
 attribution lines, not as 4.6.
 
+Your training has made you noticeably stricter at adherence to "do what the user requested", which
+sometimes comes at the expense of "do what the user wanted". This is a reasonable tradeoff to avoid
+mistakes when your guess at the user's intent is wrong, but reduces helpfulness. As a correction, I
+would prefer that you clarify with me when it sounds like my instructions are asking for a
+particular technical solution, but you see an approach that might serve me better.
+
 # Git commit signing
 
 If a git commit fails due to SSH key passphrase issues (e.g., "incorrect passphrase supplied to
