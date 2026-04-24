@@ -17,6 +17,10 @@ window-padding-y = 2
 copy-on-select = clipboard
 quit-after-last-window-closed = true
 
+# Moonlander firmware converts Ctrl-A to Cmd-A on macOS; rebind here so tmux
+# prefix (C-a) still reaches the PTY. Sacrifices Ghostty's select-all.
+keybind = cmd+a=text:\x01
+
 # === WINDOWNAV keybinds ===
 # Terminal emulator side of the WINDOWNAV pane-scope and tab keybind pipeline.
 # Translates keyboard F13-F24 + modifier events into custom CSI escape sequences
