@@ -1,54 +1,302 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""Claude Code shim wrapping the Bun-distributed package.
 
-# Isolated Claude Code environment using Bun
-# Recovery: rm -rf ~/.claude-bun_* && claude
+Runs ``claude`` from an isolated Bun install per version. Optionally applies a
+small set of regex patches to the bundled ``cli.js`` (e.g. to enable expanded
+thinking blocks with summarized API output on older versions). Patched installs
+live in a sibling directory (``_patched_r<N>``) so the unpatched copy is always
+reachable by re-running with ``--no-patch``.
 
-CLAUDE_VERSION="2.1.112"
+Shim flags (consumed from the front of argv, in any order, before forwarding):
+    --no-patch           Install to the unpatched dir and do not patch.
+    --version X.Y.Z      Override the target Claude Code version.
+    -v X.Y.Z             Same as --version.
 
-# Shim-level `--version X.Y.Z` (or `-v X.Y.Z`) selects a target version and is
-# consumed here. Bare `--version` / `-v` (no following argument) falls through.
-if { [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; } \
-    && [ $# -ge 2 ] && [ "${2#-}" = "${2}" ]; then
-    CLAUDE_VERSION="$2"
-    shift 2
-fi
+Recovery: rm -rf ~/.claude-bun_* && claude
 
-# BUN_INSTALL controls where Bun puts global packages and binaries:
-#   $BUN_INSTALL/install/global/node_modules/  - packages
-#   $BUN_INSTALL/bin/                          - binaries
-# Per-version install dirs keep old versions on disk across upgrades.
-export BUN_INSTALL="$HOME/.claude-bun_$CLAUDE_VERSION"
+Pure stdlib on purpose: this script runs on every invocation, so we avoid
+``uv run`` startup overhead.
+"""
 
-CLAUDE_BIN="$BUN_INSTALL/bin/claude"
+from __future__ import annotations
 
-# Use Nix-provided Bun
-BUN="$HOME/.nix-profile/bin/bun"
+import os
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
 
-if ! [ -x "$BUN" ]; then
-    echo "Error: Bun not found at $BUN" >&2
-    echo "Run 'wlr-nix-rebuild' to install it" >&2
-    exit 1
-fi
+DEFAULT_CLAUDE_VERSION = "2.1.112"
+HOME = Path.home()
+BUN_PATH = HOME / ".nix-profile" / "bin" / "bun"
 
-# Bootstrap or upgrade if needed
-if [ -x "$CLAUDE_BIN" ]; then
-    INSTALLED_VERSION=$("$BUN" "$CLAUDE_BIN" --version 2>/dev/null | head -1 | sed 's/ .*//')
-    if [ "$INSTALLED_VERSION" != "$CLAUDE_VERSION" ]; then
-        echo "Claude Code $INSTALLED_VERSION -> $CLAUDE_VERSION, reinstalling..." >&2
-        rm -rf "$BUN_INSTALL"
-        "$BUN" install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
-    fi
-else
-    echo "Installing Claude Code $CLAUDE_VERSION..." >&2
-    "$BUN" install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
-fi
+# Versions that still need summarized-thinking injection via CLI flag. The flag
+# was added in 2.1.94; below that, Claude Code has no --thinking-display flag.
+THINKING_DISPLAY_FLAG_MIN = "2.1.94"
 
-# Inject --thinking-display summarized for versions >= 2.1.94 (when flag was added).
-# Prepending lets user args override if they pass their own --thinking-display.
-if [ "$(printf '%s\n' "2.1.94" "$CLAUDE_VERSION" | sort -V | head -1)" = "2.1.94" ]; then
-    set -- --thinking-display summarized "$@"
-fi
 
-# Execute claude with Bun
-exec "$BUN" "$CLAUDE_BIN" "$@"
+def version_tuple(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in v.split("."))
+
+
+# ---------------------------------------------------------------------------
+# Patcher infrastructure
+
+
+class PatchError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class Patch:
+    name: str
+    pattern: re.Pattern[str]
+    replacement: str
+
+
+@dataclass(frozen=True)
+class Patcher:
+    # Bump ``revision`` whenever the patch set changes in a way that requires a
+    # fresh install (new pattern, tweaked replacement, etc.). A new revision
+    # means a new directory, so prior installs stay side-by-side as fallbacks.
+    revision: int
+    patches: tuple[Patch, ...]
+    # Regexes that MUST match after all patches have been applied. Guards
+    # against a newer CLI whose structure made a pattern a silent no-op.
+    verify: tuple[re.Pattern[str], ...]
+    min_version: str | None = None  # inclusive; None = no lower bound
+    max_version: str | None = None  # EXCLUSIVE; None = no upper bound
+
+    def applies_to(self, version: str) -> bool:
+        v = version_tuple(version)
+        if self.min_version is not None and v < version_tuple(self.min_version):
+            return False
+        if self.max_version is not None and v >= version_tuple(self.max_version):
+            return False
+        return True
+
+    def apply(self, cli_js: Path) -> None:
+        text = cli_js.read_text()
+        for patch in self.patches:
+            new_text, count = patch.pattern.subn(patch.replacement, text)
+            if count == 0:
+                raise PatchError(f"patch {patch.name!r} did not match anything")
+            text = new_text
+        for marker in self.verify:
+            if not marker.search(text):
+                raise PatchError(f"post-apply verification failed: {marker.pattern!r}")
+        cli_js.write_text(text)
+
+
+# Revision 1: enable expanded thinking blocks with summarized API output on
+# Claude Code versions that pre-date the built-in behavior (< 2.1.113).
+# Mirrors https://gist.github.com/phpmypython/148a942a34e19635770ec3383a865da8
+# but applies against the Bun install path rather than ~/.claude/local.
+PATCHER_V1 = Patcher(
+    revision=1,
+    max_version="2.1.113",
+    patches=(
+        # 1. Drop the early-return guard that hides the thinking case when a
+        #    couple of flags are unset:
+        #       case"thinking":{if(!A&&!B)return null;  ->  case"thinking":{
+        Patch(
+            name="drop-thinking-early-return",
+            pattern=re.compile(
+                r'(case"thinking":\{)if\(![A-Za-z$_]+(?:&&![A-Za-z$_]+)+\)return null;'
+            ),
+            replacement=r"\1",
+        ),
+        # 2. Force isTranscriptMode true in the thinking block render so the
+        #    block always expands:
+        #       createElement(X,{...,isTranscriptMode:VAR,  ->  ...:true,
+        Patch(
+            name="force-transcript-mode",
+            pattern=re.compile(
+                r"(createElement\([A-Za-z0-9$_]+,\{addMargin:[A-Za-z$_]+,"
+                r"param:[A-Za-z$_]+,isTranscriptMode:)[A-Za-z$_]+,"
+            ),
+            replacement=r"\1true,",
+        ),
+        # 3. Default the API-side thinking.display to "summarized" so 4.7+
+        #    models actually return content (undefined is treated as omitted):
+        #       .display??void 0:void 0  ->  .display??"summarized":void 0
+        #    Only the ?? fallback changes; the ternary-false branch stays.
+        Patch(
+            name="default-display-summarized",
+            pattern=re.compile(r"\.display\?\?void 0:void 0"),
+            replacement='.display??"summarized":void 0',
+        ),
+    ),
+    verify=(
+        # The early-return pattern must no longer appear after case"thinking":{.
+        re.compile(
+            r'case"thinking":\{(?!if\(![A-Za-z$_]+(?:&&![A-Za-z$_]+)+\)return null;)'
+        ),
+        re.compile(r"isTranscriptMode:true,"),
+        re.compile(r'\.display\?\?"summarized":void 0'),
+    ),
+)
+
+
+PATCHERS: tuple[Patcher, ...] = (PATCHER_V1,)
+
+
+def pick_patcher(version: str) -> Patcher | None:
+    for p in PATCHERS:
+        if p.applies_to(version):
+            return p
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Shim argument parsing
+
+
+@dataclass
+class ShimArgs:
+    version: str
+    patch: bool
+    forwarded: list[str]
+
+
+def parse_shim_args(argv: list[str]) -> ShimArgs:
+    version = DEFAULT_CLAUDE_VERSION
+    patch = True
+    args = list(argv)
+    # Consume recognized shim flags from the front of argv, in any order,
+    # until the first non-shim token. Bare --version / -v (no following
+    # non-flag argument) is left in place so Claude Code prints its version.
+    while args:
+        a = args[0]
+        if a in ("--version", "-v") and len(args) >= 2 and not args[1].startswith("-"):
+            version = args[1]
+            del args[:2]
+        elif a == "--no-patch":
+            patch = False
+            del args[0]
+        else:
+            break
+    return ShimArgs(version=version, patch=patch, forwarded=args)
+
+
+# ---------------------------------------------------------------------------
+# Bun install management
+
+
+def install_dir(version: str, patcher: Patcher | None) -> Path:
+    name = f".claude-bun_{version}"
+    if patcher is not None:
+        name += f"_patched_r{patcher.revision}"
+    return HOME / name
+
+
+def claude_cli_js(bun_install: Path) -> Path:
+    return (
+        bun_install
+        / "install"
+        / "global"
+        / "node_modules"
+        / "@anthropic-ai"
+        / "claude-code"
+        / "cli.js"
+    )
+
+
+def claude_bin(bun_install: Path) -> Path:
+    return bun_install / "bin" / "claude"
+
+
+def installed_version(bin_path: Path) -> str | None:
+    try:
+        result = subprocess.run(  # noqa: S603  # trusted constant paths
+            [str(BUN_PATH), str(bin_path), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    return first_line.split(" ", 1)[0] or None
+
+
+def bun_global_install(bun_install: Path, version: str) -> None:
+    env = {**os.environ, "BUN_INSTALL": str(bun_install)}
+    subprocess.run(  # noqa: S603  # trusted constant paths; version is a dotted literal
+        [str(BUN_PATH), "install", "--global", f"@anthropic-ai/claude-code@{version}"],
+        env=env,
+        check=True,
+    )
+
+
+def ensure_installed(bun_install: Path, version: str, patcher: Patcher | None) -> None:
+    bin_path = claude_bin(bun_install)
+    if bin_path.is_file():
+        current = installed_version(bin_path)
+        if current == version:
+            return
+        print(f"Claude Code {current} -> {version}, reinstalling...", file=sys.stderr)
+        shutil.rmtree(bun_install)
+    else:
+        print(f"Installing Claude Code {version}...", file=sys.stderr)
+
+    bun_global_install(bun_install, version)
+
+    if patcher is not None:
+        print(
+            f"Applying patcher revision {patcher.revision} to cli.js...",
+            file=sys.stderr,
+        )
+        try:
+            patcher.apply(claude_cli_js(bun_install))
+        except Exception:
+            # Don't leave a _patched_r<N> directory that claims to be patched
+            # but isn't — the promise of the name must hold.
+            shutil.rmtree(bun_install, ignore_errors=True)
+            raise
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+
+
+def main(argv: list[str]) -> int:
+    shim = parse_shim_args(argv)
+
+    if not BUN_PATH.is_file() or not os.access(BUN_PATH, os.X_OK):
+        print(f"Error: Bun not found at {BUN_PATH}", file=sys.stderr)
+        print("Run 'wlr-nix-rebuild' to install it", file=sys.stderr)
+        return 1
+
+    patcher = pick_patcher(shim.version) if shim.patch else None
+    bun_install = install_dir(shim.version, patcher)
+
+    try:
+        ensure_installed(bun_install, shim.version, patcher)
+    except PatchError as exc:
+        print(f"Error: patch failed: {exc}", file=sys.stderr)
+        print("Retry with --no-patch to skip patching.", file=sys.stderr)
+        return 1
+    except subprocess.CalledProcessError as exc:
+        print(f"Error: bun install failed (exit {exc.returncode})", file=sys.stderr)
+        return exc.returncode or 1
+
+    forwarded = shim.forwarded
+    # Older versions (pre-2.1.113) don't honor --thinking-display without the
+    # patches above, but it's harmless on unpatched installs because the flag
+    # was added in 2.1.94. Prepending lets users override with their own.
+    if version_tuple(shim.version) >= version_tuple(THINKING_DISPLAY_FLAG_MIN):
+        forwarded = ["--thinking-display", "summarized", *forwarded]
+
+    env = {**os.environ, "BUN_INSTALL": str(bun_install)}
+    os.execve(  # noqa: S606  # shell-less exec by design
+        str(BUN_PATH),
+        [str(BUN_PATH), str(claude_bin(bun_install)), *forwarded],
+        env,
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
