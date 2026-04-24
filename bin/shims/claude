@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run -qs
+# vim: filetype=python
+
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+# ]
+# ///
 """Claude Code shim wrapping the Bun-distributed package.
 
 Runs ``claude`` from an isolated Bun install per version. Optionally applies a
@@ -13,9 +20,6 @@ Shim flags (consumed from the front of argv, in any order, before forwarding):
     -v X.Y.Z             Same as --version.
 
 Recovery: rm -rf ~/.claude-bun_* && claude
-
-Pure stdlib on purpose: this script runs on every invocation, so we avoid
-``uv run`` startup overhead.
 """
 
 from __future__ import annotations
