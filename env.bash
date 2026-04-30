@@ -420,7 +420,7 @@ if [ -z "$INTELLIJ_ENVIRONMENT_READER" ] && [ -z "$VSCODE_RESOLVING_ENVIRONMENT"
         if [ $# -eq 0 ]; then
             popd >/dev/null 2>&1
         else
-            pushd "$1" >/dev/null
+            pushd -- "$1" >/dev/null
         fi
         [ -n "$FNM_MULTISHELL_PATH" ] && fnm use --silent-if-unchanged
     }

@@ -320,7 +320,7 @@ def _setup() -> None:
                     xonsh.dirstack.popd([])
                 case [dir_name, *_rest]:
                     if os.path.isdir(dir_name):
-                        xonsh.dirstack.pushd([dir_name])
+                        xonsh.dirstack.pushd(['--', dir_name])
                     elif _has_zoxide:
                         try:
                             cmd = subprocess.run(  # noqa: S603  # pyright: ignore[reportCallIssue]
@@ -336,7 +336,7 @@ def _setup() -> None:
                                 capture_output=True,
                                 encoding='utf-8',
                             )
-                            xonsh.dirstack.pushd([cmd.stdout[:-1]])
+                            xonsh.dirstack.pushd(['--', cmd.stdout[:-1]])
                         except subprocess.CalledProcessError:
                             print(
                                 f"No directories matched query '{args}'",
