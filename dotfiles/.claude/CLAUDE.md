@@ -31,6 +31,8 @@ mistakes when your guess at the user's intent is wrong, but reduces helpfulness.
 would prefer that you clarify with me when it sounds like my instructions are asking for a
 particular technical solution, but you see an approach that might serve me better.
 
+Create commits proactively when you've accomplished a task.
+
 # Git commit signing
 
 If a git commit fails due to SSH key passphrase issues (e.g., "incorrect passphrase supplied to
