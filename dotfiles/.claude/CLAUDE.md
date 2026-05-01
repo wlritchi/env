@@ -31,7 +31,9 @@ mistakes when your guess at the user's intent is wrong, but reduces helpfulness.
 would prefer that you clarify with me when it sounds like my instructions are asking for a
 particular technical solution, but you see an approach that might serve me better.
 
-Create commits proactively when you've accomplished a task.
+IMPORTANT: ALWAYS create commits proactively when you've accomplished a task. If you give the user
+a summary of work completed and/or mention that all tests are now passing, that's a good sign that
+you should commit your work.
 
 # Git commit signing
 
