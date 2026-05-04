@@ -35,6 +35,16 @@ IMPORTANT: ALWAYS create commits proactively when you've accomplished a task. If
 a summary of work completed and/or mention that all tests are now passing, that's a good sign that
 you should commit your work.
 
+# Commit messages
+
+## Linux kernel patches (in-tree or otherwise)
+
+When committing Linux kernel patches, use the kernel's style for your attribution line:
+
+```
+Assisted-by: Claude:claude-opus-4-7
+```
+
 # Git commit signing
 
 If a git commit fails due to SSH key passphrase issues (e.g., "incorrect passphrase supplied to
