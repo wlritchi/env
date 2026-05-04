@@ -119,9 +119,17 @@
         if env != "" then env else "default";
       username =
         let
-          env = builtins.getEnv "USER";
+          # Prefer SUDO_USER so that running e.g. `sudo darwin-rebuild` still
+          # resolves to the invoking user. nix-homebrew refuses to run as root.
+          sudoUser = builtins.getEnv "SUDO_USER";
+          user = builtins.getEnv "USER";
         in
-        if env != "" then env else "unknown";
+        if sudoUser != "" then
+          sudoUser
+        else if user != "" then
+          user
+        else
+          "unknown";
 
       pkgs = mkPkgs system;
       isDarwin = builtins.match ".*-darwin" system != null;
