@@ -22,6 +22,7 @@
     ApplePressAndHoldEnabled = false; # Disable press-and-hold for accent menu, enable key repeat instead
     KeyRepeat = 2; # fastest
     InitialKeyRepeat = 35; # 4th of 6 ticks on Delay until repeat
+    "com.apple.swipescrolldirection" = false; # traditional scrolling
   };
 
   # Configure nix-homebrew
