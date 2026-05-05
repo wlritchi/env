@@ -40,7 +40,7 @@ detect_revision() {
             ;;
         Darwin)
             local usb_info
-            usb_info="$(system_profiler SPUSBDataType 2>/dev/null)"
+            usb_info="$(ioreg -p IOUSB -l -x 2>/dev/null)"
             # Check for Rev A (normal: 3297/1969, DFU: 0483/df11)
             if echo "$usb_info" | grep -q '0x3297' && echo "$usb_info" | grep -q '0x1969'; then
                 reva=true
