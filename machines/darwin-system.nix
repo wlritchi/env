@@ -25,6 +25,25 @@
     "com.apple.swipescrolldirection" = false; # traditional scrolling
   };
 
+  system.defaults.CustomUserPreferences."com.apple.symbolichotkeys".AppleSymbolicHotKeys = {
+    "53" = {
+      # decrease brightness (F14)
+      enabled = false;
+    };
+    "54" = {
+      # decrease brightness (F15)
+      enabled = false;
+    };
+    "55" = {
+      # open display settings?? (alt+F14)
+      enabled = false;
+    };
+    "56" = {
+      # open display settings?? (alt+F15)
+      enabled = false;
+    };
+  };
+
   # Configure nix-homebrew
   nix-homebrew = {
     enable = true;
