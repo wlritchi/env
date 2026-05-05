@@ -65,6 +65,13 @@ repos:
         pass_filenames: false
         args: [build]
 
+      # linearmouse rewrites the file without a trailing newline; match its format
+      - id: linearmouse-strip-trailing-newline
+        name: strip trailing newline from linearmouse.json
+        entry: bash -c 'for f in "$@"; do if [ -z "$(tail -c1 "$f")" ]; then truncate -s -1 "$f"; fi; done' --
+        language: system
+        files: ^dotfiles/\.config/linearmouse/linearmouse\.json$
+
       # Dotfile patch verification
       - id: verify-patches
         name: verify patches
