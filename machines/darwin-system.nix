@@ -25,6 +25,13 @@
     "com.apple.swipescrolldirection" = false; # traditional scrolling
   };
 
+  system.defaults.dock = {
+    orientation = "right";
+    tilesize = 16;
+    autohide = true;
+    autohide-delay = 3.0;
+  };
+
   system.defaults.CustomUserPreferences."com.apple.symbolichotkeys".AppleSymbolicHotKeys = {
     "53" = {
       # decrease brightness (F14)
