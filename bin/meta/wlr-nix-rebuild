@@ -6,10 +6,14 @@ if ! command -v nix >/dev/null 2>&1; then
     exit 1
 fi
 
-# Determine which flake to use - prefer private overlay if it exists
+# Determine which flake to use - prefer private overlay if it exists.
+# When building from the overlay, override its `wlrenv` input to point at the
+# local public checkout so we don't need to `nix flake update` on every change.
 PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
+override_args=()
 if [[ -d "$PRIVATE_ENV_PATH" ]]; then
     FLAKE_PATH="$PRIVATE_ENV_PATH"
+    override_args=(--override-input wlrenv "path:$WLR_ENV_PATH")
 else
     FLAKE_PATH="$WLR_ENV_PATH"
 fi
@@ -44,7 +48,7 @@ home_manager=(
     --
 )
 
-"${home_manager[@]}" switch --impure --flake "${FLAKE_PATH}#default"
+"${home_manager[@]}" switch --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
 
 # On macOS, also run darwin-rebuild for system-level config (Homebrew casks, etc.)
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -55,14 +59,14 @@ if [ "$(uname -s)" = "Darwin" ]; then
         --
     )
     # Build first (no sudo needed) to check if anything changed
-    "${nix_darwin[@]}" build --impure --flake "${FLAKE_PATH}#default"
+    "${nix_darwin[@]}" build --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
 
     # Compare new build to current system - only activate if different
     NEW_SYSTEM="$(readlink ./result)"
     CURRENT_SYSTEM="$(readlink /run/current-system 2>/dev/null || echo "")"
 
     if [ "${NEW_SYSTEM}" != "${CURRENT_SYSTEM}" ]; then
-        sudo "${nix_darwin[@]}" switch --impure --flake "${FLAKE_PATH}#default"
+        sudo "${nix_darwin[@]}" switch --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
     else
         echo "nix-darwin: no changes to activate"
     fi
