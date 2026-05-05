@@ -226,10 +226,14 @@ fi
 shopt -s checkwinsize
 
 
-# on macOS, use SSH_AUTH_SOCK_LOCAL over SSH_AUTH_SOCK if present
+# on macOS, prefer Secretive's agent socket if present, else fall back to SSH_AUTH_SOCK_LOCAL
 
-if [ -n "$SSH_AUTH_SOCK_LOCAL" ] && [ "$(uname)" == 'Darwin' ]; then
-    export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
+if [ "$(uname)" == 'Darwin' ]; then
+    if [ -S "$HOME/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh" ]; then
+        export SSH_AUTH_SOCK="$HOME/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh"
+    elif [ -n "$SSH_AUTH_SOCK_LOCAL" ]; then
+        export SSH_AUTH_SOCK="$SSH_AUTH_SOCK_LOCAL"
+    fi
 fi
 
 
