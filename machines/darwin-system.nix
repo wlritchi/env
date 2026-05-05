@@ -19,8 +19,9 @@
 
   # System preferences
   system.defaults.NSGlobalDomain = {
-    # Disable press-and-hold for accent menu, enable key repeat instead
-    ApplePressAndHoldEnabled = false;
+    ApplePressAndHoldEnabled = false; # Disable press-and-hold for accent menu, enable key repeat instead
+    KeyRepeat = 2; # fastest
+    InitialKeyRepeat = 35; # 4th of 6 ticks on Delay until repeat
   };
 
   # Configure nix-homebrew
