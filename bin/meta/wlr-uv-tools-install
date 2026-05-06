@@ -45,7 +45,9 @@ for name in "${names[@]}"; do
     args+=("$spec")
 
     wlr-working "uv-tool: $name"
-    if ! "${args[@]}"; then
+    if "${args[@]}"; then
+        wlr-good "installed $name"
+    else
         failures+=("$name")
     fi
 done
