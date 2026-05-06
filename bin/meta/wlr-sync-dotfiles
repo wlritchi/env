@@ -64,24 +64,40 @@ render_file() {
     local base_file=""
     local source=""
     local uses_private=false
+    local uname_val
+    uname_val="$(uname)"
 
-    # Step 1: Determine base file (private shadows public)
-    if $HAS_PRIVATE && [ -f "$PRIVATE_ENV_PATH/dotfiles/$path" ]; then
-        base_file="$PRIVATE_ENV_PATH/dotfiles/$path"
-        source="private"
-        uses_private=true
-    elif [ -f "$WLR_ENV_PATH/dotfiles/$path" ]; then
-        base_file="$WLR_ENV_PATH/dotfiles/$path"
-        source="public"
-    else
-        # No base file found
+    # Step 1: Determine base file
+    # Scope priority: host > uname > global; private shadows public within each scope.
+    # Patches in patches/ still apply on top regardless of which scope the base came from.
+    local scopes=()
+    if [ -n "$HOSTNAME" ]; then
+        scopes+=("host/$HOSTNAME/$path")
+    fi
+    if [ -n "$uname_val" ]; then
+        scopes+=("uname/$uname_val/$path")
+    fi
+    scopes+=("$path")
+
+    for rel in "${scopes[@]}"; do
+        if $HAS_PRIVATE && [ -f "$PRIVATE_ENV_PATH/dotfiles/$rel" ]; then
+            base_file="$PRIVATE_ENV_PATH/dotfiles/$rel"
+            source="private"
+            uses_private=true
+            break
+        elif [ -f "$WLR_ENV_PATH/dotfiles/$rel" ]; then
+            base_file="$WLR_ENV_PATH/dotfiles/$rel"
+            source="public"
+            break
+        fi
+    done
+
+    if [ -z "$base_file" ]; then
         return 1
     fi
 
     # Step 2: Collect patches (uname before host = general before specific)
     local patches=()
-    local uname_val
-    uname_val="$(uname)"
 
     if [ "$source" = "private" ]; then
         # Private source: only private patches apply
@@ -197,25 +213,55 @@ link_file() {
 declare -A seen_paths
 dotfile_paths=()
 
-# Scan public repo
-while IFS= read -r filename; do
-    relative="${filename#"$WLR_ENV_PATH/dotfiles/"}"
-    if [ "$relative" != "$filename" ] && [ -z "${seen_paths[$relative]:-}" ]; then
-        seen_paths["$relative"]=1
-        dotfile_paths+=("$relative")
-    fi
-done < <(find -L "$WLR_ENV_PATH/dotfiles" -type f 2>/dev/null || true)
+UNAME_VAL="$(uname)"
 
-# Scan private repo if it exists
-if $HAS_PRIVATE && [ -d "$PRIVATE_ENV_PATH/dotfiles" ]; then
+# Scan a scope subdirectory of a dotfiles tree, stripping the scope prefix
+# from discovered paths so they map to destinations under $HOME.
+# Args: <repo-dotfiles-root> <scope-subdir-or-empty>
+scan_scope() {
+    local root="$1"
+    local scope="$2"
+    local search_dir
+    if [ -z "$scope" ]; then
+        search_dir="$root"
+    else
+        search_dir="$root/$scope"
+    fi
+    [ -d "$search_dir" ] || return 0
     while IFS= read -r filename; do
-        relative="${filename#"$PRIVATE_ENV_PATH/dotfiles/"}"
-        if [ "$relative" != "$filename" ] && [ -z "${seen_paths[$relative]:-}" ]; then
+        local relative="${filename#"$search_dir/"}"
+        # When scanning the global root, skip the scope subtrees so their
+        # contents are only reached via the corresponding scope scan.
+        if [ -z "$scope" ]; then
+            case "$relative" in
+                host/*|uname/*) continue ;;
+            esac
+        fi
+        if [ -n "$relative" ] && [ "$relative" != "$filename" ] \
+                && [ -z "${seen_paths[$relative]:-}" ]; then
             seen_paths["$relative"]=1
             dotfile_paths+=("$relative")
         fi
-    done < <(find -L "$PRIVATE_ENV_PATH/dotfiles" -type f 2>/dev/null || true)
+    done < <(find -L "$search_dir" -type f 2>/dev/null || true)
+}
+
+# Scan order doesn't affect base-file priority (render_file enforces that);
+# it only determines the order of dotfile_paths. Use host > uname > global
+# so more-specific scopes appear first in the processing queue.
+repo_roots=("$WLR_ENV_PATH/dotfiles")
+if $HAS_PRIVATE; then
+    repo_roots+=("$PRIVATE_ENV_PATH/dotfiles")
 fi
+for repo_root in "${repo_roots[@]}"; do
+    [ -d "$repo_root" ] || continue
+    if [ -n "$HOSTNAME" ]; then
+        scan_scope "$repo_root" "host/$HOSTNAME"
+    fi
+    if [ -n "$UNAME_VAL" ]; then
+        scan_scope "$repo_root" "uname/$UNAME_VAL"
+    fi
+    scan_scope "$repo_root" ""
+done
 
 # Process each unique dotfile
 failed_files=()
