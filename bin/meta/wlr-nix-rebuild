@@ -66,7 +66,11 @@ if [ "$(uname -s)" = "Darwin" ]; then
     CURRENT_SYSTEM="$(readlink /run/current-system 2>/dev/null || echo "")"
 
     if [ "${NEW_SYSTEM}" != "${CURRENT_SYSTEM}" ]; then
-        sudo "${nix_darwin[@]}" switch --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
+        # sudo's env_reset strips NIX_HOSTNAME/NIX_SYSTEM/NIX_CONFIG/HOME by
+        # default; preserve them so the impure flake sees the same environment
+        # as the unprivileged build above.
+        sudo --preserve-env=NIX_HOSTNAME,NIX_SYSTEM,NIX_CONFIG,HOME \
+            "${nix_darwin[@]}" switch --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
     else
         echo "nix-darwin: no changes to activate"
     fi
