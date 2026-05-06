@@ -286,8 +286,15 @@ def _setup() -> None:
 
         # secwrap: wrap commands with secrets from pass/passage
         if which('secwrap'):
-            for cmd in ('aws', 'claude'):
-                if which(cmd):
+            result = subprocess.run(  # noqa: S603
+                ['secwrap', '--list'],  # noqa: S607
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for cmd in result.stdout.splitlines():
+                cmd = cmd.strip()
+                if cmd and which(cmd):
                     XSH.aliases[cmd] = f'secwrap {cmd}'
 
         if which('sshx'):

@@ -18,8 +18,31 @@ pkgs.writeShellScriptBin "secwrap" ''
 
   Options (must appear before <command>):
     --from <name>   Load secrets for <name> instead of <command>
+    --list          List tool names that have entries under config/env/
     --help          Show this help message
   USAGE
+    }
+
+    list_tools() {
+        local store_dir ext
+        case "${backend}" in
+            passage)
+                store_dir="''${PASSAGE_DIR:-$HOME/.passage/store}"
+                ext="age"
+                ;;
+            *)
+                store_dir="''${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+                ext="gpg"
+                ;;
+        esac
+        local env_dir="$store_dir/config/env"
+        [[ -d "$env_dir" ]] || return 0
+        shopt -s nullglob
+        local f base
+        for f in "$env_dir"/*."$ext"; do
+            base="''${f##*/}"
+            printf '%s\n' "''${base%.$ext}"
+        done
     }
 
     from_name=""
@@ -27,6 +50,10 @@ pkgs.writeShellScriptBin "secwrap" ''
         case "$1" in
             --help)
                 usage
+                exit 0
+                ;;
+            --list)
+                list_tools
                 exit 0
                 ;;
             --from)

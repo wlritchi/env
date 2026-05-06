@@ -408,9 +408,10 @@ command -v k9sx > /dev/null 2>&1 && alias k9s='k9sx'
 
 # secwrap: wrap commands with secrets from pass/passage
 if command -v secwrap >/dev/null 2>&1; then
-    for cmd in aws claude; do
+    while IFS= read -r cmd; do
+        [ -n "$cmd" ] || continue
         command -v "$cmd" >/dev/null 2>&1 && alias "$cmd=secwrap $cmd"
-    done
+    done < <(secwrap --list)
     unset cmd
 fi
 
