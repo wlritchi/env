@@ -42,14 +42,7 @@
     }:
 
     let
-      allowUnfreePredicate =
-        pkg:
-        let
-          name = nixpkgs.lib.getName pkg;
-        in
-        builtins.elem name [
-          # list of packages
-        ];
+      mkAllowUnfreePredicate = unfreeNames: pkg: builtins.elem (nixpkgs.lib.getName pkg) unfreeNames;
 
       aerospaceOverlay = final: prev: {
         aerospace = prev.aerospace.overrideAttrs (oldAttrs: rec {
@@ -99,10 +92,13 @@
       ];
 
       mkPkgs =
-        system:
+        {
+          system,
+          extraUnfreeNames ? [ ],
+        }:
         import nixpkgs {
           inherit system;
-          config = { inherit allowUnfreePredicate; };
+          config.allowUnfreePredicate = mkAllowUnfreePredicate extraUnfreeNames;
           inherit overlays;
         };
 
@@ -131,25 +127,38 @@
         else
           "unknown";
 
-      pkgs = mkPkgs system;
       isDarwin = builtins.match ".*-darwin" system != null;
       platformModule = if isDarwin then ./machines/darwin.nix else ./machines/linux.nix;
+
+      mkHomeConfiguration =
+        {
+          extraUnfreeNames ? [ ],
+          extraModules ? [ ],
+        }:
+        home-manager.lib.homeManagerConfiguration {
+          pkgs = mkPkgs { inherit system extraUnfreeNames; };
+          modules = [ platformModule ] ++ extraModules;
+          extraSpecialArgs = {
+            inherit
+              hostname
+              username
+              krew2nix
+              try
+              ;
+          };
+        };
     in
     {
-      lib = { inherit allowUnfreePredicate overlays; };
-
-      homeConfigurations.default = home-manager.lib.homeManagerConfiguration {
-        inherit pkgs;
-        modules = [ platformModule ];
-        extraSpecialArgs = {
-          inherit
-            hostname
-            username
-            krew2nix
-            try
-            ;
-        };
+      lib = {
+        inherit
+          mkAllowUnfreePredicate
+          mkPkgs
+          mkHomeConfiguration
+          overlays
+          ;
       };
+
+      homeConfigurations.default = mkHomeConfiguration { };
 
       darwinConfigurations.default = nix-darwin.lib.darwinSystem {
         inherit system;
