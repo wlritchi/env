@@ -13,6 +13,8 @@ let
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
 in
 {
+  imports = [ ./uv-tools.nix ];
+
   options.custom.krewPlugins = lib.mkOption {
     type = lib.types.listOf lib.types.str;
     default = [ ];
