@@ -407,10 +407,12 @@ command -v yay-shim >/dev/null 2>&1 && alias yay='yay-shim'
 command -v k9sx > /dev/null 2>&1 && alias k9s='k9sx'
 
 # secwrap: wrap commands with secrets from pass/passage
+# Wrap every config/env/* entry unconditionally so aliases work for binaries
+# that appear after shell start (e.g. fnm-managed pnpm, npm i -g foo).
 if command -v secwrap >/dev/null 2>&1; then
     while IFS= read -r cmd; do
         [ -n "$cmd" ] || continue
-        command -v "$cmd" >/dev/null 2>&1 && alias "$cmd=secwrap $cmd"
+        alias "$cmd=secwrap $cmd"
     done < <(secwrap --list)
     unset cmd
 fi

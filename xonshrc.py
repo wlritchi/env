@@ -285,6 +285,8 @@ def _setup() -> None:
             XSH.aliases['k9s'] = 'k9sx'
 
         # secwrap: wrap commands with secrets from pass/passage
+        # Wrap every config/env/* entry unconditionally so aliases work for
+        # binaries that appear after shell start (e.g. fnm-managed pnpm).
         if which('secwrap'):
             result = subprocess.run(  # noqa: S603
                 ['secwrap', '--list'],  # noqa: S607
@@ -294,7 +296,7 @@ def _setup() -> None:
             )
             for cmd in result.stdout.splitlines():
                 cmd = cmd.strip()
-                if cmd and which(cmd):
+                if cmd:
                     XSH.aliases[cmd] = f'secwrap {cmd}'
 
         if which('sshx'):
