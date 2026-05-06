@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Install Python CLIs declared in ~/.config/wlrenv/uv-tools.json via `uv tool install`.
+# Manifest is rendered by machines/uv-tools.nix during home-manager activation.
+# Dependencies: uv, jq.
+set -euo pipefail
+
+manifest="$HOME/.config/wlrenv/uv-tools.json"
+
+if ! command -v uv >/dev/null 2>&1; then
+    wlr-err "uv not installed (expected via nix-rebuild)"
+    exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    wlr-err "jq not installed (expected via nix-rebuild)"
+    exit 1
+fi
+
+if [ ! -f "$manifest" ]; then
+    wlr-warn "manifest not found at $manifest; run wlr-nix-rebuild first"
+    exit 0
+fi
+
+# Iterate keys; for each, build a uv tool install command from the entry's fields.
+mapfile -t names < <(jq -r 'keys[]' "$manifest")
+
+if [ "${#names[@]}" -eq 0 ]; then
+    exit 0
+fi
+
+failures=()
+for name in "${names[@]}"; do
+    spec=$(jq -r --arg n "$name" '.[$n].spec' "$manifest")
+    python=$(jq -r --arg n "$name" '.[$n].python // empty' "$manifest")
+
+    args=(uv tool install --quiet)
+    if [ -n "$python" ]; then
+        args+=(--python "$python")
+    fi
+
+    while IFS= read -r dep; do
+        [ -n "$dep" ] && args+=(--with "$dep")
+    done < <(jq -r --arg n "$name" '.[$n].withDeps[]?' "$manifest")
+
+    args+=("$spec")
+
+    wlr-working "uv-tool: $name"
+    if ! "${args[@]}"; then
+        failures+=("$name")
+    fi
+done
+
+if [ "${#failures[@]}" -gt 0 ]; then
+    wlr-err "failed to install: ${failures[*]}"
+    exit 1
+fi
