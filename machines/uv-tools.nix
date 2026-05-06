@@ -59,7 +59,11 @@ in
   };
 
   config = {
-    home.uvTools = { };
+    home.uvTools = {
+      hyfetch = {
+        spec = "hyfetch>=2.0.0,<3.0.0";
+      };
+    };
 
     home.file.".config/wlrenv/uv-tools.json".source = manifest;
   };
