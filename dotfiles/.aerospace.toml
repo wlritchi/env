@@ -55,8 +55,8 @@ PATH = '~/.nix-profile/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$
 # All possible commands: https://nikitabobko.github.io/AeroSpace/commands
 
 alt-space = 'exec-and-forget ~/.wlrenv/bin/aerospace/wlr-aerospace-rotate-layout'
-alt-shift-enter = 'exec-and-forget open -n -a Ghostty.app --args --working-directory=$HOME'
-alt-backtick = 'exec-and-forget open -n -a Ghostty.app --args -e ~/.nix-profile/bin/k9s'
+alt-shift-enter = 'exec-and-forget ~/.nix-profile/Applications/Ghostty.app/Contents/MacOS/ghostty --working-directory=$HOME'
+alt-backtick = 'exec-and-forget ~/.nix-profile/Applications/Ghostty.app/Contents/MacOS/ghostty -e ~/.nix-profile/bin/k9s'
 
 alt-j = 'focus left --boundaries-action wrap-around-the-workspace'
 alt-k = 'focus right --boundaries-action wrap-around-the-workspace'
@@ -167,7 +167,7 @@ f20 = 'join-with right'
 ctrl-shift-f17 = 'fullscreen'
 ctrl-shift-f18 = 'layout floating tiling'
 ctrl-shift-f19 = 'close --quit-if-last-window'
-ctrl-shift-f20 = 'exec-and-forget open -n -a Ghostty.app --args --working-directory=$HOME'
+ctrl-shift-f20 = 'exec-and-forget ~/.nix-profile/Applications/Ghostty.app/Contents/MacOS/ghostty --working-directory=$HOME'
 # ctrl-shift-f21 would be zoom — NOT SUPPORTED (f21)
 
 # --- Absolute workspace (Ctrl+Alt+Cmd + number, no follow) ---
