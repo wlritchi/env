@@ -56,6 +56,7 @@ in
         tmux
         uv
         watchexec
+        yq-go
         zellij
         zoxide
       ])
