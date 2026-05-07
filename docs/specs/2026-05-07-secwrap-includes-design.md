@@ -30,7 +30,7 @@ In any `config/env/<tool>` entry, a line of the form:
 # secwrap-include: pnpm docker
 ```
 
-declares includes. Whitespace-separated tool names; multiple `secwrap-include:` lines OR'd together. Tool names match `[A-Za-z0-9_-]+` and resolve to `config/env/<name>` entries.
+declares includes. Whitespace-separated tool names; multiple `secwrap-include:` lines OR'd together. Tool names match `[A-Za-z0-9._-]+` and resolve to `config/env/<name>` entries.
 
 The comment may appear anywhere in the file; secwrap scans the full plaintext after decryption. (Restricting to a leading comment block buys nothing — the file is already decrypted by the time we look.)
 
@@ -139,7 +139,7 @@ A `secwrap bootstrap` subcommand wraps both flows, dispatching by compile-time b
 
 ### passage flow
 
-1. `age-keygen -o /tmp/secwrap-meta.txt`
+1. `age-keygen -pq -o /tmp/secwrap-meta.txt` (`-pq` selects the post-quantum-secure key type when available, falling back to X25519 otherwise).
 2. `pubkey=$(age-keygen -y /tmp/secwrap-meta.txt)`
 3. Append `pubkey` to `$PASSAGE_DIR/config/env/.age-recipients` (creating the file if absent — it should already include the user pub key).
 4. `passage reencrypt config/env`
@@ -149,19 +149,18 @@ A `secwrap bootstrap` subcommand wraps both flows, dispatching by compile-time b
 ### pass flow
 
 1. `tmp_homedir=$(mktemp -d); chmod 700 "$tmp_homedir"`
-2. `GNUPGHOME=$tmp_homedir gpg --batch --quick-generate-key --pinentry-mode loopback --passphrase '' "secwrap-meta-$(hostname -s)" default default 0`
-3. `fingerprint=$(GNUPGHOME=$tmp_homedir gpg --list-secret-keys --with-colons | awk -F: '/^fingerprint:/ { print $10; exit }')`
-4. `passphrase=$(head -c 32 /dev/urandom | base64)`
-5. `GNUPGHOME=$tmp_homedir gpg --batch --pinentry-mode loopback --passphrase '' --new-passphrase "$passphrase" --change-passphrase "$fingerprint"`
-6. `key=$(GNUPGHOME=$tmp_homedir gpg --export-secret-keys --armor "$fingerprint")`
-7. `pubkey=$(GNUPGHOME=$tmp_homedir gpg --export --armor "$fingerprint")`
-8. Import `pubkey` into the real keyring: `gpg --import <<< "$pubkey"` (so the recipient list resolves locally).
-9. Append `fingerprint` to `$PASSWORD_STORE_DIR/config/env/.gpg-id`.
-10. `pass init -p config/env "$user_fingerprint" "$fingerprint"` to re-encrypt the subtree.
-11. `jq -n --arg p "$passphrase" --arg k "$key" '{backend: "gpg", passphrase: $p, key: $k}' | pass insert -m config/env-meta`
-12. `rm -rf "$tmp_homedir"; unset passphrase key pubkey`
+2. `passphrase=$(head -c 32 /dev/urandom | base64)`
+3. `GNUPGHOME=$tmp_homedir gpg --batch --quick-generate-key --pinentry-mode loopback --passphrase "$passphrase" "secwrap-meta" default default 0` — the key is passphrase-protected on disk from the moment it exists.
+4. `fingerprint=$(GNUPGHOME=$tmp_homedir gpg --list-secret-keys --with-colons | awk -F: '/^fingerprint:/ { print $10; exit }')`
+5. `key=$(GNUPGHOME=$tmp_homedir gpg --batch --pinentry-mode loopback --passphrase "$passphrase" --export-secret-keys --armor "$fingerprint")`
+6. `pubkey=$(GNUPGHOME=$tmp_homedir gpg --export --armor "$fingerprint")`
+7. Import `pubkey` into the real keyring: `gpg --import <<< "$pubkey"` (so the recipient list resolves locally).
+8. Append `fingerprint` to `$PASSWORD_STORE_DIR/config/env/.gpg-id`.
+9. `pass init -p config/env "$user_fingerprint" "$fingerprint"` to re-encrypt the subtree.
+10. `jq -n --arg p "$passphrase" --arg k "$key" '{backend: "gpg", passphrase: $p, key: $k}' | pass insert -m config/env-meta`
+11. `rm -rf "$tmp_homedir"; unset passphrase key pubkey`
 
-The pass setup flow is the only place a passphrase-less gpg secret key briefly touches disk (steps 2 → 5). It lives in a fresh tmpfs `$tmp_homedir`, mode 0700, and is destroyed after step 12. This trades a one-time bootstrap exposure for a runtime guarantee that the on-disk form is always passphrase-protected.
+The user-id is just `secwrap-meta` (no hostname): the meta key is shared across all machines that share the password store. The key never exists on disk in unprotected form — `--quick-generate-key --passphrase X` writes the S2K-protected form directly. The runtime `--import` window cannot be closed the same way (see Security Considerations); generation can.
 
 ## Rotation
 
@@ -206,7 +205,7 @@ Unchanged from today: edit the entry. As long as recipients haven't changed, no 
 - **Random passphrase (gpg path):** also in shell variables, also released before `exec`. Not a same-user-attacker boundary; it's defense in depth so the on-disk form of the meta key in `$tmp` is always passphrase-protected.
 - **Marker is non-secret:** it's a list of tool names. Exporting it to children is intentional.
 - **Confused-deputy avoided:** the meta key is *not* propagated through env to children. A wrapped tool (e.g. claude) cannot use the meta key to decrypt entries outside its declared include set. Each top-level wrap re-decrypts the meta entry.
-- **Bootstrap window (gpg path):** the only point a passphrase-less gpg secret key touches disk is during `secwrap bootstrap`, in a freshly-created tmpfs homedir. Bounded, infrequent, and the alternative (`gpg-connect-agent` Assuan-protocol gymnastics to atomically import-with-passphrase) is brittle, undocumented surface for a marginal security delta.
+- **No bootstrap window:** `gpg --quick-generate-key --passphrase X` writes the protected form directly, so the meta key never exists in unprotected form on disk. The asymmetry with runtime `--import` (which has no atomic "set passphrase" form) is unavoidable through the CLI; setting it via `gpg-connect-agent` Assuan-protocol commands is brittle, undocumented surface for a marginal delta.
 - **Plaintext env secrets:** unchanged from today. Wrapped tools see their secrets as env vars; subprocesses inherit them. The include feature *broadens* what a wrapped tool sees (deliberately), so authors of `secwrap-include` declarations should treat them as scope grants.
 
 ## Implementation Sequencing
