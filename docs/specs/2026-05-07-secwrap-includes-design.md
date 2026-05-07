@@ -75,7 +75,7 @@ The marker is not a secret: it's a list of tool names. It's exported deliberatel
 }
 ```
 
-The `backend` field is validated against secwrap's compile-time backend; mismatch is a hard error.
+The `backend` field is validated against the runtime-detected backend; mismatch is a hard error.
 
 The gpg meta key is passphrase-protected with a per-setup random 32-byte passphrase generated from `/dev/urandom`. The passphrase lives in `config/env-meta` (alongside the key it protects) and in secwrap's process memory at runtime. It is *not* a security boundary against same-user attackers — both the passphrase and the encrypted-at-rest key are protected by the same user identity. It exists so the on-disk form of the meta key in the temp `$GNUPGHOME` is non-trivial to lift (a `inotify` race against the brief unprotected window discussed during design).
 
@@ -135,7 +135,7 @@ Zero decryption, zero filesystem access, zero prompts.
 
 ## Bootstrap
 
-A `secwrap bootstrap` subcommand wraps both flows, dispatching by compile-time backend.
+A `secwrap bootstrap` subcommand wraps both flows, dispatching by detected backend.
 
 ### passage flow
 
@@ -191,7 +191,7 @@ Unchanged from today: edit the entry. As long as recipients haven't changed, no 
 |----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | Meta entry missing                                 | Fall back to per-entry decryption. Stderr (once per outer wrap): `secwrap: meta key absent; N includes will require N prompts` |
 | Meta entry malformed JSON                          | Hard error: `secwrap: config/env-meta is not valid JSON`                                                          |
-| Meta entry backend mismatch                        | Hard error: `secwrap: meta entry declares backend=X but secwrap was built with backend=Y`                         |
+| Meta entry backend mismatch                        | Hard error: `secwrap: meta entry declares backend=X but detected backend is Y`                                    |
 | Include comment references missing entry           | Hard error: `secwrap: claude includes 'pnpm' but config/env/pnpm not found`                                       |
 | Include cycle                                      | Hard error: `secwrap: cycle detected: claude → pnpm → docker → claude`                                            |
 | Entry not encrypted to meta key                    | Falls back to user-identity decryption *for that entry only* (1 prompt). Stderr: `secwrap: config/env/foo not encrypted to meta key; will prompt`. Suggest running `secwrap doctor` / `passage reencrypt`. |
@@ -212,7 +212,16 @@ Unchanged from today: edit the entry. As long as recipients haven't changed, no 
 
 Reimplement secwrap in Python, matching the existing `bin/shims/` pattern (`uv run -qs` shebang with inline `# /// script` dependency declarations — see `bin/shims/claude` for precedent). The current bash implementation is workable for the existing scope but doesn't fit cleanly with the new design's graph traversal, JSON parsing, multi-subcommand dispatcher, and the `try/finally`-style cleanup discipline the gpg meta-key path needs. Python keeps the "single file, no build step, Nix-distributable" properties of the current bash form while giving us real exception handling, dataclasses for the entry/graph types, and `subprocess` for the age/gpg/pass shell-outs.
 
-Distribution stays through the existing `machines/pkgs/secwrap.nix` derivation; only the inner script changes from `writeShellScriptBin` to a Python script (likely via `pkgs.writers.writePython3Bin` or a thin wrapper that ensures `uv` / Python is on PATH). The `backend` build-time parameter is preserved.
+Distribution stays through the existing `machines/pkgs/secwrap.nix` derivation; only the inner script changes from `writeShellScriptBin` to a Python script (likely via `pkgs.writers.writePython3Bin` or a thin wrapper that ensures `uv` / Python is on PATH).
+
+### Backend selection
+
+The current bash implementation bakes the backend into the script at Nix-eval time via the `backend ? "pass"` derivation parameter. The Python rewrite drops this and selects the backend at runtime:
+
+1. If `$SECWRAP_BACKEND` is set, use it (`pass` or `passage`); error on any other value.
+2. Otherwise auto-detect: if the `passage` binary is on PATH and `$PASSAGE_DIR` (or default `~/.passage/store`) exists, use passage; else if `pass` is on PATH and `$PASSWORD_STORE_DIR` (or default `~/.password-store`) exists, use pass; else hard error.
+
+Realistically each machine has exactly one of pass or passage configured, so auto-detect is unambiguous in practice. The env var is the override for the testing/edge cases. The Nix layer collapses to "place the file"; the `backend` derivation parameter is removed.
 
 The rewrite is *not* a refactor opportunity — Phase 1 is functional parity with the current bash, no new behavior. New behavior arrives only in Phase 2.
 
