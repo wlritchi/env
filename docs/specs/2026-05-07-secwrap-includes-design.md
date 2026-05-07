@@ -208,14 +208,23 @@ Unchanged from today: edit the entry. As long as recipients haven't changed, no 
 - **No bootstrap window:** `gpg --quick-generate-key --passphrase X` writes the protected form directly, so the meta key never exists in unprotected form on disk. The asymmetry with runtime `--import` (which has no atomic "set passphrase" form) is unavoidable through the CLI; setting it via `gpg-connect-agent` Assuan-protocol commands is brittle, undocumented surface for a marginal delta.
 - **Plaintext env secrets:** unchanged from today. Wrapped tools see their secrets as env vars; subprocesses inherit them. The include feature *broadens* what a wrapped tool sees (deliberately), so authors of `secwrap-include` declarations should treat them as scope grants.
 
+## Implementation Language
+
+Reimplement secwrap in Python, matching the existing `bin/shims/` pattern (`uv run -qs` shebang with inline `# /// script` dependency declarations — see `bin/shims/claude` for precedent). The current bash implementation is workable for the existing scope but doesn't fit cleanly with the new design's graph traversal, JSON parsing, multi-subcommand dispatcher, and the `try/finally`-style cleanup discipline the gpg meta-key path needs. Python keeps the "single file, no build step, Nix-distributable" properties of the current bash form while giving us real exception handling, dataclasses for the entry/graph types, and `subprocess` for the age/gpg/pass shell-outs.
+
+Distribution stays through the existing `machines/pkgs/secwrap.nix` derivation; only the inner script changes from `writeShellScriptBin` to a Python script (likely via `pkgs.writers.writePython3Bin` or a thin wrapper that ensures `uv` / Python is on PATH). The `backend` build-time parameter is preserved.
+
+The rewrite is *not* a refactor opportunity — Phase 1 is functional parity with the current bash, no new behavior. New behavior arrives only in Phase 2.
+
 ## Implementation Sequencing
 
-The implementation may land in two phases. The data model (this document) is finalized in Phase 1; Phase 2 is pure implementation work.
+1. **Phase 1: Python rewrite.** Functional parity with the current bash `secwrap`: argument parsing (`--from`, `--list`, `--help`), `config/env/<tool>` lookup, KEY=VALUE parsing, `os.execvp`. No new behavior. Old bash version is removed in the same change. This phase exists to give Phases 2–3 a sane substrate.
+2. **Phase 2: passage backend includes + marker + meta key.** Includes (comment scanning, transitive resolution, cycle detection, conflict resolution), `_SECWRAP_LOADED` marker, optional age meta key. The pass code path emits a stderr warning when an include comment is encountered: `secwrap: include comments are not yet implemented for the pass backend; ignoring`. The marker is backend-independent and works for pass too in this phase.
+3. **Phase 3: pass backend gpg meta key.** Temp `$GNUPGHOME`, random passphrase, generate-with-passphrase bootstrap. Removes the Phase 2 warning.
 
-1. **Phase 1: passage backend.** Includes + marker + meta key, all working on age/passage. The pass code path emits a stderr warning when an include comment is encountered: `secwrap: include comments are not yet implemented for the pass backend; ignoring`. The marker still works for pass (it's backend-independent).
-2. **Phase 2: pass backend.** gpg meta key flow (temp `$GNUPGHOME`, random passphrase, etc.). Removes the warning.
+`secwrap bootstrap`, `secwrap rotate-meta`, and `secwrap doctor` arrive in Phase 2 (passage variants) and gain pass-backend implementations in Phase 3.
 
-`secwrap bootstrap`, `secwrap rotate-meta`, and `secwrap doctor` follow the same phasing.
+The data model (this document) is finalized for Phases 2–3 from the start; Phase 1 doesn't touch it.
 
 ## Out of Scope
 
