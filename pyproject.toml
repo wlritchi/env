@@ -37,6 +37,7 @@ dynamic = ["version"]
 
 [project.scripts]
 retainer = 'wlrenv.retainer:cli_main'
+secwrap = 'wlrenv.secwrap:main'
 wlr-niri-librewolf-host = 'wlrenv.niri.cli:librewolf_native_host_cli'
 wlr-niri-restore-mosh = 'wlrenv.niri.cli:restore_mosh_cli'
 wlr-niri-restore-tmux = 'wlrenv.niri.cli:restore_tmux_cli'
@@ -112,6 +113,7 @@ select = [
 "bin/**" = ["T201", "ANN401"]  # CLI utilities use print and argparse returns Any
 "src/wlrenv/retainer.py" = ["T201"]  # CLI tool uses print for output
 "src/wlrenv/niri/cli.py" = ["T201"]  # CLI entry points use print for errors
+"src/wlrenv/secwrap.py" = ["T201"]  # CLI entry point uses print for errors
 
 [dependency-groups]
 dev = [
