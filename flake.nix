@@ -42,8 +42,6 @@
     }:
 
     let
-      mkAllowUnfreePredicate = unfreeNames: pkg: builtins.elem (nixpkgs.lib.getName pkg) unfreeNames;
-
       aerospaceOverlay = final: prev: {
         aerospace = prev.aerospace.overrideAttrs (oldAttrs: rec {
           version = "0.20.2-Beta";
@@ -94,11 +92,11 @@
       mkPkgs =
         {
           system,
-          extraUnfreeNames ? [ ],
+          extraUnfreePredicate ? (_: false),
         }:
         import nixpkgs {
           inherit system;
-          config.allowUnfreePredicate = mkAllowUnfreePredicate extraUnfreeNames;
+          config.allowUnfreePredicate = extraUnfreePredicate;
           inherit overlays;
         };
 
@@ -132,11 +130,11 @@
 
       mkHomeConfiguration =
         {
-          extraUnfreeNames ? [ ],
+          extraUnfreePredicate ? (_: false),
           extraModules ? [ ],
         }:
         home-manager.lib.homeManagerConfiguration {
-          pkgs = mkPkgs { inherit system extraUnfreeNames; };
+          pkgs = mkPkgs { inherit system extraUnfreePredicate; };
           modules = [ platformModule ] ++ extraModules;
           extraSpecialArgs = {
             inherit
@@ -151,7 +149,6 @@
     {
       lib = {
         inherit
-          mkAllowUnfreePredicate
           mkPkgs
           mkHomeConfiguration
           overlays
