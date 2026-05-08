@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -53,6 +54,25 @@ def parse_includes(content: str) -> list[str]:
             if _TOOL_NAME.match(token):
                 out.append(token)
     return out
+
+
+def parse_marker(value: str) -> set[str]:
+    """Parse a `_SECWRAP_LOADED` value into a set of tool names.
+
+    Tokens not matching `[A-Za-z0-9._-]+` are dropped silently. Empty input
+    returns the empty set.
+    """
+    if not value:
+        return set()
+    return {tok for tok in value.split(":") if _TOOL_NAME.match(tok)}
+
+
+def format_marker(names: Iterable[str]) -> str:
+    """Format a set of tool names as a canonical `_SECWRAP_LOADED` value.
+
+    Output is alphabetized, deduped, and colon-joined.
+    """
+    return ":".join(sorted(set(names)))
 
 
 def parse_env_lines(content: str) -> dict[str, str]:

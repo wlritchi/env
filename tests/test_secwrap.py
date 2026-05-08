@@ -10,9 +10,11 @@ from wlrenv.secwrap import (
     ArgError,
     Backend,
     BackendError,
+    format_marker,
     parse_args,
     parse_env_lines,
     parse_includes,
+    parse_marker,
 )
 
 
@@ -592,3 +594,41 @@ def test_parse_includes_preserves_document_order_and_dupes() -> None:
     # Resolver dedupes; parser does not.
     content = "# secwrap-include: a b\n# secwrap-include: b c\n"
     assert parse_includes(content) == ["a", "b", "b", "c"]
+
+
+def test_parse_marker_empty_string() -> None:
+    assert parse_marker("") == set()
+
+
+def test_parse_marker_single() -> None:
+    assert parse_marker("claude") == {"claude"}
+
+
+def test_parse_marker_multiple() -> None:
+    assert parse_marker("claude:docker:pnpm") == {"claude", "docker", "pnpm"}
+
+
+def test_parse_marker_drops_invalid_tokens() -> None:
+    # "bad token" has whitespace -> invalid; ":" with empty segment -> dropped.
+    assert parse_marker("claude:bad token::pnpm") == {"claude", "pnpm"}
+
+
+def test_parse_marker_dedupes() -> None:
+    assert parse_marker("a:b:a") == {"a", "b"}
+
+
+def test_format_marker_empty() -> None:
+    assert format_marker([]) == ""
+
+
+def test_format_marker_alphabetized() -> None:
+    assert format_marker(["pnpm", "claude", "docker"]) == "claude:docker:pnpm"
+
+
+def test_format_marker_dedupes() -> None:
+    assert format_marker(["a", "b", "a"]) == "a:b"
+
+
+def test_format_marker_round_trips_through_parse() -> None:
+    names = {"claude", "docker", "pnpm"}
+    assert parse_marker(format_marker(names)) == names
