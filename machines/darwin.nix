@@ -15,10 +15,6 @@ let
   browserpass-native-passage = import ./pkgs/browserpass-native-passage.nix {
     inherit pkgs age-with-plugins;
   };
-  secwrap = import ./pkgs/secwrap.nix {
-    inherit pkgs;
-    backend = "passage";
-  };
 in
 {
   imports = [
@@ -33,25 +29,23 @@ in
 
   fonts.fontconfig.enable = true;
 
-  home.packages =
-    (with pkgs; [
-      # Fonts
-      fira-code
-      nerd-fonts.fira-code
+  home.packages = with pkgs; [
+    # Fonts
+    fira-code
+    nerd-fonts.fira-code
 
-      aerospace
-      age-plugin-se
-      age-with-plugins
-      autokbisw
-      bash
-      coreutils-full
-      ghostty-bin
-      karabiner-elements
-      passage
-      procps # for the watch command
-      secretive
-    ])
-    ++ [ secwrap ];
+    aerospace
+    age-plugin-se
+    age-with-plugins
+    autokbisw
+    bash
+    coreutils-full
+    ghostty-bin
+    karabiner-elements
+    passage
+    procps # for the watch command
+    secretive
+  ];
 
   # Keyboard layouts must be copied, not symlinked (macOS ignores symlinks)
   home.activation.copyKeyboardLayouts = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
