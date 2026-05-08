@@ -34,6 +34,25 @@ Options (must appear before <command>):
 
 
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+_INCLUDE_LINE = re.compile(r"^\s*#\s*secwrap-include:\s*(.+?)\s*$")
+_TOOL_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def parse_includes(content: str) -> list[str]:
+    """Extract tool names from `# secwrap-include: ...` directives.
+
+    Returns names in document order; duplicates preserved (resolver dedupes).
+    Tokens not matching `[A-Za-z0-9._-]+` are dropped silently.
+    """
+    out: list[str] = []
+    for raw_line in content.split("\n"):
+        m = _INCLUDE_LINE.match(raw_line)
+        if m is None:
+            continue
+        for token in m.group(1).split():
+            if _TOOL_NAME.match(token):
+                out.append(token)
+    return out
 
 
 def parse_env_lines(content: str) -> dict[str, str]:

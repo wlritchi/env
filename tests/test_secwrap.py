@@ -6,7 +6,14 @@ from unittest.mock import MagicMock
 import pytest
 from pytest_mock import MockerFixture
 
-from wlrenv.secwrap import ArgError, Backend, BackendError, parse_args, parse_env_lines
+from wlrenv.secwrap import (
+    ArgError,
+    Backend,
+    BackendError,
+    parse_args,
+    parse_env_lines,
+    parse_includes,
+)
 
 
 def test_parse_env_lines_empty() -> None:
@@ -532,3 +539,56 @@ def test_usage_constant_mentions_options() -> None:
     assert "--from" in USAGE
     assert "--list" in USAGE
     assert "--help" in USAGE
+
+
+def test_parse_includes_empty() -> None:
+    assert parse_includes("") == []
+
+
+def test_parse_includes_no_directives() -> None:
+    content = "FOO=bar\n# just a comment\nBAR=baz\n"
+    assert parse_includes(content) == []
+
+
+def test_parse_includes_single_directive() -> None:
+    content = "# secwrap-include: pnpm\nFOO=bar\n"
+    assert parse_includes(content) == ["pnpm"]
+
+
+def test_parse_includes_multiple_tools_one_line() -> None:
+    content = "# secwrap-include: pnpm docker aws\n"
+    assert parse_includes(content) == ["pnpm", "docker", "aws"]
+
+
+def test_parse_includes_multiple_directives_unioned() -> None:
+    content = "# secwrap-include: pnpm\nFOO=bar\n# secwrap-include: docker\n"
+    assert parse_includes(content) == ["pnpm", "docker"]
+
+
+def test_parse_includes_leading_whitespace_ok() -> None:
+    # Leading whitespace before # is allowed.
+    content = "    # secwrap-include: pnpm\n"
+    assert parse_includes(content) == ["pnpm"]
+
+
+def test_parse_includes_drops_invalid_tokens() -> None:
+    # "foo bar" splits into "foo" and "bar", both valid. But "f@oo" has an
+    # invalid char and is dropped.
+    content = "# secwrap-include: foo f@oo bar\n"
+    assert parse_includes(content) == ["foo", "bar"]
+
+
+def test_parse_includes_allows_dot_dash_underscore() -> None:
+    content = "# secwrap-include: a.b a-b a_b a1\n"
+    assert parse_includes(content) == ["a.b", "a-b", "a_b", "a1"]
+
+
+def test_parse_includes_ignores_non_directive_comments() -> None:
+    content = "# this is just a comment\n# also-secwrap-include: foo\n"
+    assert parse_includes(content) == []
+
+
+def test_parse_includes_preserves_document_order_and_dupes() -> None:
+    # Resolver dedupes; parser does not.
+    content = "# secwrap-include: a b\n# secwrap-include: b c\n"
+    assert parse_includes(content) == ["a", "b", "b", "c"]
