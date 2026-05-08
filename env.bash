@@ -28,9 +28,6 @@
 [ -n "$__ALIAS_STACK" ] && exit # xonsh source-bash or similar
 
 
-WLR_PYTHON_VERSION=3.13
-
-
 if [ -d "$PWD" ] && ! [ -x "$PWD" ] && [ "$PWD" != "$HOME" ]; then
     echo "$PWD not navigable, changing to $HOME" >&2
     cd "$HOME"
@@ -339,8 +336,7 @@ if [ -n "$wlr_interactive" ]; then
         warnings+=('xonsh - skipping')
     elif command -v uv >/dev/null 2>&1; then
         print_status
-        uv python install --quiet "$WLR_PYTHON_VERSION"
-        uv tool install --quiet "$WLR_ENV_PATH/" --python "$WLR_PYTHON_VERSION"
+        wlr-install-self
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
         export XONSHRC="$WLR_ENV_PATH/xonshrc.py"
         exec xonsh

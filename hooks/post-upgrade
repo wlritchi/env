@@ -36,5 +36,8 @@ fi
 # Rebuild Nix environment (includes niri-spacer and other Rust utilities)
 "$WLR_ENV_PATH/bin/meta/wlr-nix-rebuild"
 
+# Reinstall wlrenv itself so updated source is picked up even without a version bump
+"$WLR_ENV_PATH/bin/meta/wlr-install-self" --reinstall
+
 # Install/update declarative uv tools (manifest rendered by wlr-nix-rebuild)
 "$WLR_ENV_PATH/bin/meta/wlr-uv-tools-install"

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Install the wlrenv tool itself (and its Python) via `uv tool install`.
+# Pass --reinstall to force reinstallation (e.g. after an upgrade, when the
+# pyproject version may not have changed but the source has).
+# Dependencies: uv, $WLR_ENV_PATH.
+set -euo pipefail
+
+WLR_PYTHON_VERSION=3.13
+
+reinstall=()
+if [ "${1:-}" == '--reinstall' ]; then
+    reinstall=(--reinstall)
+    shift
+fi
+
+if [ $# -gt 0 ]; then
+    wlr-err "unexpected argument: $1"
+    exit 2
+fi
+
+if ! command -v uv >/dev/null 2>&1; then
+    wlr-err 'uv not installed'
+    exit 1
+fi
+
+if [ -z "${WLR_ENV_PATH:-}" ]; then
+    wlr-err 'WLR_ENV_PATH not set'
+    exit 1
+fi
+
+uv python install --quiet "$WLR_PYTHON_VERSION"
+uv tool install --quiet "${reinstall[@]}" --python "$WLR_PYTHON_VERSION" "$WLR_ENV_PATH/"
