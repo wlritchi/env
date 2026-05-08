@@ -116,10 +116,10 @@ def test_parse_args_flags_after_command_are_forwarded() -> None:
     assert args.forwarded == ["--help"]
 
 
-def test_parse_args_double_dash_separator_treated_as_command() -> None:
-    # `--` is not special; if a user passes it as the first non-flag,
-    # it becomes the "command" (which will then fail to exec, but parsing
-    # itself doesn't reject it). Matches bash behavior.
+def test_parse_args_double_dash_treated_as_command() -> None:
+    # `--` is treated as the command name, not as a flag. The bash original
+    # rejects it via the `-*) ... unknown option` case; we accept it so the
+    # downstream exec produces a clearer "command not found" diagnostic.
     args = parse_args(["--", "echo", "hi"])
     assert args.command == "--"
     assert args.forwarded == ["echo", "hi"]
