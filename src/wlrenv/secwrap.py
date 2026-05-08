@@ -119,17 +119,21 @@ class Backend:
     @classmethod
     def detect(cls) -> Backend:
         explicit = os.environ.get("SECWRAP_BACKEND")
-        if explicit is not None:
+        if explicit:
             if explicit not in _BACKENDS:
                 raise BackendError(
-                    f"SECWRAP_BACKEND={explicit!r} is not one of pass, passage"
+                    f"SECWRAP_BACKEND={explicit!r} is not one of passage, pass"
+                )
+            binary, ext, _ = _BACKENDS[explicit]
+            if shutil.which(binary) is None:
+                raise BackendError(
+                    f"SECWRAP_BACKEND={explicit} but {binary} binary not found on PATH"
                 )
             store = cls._resolve_store(explicit)
             if store is None:
                 raise BackendError(
                     f"SECWRAP_BACKEND={explicit!r} but no store directory found"
                 )
-            binary, ext, _ = _BACKENDS[explicit]
             return cls(name=explicit, binary=binary, extension=ext, store_dir=store)
 
         # Auto-detect: passage first, then pass.

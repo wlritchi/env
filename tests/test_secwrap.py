@@ -143,6 +143,12 @@ def test_backend_detect_env_passage(mocker: MockerFixture, tmp_path: Path) -> No
         {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(store)},
         clear=True,
     )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
     b = Backend.detect()
     assert b.name == "passage"
     assert b.extension == "age"
@@ -157,6 +163,12 @@ def test_backend_detect_env_pass(mocker: MockerFixture, tmp_path: Path) -> None:
         {"SECWRAP_BACKEND": "pass", "PASSWORD_STORE_DIR": str(store)},
         clear=True,
     )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
     b = Backend.detect()
     assert b.name == "pass"
     assert b.extension == "gpg"
@@ -166,6 +178,61 @@ def test_backend_detect_env_pass(mocker: MockerFixture, tmp_path: Path) -> None:
 def test_backend_detect_env_unknown_value(mocker: MockerFixture) -> None:
     mocker.patch.dict("os.environ", {"SECWRAP_BACKEND": "weird"}, clear=True)
     with pytest.raises(BackendError, match="SECWRAP_BACKEND"):
+        Backend.detect()
+
+
+def test_backend_resolve_store_empty_env_falls_back_to_default(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # PASSAGE_DIR="" should be treated as unset and fall back to ~/.passage/store.
+    home = tmp_path / "home"
+    (home / ".passage" / "store").mkdir(parents=True)
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": "", "HOME": str(home)},
+        clear=True,
+    )
+    mocker.patch("pathlib.Path.home", return_value=home)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    b = Backend.detect()
+    assert b.store_dir == home / ".passage" / "store"
+
+
+def test_backend_detect_empty_secwrap_backend_falls_back_to_autodetect(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    pass_store = tmp_path / "pw-store"
+    pass_store.mkdir()
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "", "PASSWORD_STORE_DIR": str(pass_store)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: "/usr/bin/pass" if name == "pass" else None,
+    )
+    b = Backend.detect()
+    assert b.name == "pass"
+
+
+def test_backend_detect_explicit_backend_missing_binary(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    store = tmp_path / "passage-store"
+    store.mkdir()
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(store)},
+        clear=True,
+    )
+    mocker.patch("shutil.which", return_value=None)
+    with pytest.raises(BackendError, match="passage binary"):
         Backend.detect()
 
 
