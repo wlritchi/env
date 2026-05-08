@@ -35,6 +35,9 @@ Options (must appear before <command>):
 """
 
 
+_SUBCOMMANDS = frozenset({"bootstrap", "rotate-meta", "doctor"})
+
+
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 _INCLUDE_LINE = re.compile(r"^\s*#\s*secwrap-include:\s*(.+?)\s*$")
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -403,6 +406,18 @@ def resolve_includes(
     return result
 
 
+def do_bootstrap(backend: Backend, args: list[str]) -> int:
+    raise NotImplementedError("bootstrap: implemented in Task 5")
+
+
+def do_rotate_meta(backend: Backend, args: list[str]) -> int:
+    raise NotImplementedError("rotate-meta: implemented in Task 6")
+
+
+def do_doctor(backend: Backend, args: list[str]) -> int:
+    raise NotImplementedError("doctor: implemented in Task 7")
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -421,15 +436,6 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE, file=sys.stderr)
         return 1
 
-    # Marker short-circuit: if the secret_key is already loaded, exec
-    # immediately without touching the backend.
-    if args.command is not None and not args.list_mode:
-        secret_key = args.from_name if args.from_name is not None else args.command
-        marker_loaded = parse_marker(os.environ.get("_SECWRAP_LOADED", ""))
-        if secret_key in marker_loaded:
-            os.execvpe(args.command, [args.command, *args.forwarded], os.environ)  # noqa: S606
-            return 0  # unreachable; satisfies type checker
-
     try:
         backend = Backend.detect()
     except BackendError as exc:
@@ -442,8 +448,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     assert args.command is not None  # narrowed above
+
+    # Subcommand dispatch (skipped if `--` was used).
+    if not args.force_wrap and args.command in _SUBCOMMANDS:
+        if backend.name != "passage":
+            print(
+                f"secwrap: {args.command} is not yet supported for the "
+                f"pass backend (will arrive in Phase 3)",
+                file=sys.stderr,
+            )
+            return 1
+        if args.command == "bootstrap":
+            return do_bootstrap(backend, args.forwarded)
+        if args.command == "rotate-meta":
+            return do_rotate_meta(backend, args.forwarded)
+        if args.command == "doctor":
+            return do_doctor(backend, args.forwarded)
+
     secret_key = args.from_name if args.from_name is not None else args.command
     marker_loaded = parse_marker(os.environ.get("_SECWRAP_LOADED", ""))
+
+    # Marker short-circuit: if the secret_key is already loaded, exec
+    # immediately without touching backend.show / decrypt.
+    if secret_key in marker_loaded:
+        os.execvpe(args.command, [args.command, *args.forwarded], os.environ)  # noqa: S606
+        return 0  # unreachable; satisfies type checker
 
     try:
         meta_key = load_meta_key(backend)

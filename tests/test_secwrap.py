@@ -789,21 +789,34 @@ def test_resolve_includes_pass_backend_no_includes_no_warning(
 
 
 def test_main_wrap_short_circuits_when_target_in_marker(
-    mocker: MockerFixture,
+    mocker: MockerFixture, tmp_path: Path
 ) -> None:
-    # If pnpm is already in the marker, secwrap should NOT detect the backend
-    # and should NOT call show.
+    # If pnpm is already in the marker, secwrap should NOT call show
+    # (i.e. should not decrypt). Backend.detect() runs (subcommand-dispatch
+    # gate needs the backend object), but the marker short-circuit prevents
+    # any decryption.
     mocker.patch.dict(
         "os.environ",
-        {"_SECWRAP_LOADED": "claude:pnpm", "PATH": "/usr/bin"},
+        {
+            "_SECWRAP_LOADED": "claude:pnpm",
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
         clear=True,
     )
-    detect_mock = mocker.patch("wlrenv.secwrap.Backend.detect")
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    show_mock = mocker.patch.object(Backend, "show")
     execvpe = mocker.patch("os.execvpe")
 
     main(["pnpm", "install"])
 
-    detect_mock.assert_not_called()
+    show_mock.assert_not_called()
     execvpe.assert_called_once()
     file_arg, argv_arg, env_arg = execvpe.call_args.args
     assert file_arg == "pnpm"
@@ -813,21 +826,32 @@ def test_main_wrap_short_circuits_when_target_in_marker(
 
 
 def test_main_wrap_short_circuits_with_from(
-    mocker: MockerFixture,
+    mocker: MockerFixture, tmp_path: Path
 ) -> None:
     # --from rules: marker tracks secret name, so claude in marker means
-    # `secwrap --from claude bar` short-circuits.
+    # `secwrap --from claude bar` short-circuits without calling show.
     mocker.patch.dict(
         "os.environ",
-        {"_SECWRAP_LOADED": "claude", "PATH": "/usr/bin"},
+        {
+            "_SECWRAP_LOADED": "claude",
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
         clear=True,
     )
-    detect_mock = mocker.patch("wlrenv.secwrap.Backend.detect")
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    show_mock = mocker.patch.object(Backend, "show")
     execvpe = mocker.patch("os.execvpe")
 
     main(["--from", "claude", "bar"])
 
-    detect_mock.assert_not_called()
+    show_mock.assert_not_called()
     execvpe.assert_called_once()
     file_arg, _argv, _env = execvpe.call_args.args
     assert file_arg == "bar"
@@ -1299,3 +1323,140 @@ def test_main_meta_key_error_exits_one(
     execvpe.assert_not_called()
     err = capsys.readouterr().err
     assert "config/env-meta is not valid JSON" in err
+
+
+def test_main_bootstrap_dispatches(mocker: MockerFixture, tmp_path: Path) -> None:
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap", return_value=0)
+
+    rc = main(["bootstrap"])
+
+    assert rc == 0
+    do_bootstrap.assert_called_once()
+
+
+def test_main_rotate_meta_dispatches(mocker: MockerFixture, tmp_path: Path) -> None:
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    do_rotate = mocker.patch("wlrenv.secwrap.do_rotate_meta", return_value=0)
+
+    rc = main(["rotate-meta", "--yes"])
+
+    assert rc == 0
+    do_rotate.assert_called_once()
+    # Args struct should preserve the --yes
+    call_args = do_rotate.call_args
+    # First positional is backend; second is args.forwarded (or similar)
+    assert "--yes" in call_args.args[1] or call_args.args[1] == ["--yes"]
+
+
+def test_main_doctor_dispatches(mocker: MockerFixture, tmp_path: Path) -> None:
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    do_doctor = mocker.patch("wlrenv.secwrap.do_doctor", return_value=0)
+
+    rc = main(["doctor"])
+
+    assert rc == 0
+    do_doctor.assert_called_once()
+
+
+def test_main_subcommand_pass_backend_exits_one(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "pass",
+            "PASSWORD_STORE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap")
+
+    rc = main(["bootstrap"])
+
+    assert rc == 1
+    do_bootstrap.assert_not_called()
+    err = capsys.readouterr().err
+    assert "not yet supported for the pass backend" in err
+    assert "Phase 3" in err
+
+
+def test_main_force_wrap_skips_subcommand(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # `secwrap -- bootstrap` wraps a binary called bootstrap, doesn't dispatch.
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", return_value=None)  # no meta, no entry
+    do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap")
+    execvpe = mocker.patch("os.execvpe")
+
+    main(["--", "bootstrap", "arg"])
+
+    do_bootstrap.assert_not_called()
+    execvpe.assert_called_once()
+    file_arg, argv_arg, _ = execvpe.call_args.args
+    assert file_arg == "bootstrap"
+    assert argv_arg == ["bootstrap", "arg"]
