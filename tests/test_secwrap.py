@@ -803,3 +803,250 @@ def test_resolve_includes_pass_backend_no_includes_no_warning(
     result = resolve_includes(backend, "claude", marker_loaded=set())
     assert result == [("claude", "FOO=bar\n")]
     assert capsys.readouterr().err == ""
+
+
+def test_main_wrap_short_circuits_when_target_in_marker(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # If pnpm is already in the marker, secwrap should NOT detect the backend
+    # and should NOT call show.
+    mocker.patch.dict(
+        "os.environ",
+        {"_SECWRAP_LOADED": "claude:pnpm", "PATH": "/usr/bin"},
+        clear=True,
+    )
+    detect_mock = mocker.patch("wlrenv.secwrap.Backend.detect")
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["pnpm", "install"])
+
+    detect_mock.assert_not_called()
+    execvpe.assert_called_once()
+    file_arg, argv_arg, env_arg = execvpe.call_args.args
+    assert file_arg == "pnpm"
+    assert argv_arg == ["pnpm", "install"]
+    # Marker passed through unchanged.
+    assert env_arg["_SECWRAP_LOADED"] == "claude:pnpm"
+
+
+def test_main_wrap_short_circuits_with_from(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # --from rules: marker tracks secret name, so claude in marker means
+    # `secwrap --from claude bar` short-circuits.
+    mocker.patch.dict(
+        "os.environ",
+        {"_SECWRAP_LOADED": "claude", "PATH": "/usr/bin"},
+        clear=True,
+    )
+    detect_mock = mocker.patch("wlrenv.secwrap.Backend.detect")
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["--from", "claude", "bar"])
+
+    detect_mock.assert_not_called()
+    execvpe.assert_called_once()
+    file_arg, _argv, _env = execvpe.call_args.args
+    assert file_arg == "bar"
+
+
+def test_main_wrap_with_includes_merges_in_topological_order(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # claude includes docker; both define KEY -> claude wins (loaded last).
+    blobs = {
+        "config/env/claude": "# secwrap-include: docker\nKEY=from_claude\n",
+        "config/env/docker": "KEY=from_docker\nDOCKER_ONLY=yes\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["claude", "--version"])
+
+    show_mock.assert_called()
+    execvpe.assert_called_once()
+    _file, _argv, env_arg = execvpe.call_args.args
+    assert env_arg["KEY"] == "from_claude"
+    assert env_arg["DOCKER_ONLY"] == "yes"
+    # Marker is set to alphabetized union.
+    assert env_arg["_SECWRAP_LOADED"] == "claude:docker"
+
+
+def test_main_wrap_marker_union_with_existing(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    blobs = {
+        "config/env/claude": "FOO=bar\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "_SECWRAP_LOADED": "existing",
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["claude"])
+
+    _file, _argv, env_arg = execvpe.call_args.args
+    assert env_arg["_SECWRAP_LOADED"] == "claude:existing"
+
+
+def test_main_wrap_no_entry_still_sets_marker(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # No config/env/aws entry. We should still exec, with no env mutation
+    # AND no marker update (resolver returned []).
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", return_value=None)
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["aws", "--version"])
+
+    _file, _argv, env_arg = execvpe.call_args.args
+    assert "_SECWRAP_LOADED" not in env_arg
+
+
+def test_main_wrap_missing_include_exits_one(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    blobs = {
+        "config/env/claude": "# secwrap-include: ghost\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(tmp_path)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    rc = main(["claude"])
+    assert rc == 1
+    execvpe.assert_not_called()
+    err = capsys.readouterr().err
+    assert "claude includes 'ghost'" in err
+
+
+def test_main_wrap_cycle_exits_one(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    blobs = {
+        "config/env/a": "# secwrap-include: b\n",
+        "config/env/b": "# secwrap-include: a\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(tmp_path)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+
+    from wlrenv.secwrap import main
+
+    rc = main(["a"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "cycle detected" in err
+
+
+def test_main_wrap_marker_skip_does_not_re_decrypt(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # claude includes docker; docker is already in marker. show should be
+    # called for claude only.
+    blobs = {
+        "config/env/claude": "# secwrap-include: docker\nFOO=bar\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "_SECWRAP_LOADED": "docker",
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["claude"])
+
+    fetched = [c.args[0] for c in show_mock.call_args_list]
+    assert fetched == ["config/env/claude"]
+    _file, _argv, env_arg = execvpe.call_args.args
+    assert env_arg["_SECWRAP_LOADED"] == "claude:docker"
+    assert env_arg["FOO"] == "bar"

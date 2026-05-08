@@ -328,6 +328,15 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE, file=sys.stderr)
         return 1
 
+    # Marker short-circuit: if the secret_key is already loaded, exec
+    # immediately without touching the backend.
+    if args.command is not None and not args.list_mode:
+        secret_key = args.from_name if args.from_name is not None else args.command
+        marker_loaded = parse_marker(os.environ.get("_SECWRAP_LOADED", ""))
+        if secret_key in marker_loaded:
+            os.execvpe(args.command, [args.command, *args.forwarded], os.environ)  # noqa: S606
+            return 0  # unreachable; satisfies type checker
+
     try:
         backend = Backend.detect()
     except BackendError as exc:
@@ -339,12 +348,24 @@ def main(argv: list[str] | None = None) -> int:
             print(tool)
         return 0
 
-    assert args.command is not None  # for type checker; checked above
+    assert args.command is not None  # narrowed above
     secret_key = args.from_name if args.from_name is not None else args.command
-    blob = backend.show(f"config/env/{secret_key}")
+    marker_loaded = parse_marker(os.environ.get("_SECWRAP_LOADED", ""))
+
+    try:
+        resolved = resolve_includes(backend, secret_key, marker_loaded)
+    except IncludeError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        return 1
+
     env = os.environ.copy()
-    if blob is not None:
-        env.update(parse_env_lines(blob))
+    for _name, blob in resolved:
+        if blob is not None:
+            env.update(parse_env_lines(blob))
+
+    if resolved:
+        new_marker = format_marker(marker_loaded | {name for name, _ in resolved})
+        env["_SECWRAP_LOADED"] = new_marker
 
     os.execvpe(args.command, [args.command, *args.forwarded], env)  # noqa: S606
     return 0  # unreachable; satisfies type checker
