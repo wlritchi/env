@@ -525,21 +525,6 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
             keyfile.unlink()
 
 
-def _remove_age_recipient(store_dir: Path, pubkey: str) -> None:
-    """Remove `pubkey` from `.age-recipients`. No-op if absent."""
-    recipients_path = store_dir / "config" / "env" / ".age-recipients"
-    if not recipients_path.exists():
-        return
-    lines = recipients_path.read_text().splitlines()
-    filtered = [line for line in lines if line.strip() != pubkey]
-    if filtered == lines:
-        return
-    new_contents = "\n".join(filtered) + ("\n" if filtered else "")
-    tmp = recipients_path.parent / (recipients_path.name + ".tmp")
-    tmp.write_text(new_contents)
-    tmp.replace(recipients_path)
-
-
 def _swap_age_recipient(store_dir: Path, old_pubkey: str, new_pubkey: str) -> None:
     """Atomically replace `old_pubkey` with `new_pubkey` in `.age-recipients`.
 
