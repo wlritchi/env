@@ -259,6 +259,10 @@ class MetaKeyError(RuntimeError):
     """Raised when meta-key load, parse, or decryption fails."""
 
 
+class ShellOutError(RuntimeError):
+    """Raised when a subprocess invoked by a subcommand exits non-zero."""
+
+
 @dataclass(frozen=True)
 class MetaKey:
     """Holds the age private key in process memory for in-process decryption.
@@ -422,7 +426,7 @@ def _add_age_recipient(store_dir: Path, pubkey: str) -> None:
         return
     new_contents = "\n".join([*existing, pubkey]) + "\n"
     recipients_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = recipients_path.with_suffix(".tmp")
+    tmp = recipients_path.parent / (recipients_path.name + ".tmp")
     tmp.write_text(new_contents)
     tmp.replace(recipients_path)
 
@@ -430,7 +434,7 @@ def _add_age_recipient(store_dir: Path, pubkey: str) -> None:
 def _run_or_fail(
     cmd: list[str], purpose: str, *, input: str | None = None
 ) -> subprocess.CompletedProcess[str]:
-    """Run `cmd`; raise MetaKeyError on non-zero exit."""
+    """Run `cmd`; raise ShellOutError on non-zero exit."""
     result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
         cmd,
         capture_output=True,
@@ -439,26 +443,26 @@ def _run_or_fail(
         input=input,
     )
     if result.returncode != 0:
-        raise MetaKeyError(
+        raise ShellOutError(
             f"{purpose} failed: {result.stderr.strip() or result.stdout.strip()}"
         )
     return result
 
 
 def do_bootstrap(backend: Backend, args: list[str]) -> int:
-    # Pre-flight checks.
+    # Pre-flight checks. Check binaries before shelling out for meta-existence.
+    if shutil.which("age-keygen") is None:
+        print("secwrap: age-keygen not found on PATH", file=sys.stderr)
+        return 1
+    if shutil.which("passage") is None:
+        print("secwrap: passage not found on PATH", file=sys.stderr)
+        return 1
     if backend.show("config/env-meta") is not None:
         print(
             "secwrap: config/env-meta already exists; "
             "use `secwrap rotate-meta --yes` to replace it",
             file=sys.stderr,
         )
-        return 1
-    if shutil.which("age-keygen") is None:
-        print("secwrap: age-keygen not found on PATH", file=sys.stderr)
-        return 1
-    if shutil.which("passage") is None:
-        print("secwrap: passage not found on PATH", file=sys.stderr)
         return 1
 
     # Generate key.
@@ -506,7 +510,7 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
 
         print("secwrap: bootstrap complete", file=sys.stderr)
         return 0
-    except MetaKeyError as exc:
+    except ShellOutError as exc:
         print(f"secwrap: {exc}", file=sys.stderr)
         return 1
     finally:
