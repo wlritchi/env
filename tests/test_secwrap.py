@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -11,7 +12,10 @@ from wlrenv.secwrap import (
     Backend,
     BackendError,
     IncludeError,
+    MetaKey,
+    MetaKeyError,
     format_marker,
+    load_meta_key,
     main,
     parse_args,
     parse_env_lines,
@@ -1039,3 +1043,82 @@ def test_parse_args_no_double_dash_force_wrap_false() -> None:
     args = parse_args(["claude"])
     assert args.force_wrap is False
     assert args.command == "claude"
+
+
+def test_load_meta_key_missing_returns_none(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value=None)
+    assert load_meta_key(backend) is None
+
+
+def test_load_meta_key_valid_json_age(mocker: MockerFixture, tmp_path: Path) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blob = '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}\n'
+    mocker.patch.object(Backend, "show", return_value=blob)
+    mk = load_meta_key(backend)
+    assert mk is not None
+    assert mk.backend == "age"
+    assert mk.key == b"AGE-SECRET-KEY-1FAKE"
+
+
+def test_load_meta_key_invalid_json_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value="not json")
+    with pytest.raises(MetaKeyError, match=r"config/env-meta is not valid JSON"):
+        load_meta_key(backend)
+
+
+def test_load_meta_key_backend_mismatch_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blob = '{"backend": "gpg", "key": "...", "passphrase": "..."}'
+    mocker.patch.object(Backend, "show", return_value=blob)
+    with pytest.raises(
+        MetaKeyError, match=r"declares backend=gpg but detected backend is passage"
+    ):
+        load_meta_key(backend)
+
+
+def test_load_meta_key_missing_required_field_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blob = '{"backend": "age"}'  # no "key"
+    mocker.patch.object(Backend, "show", return_value=blob)
+    with pytest.raises(MetaKeyError, match=r"missing required field 'key'"):
+        load_meta_key(backend)
+
+
+def test_meta_key_decrypt_invokes_age(mocker: MockerFixture, tmp_path: Path) -> None:
+    mk = MetaKey(backend="age", key=b"AGE-SECRET-KEY-1FAKE")
+    run_mock = mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=b"FOO=bar\n", stderr=b""
+        ),
+    )
+    result = mk.decrypt(tmp_path, "claude", "age")
+    assert result == "FOO=bar\n"
+    run_mock.assert_called_once()
+    call = run_mock.call_args
+    assert call.args[0][:3] == ["age", "-d", "--identity"]
+    assert call.kwargs["input"] == b"AGE-SECRET-KEY-1FAKE"
+    # Path arg should be the entry's full path:
+    assert call.args[0][-1] == str(tmp_path / "config/env/claude.age")
+
+
+def test_meta_key_decrypt_failure_raises(mocker: MockerFixture, tmp_path: Path) -> None:
+    mk = MetaKey(backend="age", key=b"AGE-SECRET-KEY-1FAKE")
+    mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args=[], returncode=1, stdout=b"", stderr=b"age: bad key\n"
+        ),
+    )
+    with pytest.raises(MetaKeyError, match=r"age decryption failed"):
+        mk.decrypt(tmp_path, "claude", "age")

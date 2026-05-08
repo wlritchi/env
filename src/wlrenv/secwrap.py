@@ -9,6 +9,7 @@ See docs/specs/2026-05-07-secwrap-includes-design.md.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -248,6 +249,73 @@ class Backend:
             if p.is_file() and p.name.endswith(suffix)
         ]
         return sorted(names)
+
+
+class MetaKeyError(RuntimeError):
+    """Raised when meta-key load, parse, or decryption fails."""
+
+
+@dataclass(frozen=True)
+class MetaKey:
+    """Holds the age private key in process memory for in-process decryption.
+
+    The `key` field is `bytes` (not `str`) so we can `del` the reference and
+    overwrite without re-encoding. Python doesn't guarantee zeroing, but we
+    avoid leaving live references through `os.execvpe` to children.
+    """
+
+    backend: str
+    key: bytes
+
+    def decrypt(self, store_dir: Path, entry: str, extension: str) -> str:
+        """Decrypt `config/env/{entry}.{extension}` using this meta key.
+
+        For age: `age -d --identity /dev/stdin <path>`. The key is piped on
+        stdin so it never hits disk.
+        """
+        if self.backend != "age":
+            raise MetaKeyError(f"MetaKey.decrypt: unsupported backend {self.backend!r}")
+        path = store_dir / "config" / "env" / f"{entry}.{extension}"
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            ["age", "-d", "--identity", "/dev/stdin", str(path)],  # noqa: S607
+            input=self.key,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise MetaKeyError(
+                f"age decryption failed for {entry}: "
+                f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+            )
+        return result.stdout.decode("utf-8")
+
+
+def load_meta_key(backend: Backend) -> MetaKey | None:
+    """Load and parse `config/env-meta`. Returns None if the entry is absent.
+
+    Raises MetaKeyError on JSON parse failure, schema mismatch, or
+    backend-mismatch with the runtime-detected backend.
+    """
+    blob = backend.show("config/env-meta")
+    if blob is None:
+        return None
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError as exc:
+        raise MetaKeyError("config/env-meta is not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise MetaKeyError("config/env-meta is not a JSON object")
+    declared = data.get("backend")
+    expected = "age" if backend.name == "passage" else "gpg"
+    if declared != expected:
+        raise MetaKeyError(
+            f"config/env-meta declares backend={declared} "
+            f"but detected backend is {backend.name}"
+        )
+    if "key" not in data:
+        raise MetaKeyError("config/env-meta missing required field 'key'")
+    assert isinstance(declared, str)  # narrowed by the != expected check above
+    return MetaKey(backend=declared, key=data["key"].encode("utf-8"))
 
 
 class IncludeError(RuntimeError):
