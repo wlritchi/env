@@ -525,8 +525,130 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
             keyfile.unlink()
 
 
+def _remove_age_recipient(store_dir: Path, pubkey: str) -> None:
+    """Remove `pubkey` from `.age-recipients`. No-op if absent."""
+    recipients_path = store_dir / "config" / "env" / ".age-recipients"
+    if not recipients_path.exists():
+        return
+    lines = recipients_path.read_text().splitlines()
+    filtered = [line for line in lines if line.strip() != pubkey]
+    if filtered == lines:
+        return
+    new_contents = "\n".join(filtered) + ("\n" if filtered else "")
+    tmp = recipients_path.parent / (recipients_path.name + ".tmp")
+    tmp.write_text(new_contents)
+    tmp.replace(recipients_path)
+
+
 def do_rotate_meta(backend: Backend, args: list[str]) -> int:
-    raise NotImplementedError("rotate-meta: implemented in Task 6")
+    if "--yes" not in args:
+        print(
+            "rotate-meta will:\n"
+            "  1. Generate a new age meta key.\n"
+            "  2. Replace the old recipient in .age-recipients with the new pubkey.\n"
+            "  3. Run `passage reencrypt config/env`.\n"
+            "  4. Replace config/env-meta with the new key.\n"
+            "\n"
+            "Re-run with --yes to proceed.",
+        )
+        return 0
+
+    # Load and parse the existing meta entry.
+    existing_blob = backend.show("config/env-meta")
+    if existing_blob is None:
+        print(
+            "secwrap: no config/env-meta found; run `secwrap bootstrap` first",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        existing = json.loads(existing_blob)
+        old_key = existing["key"]
+    except (json.JSONDecodeError, KeyError) as exc:
+        print(f"secwrap: existing config/env-meta is malformed: {exc}", file=sys.stderr)
+        return 1
+
+    # Pre-flight binary checks.
+    if shutil.which("age-keygen") is None:
+        print("secwrap: age-keygen not found on PATH", file=sys.stderr)
+        return 1
+    if shutil.which("passage") is None:
+        print("secwrap: passage not found on PATH", file=sys.stderr)
+        return 1
+
+    # Derive old pubkey to know which recipient to remove.
+    with tempfile.NamedTemporaryFile(
+        mode="w", prefix="secwrap-old-meta-", suffix=".txt", delete=False
+    ) as tf:
+        old_keyfile = Path(tf.name)
+        tf.write(old_key)
+    new_keyfile: Path | None = None
+    try:
+        old_pubkey_result = _run_or_fail(
+            ["age-keygen", "-y", str(old_keyfile)],
+            "age-keygen -y (old key)",
+        )
+        old_pubkey = old_pubkey_result.stdout.strip()
+
+        # Generate new key.
+        with tempfile.NamedTemporaryFile(
+            mode="w", prefix="secwrap-new-meta-", suffix=".txt", delete=False
+        ) as tf:
+            new_keyfile = Path(tf.name)
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            ["age-keygen", "-pq", "-o", str(new_keyfile)],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            _run_or_fail(
+                ["age-keygen", "-o", str(new_keyfile)],
+                "age-keygen (new key)",
+            )
+
+        new_pubkey_result = _run_or_fail(
+            ["age-keygen", "-y", str(new_keyfile)],
+            "age-keygen -y (new key)",
+        )
+        new_pubkey = new_pubkey_result.stdout.strip()
+
+        # Update recipients atomically: remove old, add new.
+        _remove_age_recipient(backend.store_dir, old_pubkey)
+        _add_age_recipient(backend.store_dir, new_pubkey)
+
+        # Re-encrypt the env subtree.
+        _run_or_fail(
+            ["passage", "reencrypt", "config/env"],
+            "passage reencrypt",
+        )
+
+        # Replace meta entry.
+        new_key_content = new_keyfile.read_text().strip()
+        payload = json.dumps({"backend": "age", "key": new_key_content})
+        _run_or_fail(
+            ["passage", "insert", "--force", "-m", "config/env-meta"],
+            "passage insert config/env-meta",
+            input=payload + "\n",
+        )
+
+        print("secwrap: rotate-meta complete", file=sys.stderr)
+        return 0
+    except ShellOutError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        for path in (old_keyfile, new_keyfile):
+            if path is None:
+                continue
+            if shutil.which("shred") is not None:
+                subprocess.run(  # noqa: S603 - trusted binary, controlled args
+                    ["shred", "-u", str(path)],  # noqa: S607
+                    capture_output=True,
+                    check=False,
+                )
+            if path.exists():
+                path.unlink()
 
 
 def do_doctor(backend: Backend, args: list[str]) -> int:

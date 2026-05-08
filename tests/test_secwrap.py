@@ -16,6 +16,7 @@ from wlrenv.secwrap import (
     MetaKey,
     MetaKeyError,
     do_bootstrap,
+    do_rotate_meta,
     format_marker,
     load_meta_key,
     main,
@@ -1631,3 +1632,80 @@ def test_do_bootstrap_reencrypt_failure_aborts(
     # Keyfile is cleaned up even when the subcommand aborts.
     assert captured_keyfile, "keygen should have been invoked with -o <path>"
     assert not Path(captured_keyfile[0]).exists()
+
+
+def test_do_rotate_meta_without_yes_describes(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "age", "key": "AGE-SECRET-KEY-1OLD"}',
+    )
+
+    rc = do_rotate_meta(backend, [])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Description goes to stdout
+    assert "rotate-meta will" in out.lower() or "this will" in out.lower()
+    assert "--yes" in out
+
+
+def test_do_rotate_meta_with_yes_happy_path(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    recipients = tmp_path / "config" / "env" / ".age-recipients"
+    recipients.write_text("age1user\nage1oldmeta\n")
+
+    # Existing meta with old pubkey embedded — the rotate path needs to know
+    # which recipient to remove. We derive it from age-keygen -y on the OLD
+    # key, which we'll mock.
+    old_blob = '{"backend": "age", "key": "AGE-SECRET-KEY-1OLD"}'
+    mocker.patch.object(Backend, "show", return_value=old_blob)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            out_idx = cmd.index("-o") + 1
+            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1NEW\n")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "age-keygen" and "-y" in cmd:
+            # Return different pubkeys for old vs new based on input file content.
+            content = Path(cmd[-1]).read_text().strip()
+            if "OLD" in content:
+                return subprocess.CompletedProcess(cmd, 0, "age1oldmeta\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1newmeta\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_rotate_meta(backend, ["--yes"])
+
+    assert rc == 0
+    contents = recipients.read_text().splitlines()
+    assert "age1user" in contents
+    assert "age1newmeta" in contents
+    assert "age1oldmeta" not in contents
+
+
+def test_do_rotate_meta_no_existing_meta(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value=None)
+
+    rc = do_rotate_meta(backend, ["--yes"])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "no config/env-meta found" in err
+    assert "bootstrap" in err
