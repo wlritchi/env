@@ -17,6 +17,22 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+USAGE = """\
+secwrap - wrap commands with secrets from pass/passage
+
+Usage: secwrap [options] <command> [args...]
+
+Looks up "config/env/<command>" in the configured password store. If found,
+parses KEY=VALUE lines and exports them before exec'ing the command. If not
+found, exec's the command directly.
+
+Options (must appear before <command>):
+  --from <name>   Load secrets for <name> instead of <command>
+  --list          List tool names that have entries under config/env/
+  --help          Show this help message
+"""
+
+
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
@@ -185,9 +201,43 @@ class Backend:
 
 
 def main(argv: list[str] | None = None) -> int:
-    del argv  # unused in stub
-    print("secwrap (python stub)", file=sys.stderr)
-    return 0
+    if argv is None:
+        argv = sys.argv[1:]
+    try:
+        args = parse_args(argv)
+    except ArgError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 1
+
+    if args.help_mode:
+        print(USAGE)
+        return 0
+
+    if args.command is None and not args.list_mode:
+        print(USAGE, file=sys.stderr)
+        return 1
+
+    try:
+        backend = Backend.detect()
+    except BackendError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        return 1
+
+    if args.list_mode:
+        for tool in backend.list_tools():
+            print(tool)
+        return 0
+
+    assert args.command is not None  # for type checker; checked above
+    secret_key = args.from_name if args.from_name is not None else args.command
+    blob = backend.show(f"config/env/{secret_key}")
+    env = os.environ.copy()
+    if blob is not None:
+        env.update(parse_env_lines(blob))
+
+    os.execvpe(args.command, [args.command, *args.forwarded], env)  # noqa: S606
+    return 0  # unreachable; satisfies type checker
 
 
 if __name__ == "__main__":

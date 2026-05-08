@@ -352,3 +352,183 @@ def test_backend_list_tools_lists_entries(tmp_path: Path) -> None:
         name="passage", binary="passage", extension="age", store_dir=tmp_path
     )
     assert backend.list_tools() == ["aws", "claude"]
+
+
+from wlrenv.secwrap import USAGE
+
+
+def test_main_help_prints_usage_and_exits_zero(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from wlrenv.secwrap import main
+
+    rc = main(["--help"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "secwrap" in captured.out
+    assert "Usage:" in captured.out
+
+
+def test_main_list_prints_tools(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    env_dir = tmp_path / "config" / "env"
+    env_dir.mkdir(parents=True)
+    (env_dir / "aws.age").write_bytes(b"")
+    (env_dir / "claude.age").write_bytes(b"")
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(tmp_path)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    from wlrenv.secwrap import main
+
+    rc = main(["--list"])
+    assert rc == 0
+    out_lines = capsys.readouterr().out.strip().splitlines()
+    assert out_lines == ["aws", "claude"]
+
+
+def test_main_no_command_prints_usage_to_stderr_and_exits_one(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mocker.patch.dict("os.environ", {"SECWRAP_BACKEND": "pass"}, clear=True)
+    # Backend.detect needs a real store dir; skip detection by going straight
+    # to the "no command" branch via empty argv.
+    from wlrenv.secwrap import main
+
+    rc = main([])
+    assert rc == 1
+    assert "Usage:" in capsys.readouterr().err
+
+
+def test_main_unknown_flag_exits_one(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from wlrenv.secwrap import main
+
+    rc = main(["--bogus"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "unknown option" in err
+
+
+def test_main_wrap_with_entry_execs_with_merged_env(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
+    completed.returncode = 0
+    completed.stdout = "TOKEN=abc\nREGION=us-east-1\n"
+    completed.stderr = ""
+    mocker.patch("subprocess.run", return_value=completed)
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["aws", "s3", "ls"])
+
+    execvpe.assert_called_once()
+    file_arg, argv_arg, env_arg = execvpe.call_args.args
+    assert file_arg == "aws"
+    assert argv_arg == ["aws", "s3", "ls"]
+    assert env_arg["TOKEN"] == "abc"  # noqa: S105
+    assert env_arg["REGION"] == "us-east-1"
+    assert env_arg["PATH"] == "/usr/bin"  # original env preserved
+
+
+def test_main_wrap_no_entry_execs_with_unmodified_env(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
+    completed.returncode = 1
+    completed.stdout = ""
+    completed.stderr = "Error: aws is not in the password store."
+    mocker.patch("subprocess.run", return_value=completed)
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["aws", "--version"])
+
+    execvpe.assert_called_once()
+    file_arg, argv_arg, env_arg = execvpe.call_args.args
+    assert file_arg == "aws"
+    assert argv_arg == ["aws", "--version"]
+    assert "TOKEN" not in env_arg
+    assert env_arg["PATH"] == "/usr/bin"
+
+
+def test_main_wrap_uses_from_for_lookup_not_command(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(tmp_path)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
+    completed.returncode = 0
+    completed.stdout = "TOKEN=abc\n"
+    completed.stderr = ""
+    run_mock = mocker.patch("subprocess.run", return_value=completed)
+    execvpe = mocker.patch("os.execvpe")
+
+    from wlrenv.secwrap import main
+
+    main(["--from", "claude", "node", "script.js"])
+
+    # subprocess.run called with config/env/claude (the --from name), not 'node'.
+    pass_args = run_mock.call_args.args[0]
+    assert pass_args[2] == "config/env/claude"
+    # exec called with the actual command 'node'.
+    file_arg, argv_arg, _ = execvpe.call_args.args
+    assert file_arg == "node"
+    assert argv_arg == ["node", "script.js"]
+
+
+def test_usage_constant_mentions_options() -> None:
+    assert "--from" in USAGE
+    assert "--list" in USAGE
+    assert "--help" in USAGE
