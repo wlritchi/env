@@ -492,7 +492,7 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
 
         # Re-encrypt the env subtree.
         _run_or_fail(
-            ["passage", "reencrypt", "config/env"],
+            ["passage", "reencrypt", "-p", "config/env"],
             "passage reencrypt",
         )
 
@@ -608,7 +608,7 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
 
         # Re-encrypt the env subtree.
         _run_or_fail(
-            ["passage", "reencrypt", "config/env"],
+            ["passage", "reencrypt", "-p", "config/env"],
             "passage reencrypt",
         )
 
