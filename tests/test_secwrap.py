@@ -14,6 +14,7 @@ from wlrenv.secwrap import (
     IncludeError,
     MetaKey,
     MetaKeyError,
+    do_bootstrap,
     format_marker,
     load_meta_key,
     main,
@@ -1460,3 +1461,141 @@ def test_main_force_wrap_skips_subcommand(
     file_arg, argv_arg, _ = execvpe.call_args.args
     assert file_arg == "bootstrap"
     assert argv_arg == ["bootstrap", "arg"]
+
+
+def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
+    backend = _make_passage_backend(tmp_path)
+    # Simulate passage store layout: store_dir/config/env/.age-recipients
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    recipients_file = tmp_path / "config" / "env" / ".age-recipients"
+    recipients_file.write_text("age1user...\n")
+
+    mocker.patch.object(Backend, "show", return_value=None)  # no existing meta
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage", "shred"}
+        else None,
+    )
+
+    # Mock subprocess.run for each shell-out.
+    keygen_calls = {"count": 0}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            keygen_calls["count"] += 1
+            # Write a fake key to the output file.
+            out_idx = cmd.index("-o") + 1
+            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1FAKE\n")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "age-keygen" and "-y" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "age1pub...\n", "")
+        if cmd[0] == "passage" and cmd[1] == "reencrypt":
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "passage" and cmd[1] == "insert":
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "shred":
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 0
+    contents = recipients_file.read_text().splitlines()
+    assert "age1user..." in contents
+    assert "age1pub..." in contents
+
+
+def test_do_bootstrap_meta_already_exists(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(
+        Backend, "show", return_value='{"backend": "age", "key": "..."}'
+    )
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "config/env-meta already exists" in err
+    assert "rotate-meta" in err
+
+
+def test_do_bootstrap_age_keygen_missing(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch("shutil.which", return_value=None)  # nothing on PATH
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "age-keygen not found" in err
+
+
+def test_do_bootstrap_keygen_fallback_to_x25519(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # First age-keygen with -pq fails (older age); second without -pq succeeds.
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1user\n")
+
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "unrecognized flag: -pq\n")
+        if cmd[0] == "age-keygen" and "-o" in cmd:  # fallback without -pq
+            out_idx = cmd.index("-o") + 1
+            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1FALLBACK\n")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "age-keygen" and "-y" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "age1pub...\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 0
+
+
+def test_do_bootstrap_reencrypt_failure_aborts(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    recipients_file = tmp_path / "config" / "env" / ".age-recipients"
+    recipients_file.write_text("age1user\n")
+
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            out_idx = cmd.index("-o") + 1
+            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1FAKE\n")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "age-keygen" and "-y" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "age1pub\n", "")
+        if cmd[0] == "passage" and cmd[1] == "reencrypt":
+            return subprocess.CompletedProcess(cmd, 1, "", "passage: error\n")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "passage reencrypt failed" in err

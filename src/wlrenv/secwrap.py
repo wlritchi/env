@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -406,8 +407,118 @@ def resolve_includes(
     return result
 
 
+def _add_age_recipient(store_dir: Path, pubkey: str) -> None:
+    """Append `pubkey` to `<store_dir>/config/env/.age-recipients` if absent.
+
+    Idempotent. Atomic write via tempfile + os.replace.
+    """
+    recipients_path = store_dir / "config" / "env" / ".age-recipients"
+    existing: list[str] = []
+    if recipients_path.exists():
+        existing = [
+            line for line in recipients_path.read_text().splitlines() if line.strip()
+        ]
+    if pubkey in existing:
+        return
+    new_contents = "\n".join([*existing, pubkey]) + "\n"
+    recipients_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = recipients_path.with_suffix(".tmp")
+    tmp.write_text(new_contents)
+    tmp.replace(recipients_path)
+
+
+def _run_or_fail(
+    cmd: list[str], purpose: str, *, input: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run `cmd`; raise MetaKeyError on non-zero exit."""
+    result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+        input=input,
+    )
+    if result.returncode != 0:
+        raise MetaKeyError(
+            f"{purpose} failed: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return result
+
+
 def do_bootstrap(backend: Backend, args: list[str]) -> int:
-    raise NotImplementedError("bootstrap: implemented in Task 5")
+    # Pre-flight checks.
+    if backend.show("config/env-meta") is not None:
+        print(
+            "secwrap: config/env-meta already exists; "
+            "use `secwrap rotate-meta --yes` to replace it",
+            file=sys.stderr,
+        )
+        return 1
+    if shutil.which("age-keygen") is None:
+        print("secwrap: age-keygen not found on PATH", file=sys.stderr)
+        return 1
+    if shutil.which("passage") is None:
+        print("secwrap: passage not found on PATH", file=sys.stderr)
+        return 1
+
+    # Generate key.
+    with tempfile.NamedTemporaryFile(
+        mode="w", prefix="secwrap-meta-", suffix=".txt", delete=False
+    ) as tf:
+        keyfile = Path(tf.name)
+    try:
+        # Try -pq (post-quantum); fall back to default if unsupported.
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            ["age-keygen", "-pq", "-o", str(keyfile)],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            _run_or_fail(
+                ["age-keygen", "-o", str(keyfile)],
+                "age-keygen",
+            )
+        # Extract pubkey.
+        pubkey_result = _run_or_fail(
+            ["age-keygen", "-y", str(keyfile)],
+            "age-keygen -y",
+        )
+        pubkey = pubkey_result.stdout.strip()
+
+        # Add to recipients.
+        _add_age_recipient(backend.store_dir, pubkey)
+
+        # Re-encrypt the env subtree.
+        _run_or_fail(
+            ["passage", "reencrypt", "config/env"],
+            "passage reencrypt",
+        )
+
+        # Insert meta entry.
+        key_content = keyfile.read_text().strip()
+        payload = json.dumps({"backend": "age", "key": key_content})
+        _run_or_fail(
+            ["passage", "insert", "-m", "config/env-meta"],
+            "passage insert config/env-meta",
+            input=payload + "\n",
+        )
+
+        print("secwrap: bootstrap complete", file=sys.stderr)
+        return 0
+    except MetaKeyError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        # Best-effort secure deletion.
+        if shutil.which("shred") is not None:
+            subprocess.run(  # noqa: S603 - trusted binary, controlled args
+                ["shred", "-u", str(keyfile)],  # noqa: S607
+                capture_output=True,
+                check=False,
+            )
+        if keyfile.exists():
+            keyfile.unlink()
 
 
 def do_rotate_meta(backend: Backend, args: list[str]) -> int:
