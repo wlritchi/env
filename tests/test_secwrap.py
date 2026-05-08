@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
+from unittest.mock import MagicMock
 
-from wlrenv.secwrap import ArgError, parse_args, parse_env_lines
+import pytest
+from pytest_mock import MockerFixture
+
+from wlrenv.secwrap import ArgError, Backend, BackendError, parse_args, parse_env_lines
 
 
 def test_parse_env_lines_empty() -> None:
@@ -129,3 +133,155 @@ def test_parse_args_negative_token_is_unknown_flag() -> None:
     # Bash rejects unknown -* tokens before the command.
     with pytest.raises(ArgError, match="unknown option"):
         parse_args(["-x", "tool"])
+
+
+def test_backend_detect_env_passage(mocker: MockerFixture, tmp_path: Path) -> None:
+    store = tmp_path / "passage-store"
+    store.mkdir()
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(store)},
+        clear=True,
+    )
+    b = Backend.detect()
+    assert b.name == "passage"
+    assert b.extension == "age"
+    assert b.store_dir == store
+
+
+def test_backend_detect_env_pass(mocker: MockerFixture, tmp_path: Path) -> None:
+    store = tmp_path / "pw-store"
+    store.mkdir()
+    mocker.patch.dict(
+        "os.environ",
+        {"SECWRAP_BACKEND": "pass", "PASSWORD_STORE_DIR": str(store)},
+        clear=True,
+    )
+    b = Backend.detect()
+    assert b.name == "pass"
+    assert b.extension == "gpg"
+    assert b.store_dir == store
+
+
+def test_backend_detect_env_unknown_value(mocker: MockerFixture) -> None:
+    mocker.patch.dict("os.environ", {"SECWRAP_BACKEND": "weird"}, clear=True)
+    with pytest.raises(BackendError, match="SECWRAP_BACKEND"):
+        Backend.detect()
+
+
+def test_backend_detect_autodetect_passage_wins(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    passage_store = tmp_path / "passage-store"
+    passage_store.mkdir()
+    pass_store = tmp_path / "pw-store"
+    pass_store.mkdir()
+    mocker.patch.dict(
+        "os.environ",
+        {"PASSAGE_DIR": str(passage_store), "PASSWORD_STORE_DIR": str(pass_store)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    b = Backend.detect()
+    assert b.name == "passage"
+
+
+def test_backend_detect_autodetect_pass_only(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    pass_store = tmp_path / "pw-store"
+    pass_store.mkdir()
+    mocker.patch.dict(
+        "os.environ",
+        {"PASSWORD_STORE_DIR": str(pass_store)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: "/usr/bin/pass" if name == "pass" else None,
+    )
+    b = Backend.detect()
+    assert b.name == "pass"
+
+
+def test_backend_detect_autodetect_no_backend(mocker: MockerFixture) -> None:
+    mocker.patch.dict("os.environ", {}, clear=True)
+    mocker.patch("shutil.which", return_value=None)
+    with pytest.raises(BackendError, match="no usable backend"):
+        Backend.detect()
+
+
+def test_backend_detect_autodetect_binary_present_store_missing(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # passage binary present but its store doesn't exist -> fall through.
+    # pass binary present and its store exists -> pass wins.
+    pass_store = tmp_path / "pw-store"
+    pass_store.mkdir()
+    mocker.patch.dict(
+        "os.environ",
+        {"PASSWORD_STORE_DIR": str(pass_store)},
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    b = Backend.detect()
+    assert b.name == "pass"
+
+
+def test_backend_show_returns_content(mocker: MockerFixture, tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    store.mkdir()
+    backend = Backend(name="pass", binary="pass", extension="gpg", store_dir=store)
+    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
+    completed.returncode = 0
+    completed.stdout = "FOO=bar\n"
+    completed.stderr = ""
+    run_mock = mocker.patch("subprocess.run", return_value=completed)
+    result = backend.show("config/env/aws")
+    assert result == "FOO=bar\n"
+    run_mock.assert_called_once()
+    args, kwargs = run_mock.call_args
+    assert args[0][:2] == ["pass", "show"]
+    assert args[0][2] == "config/env/aws"
+
+
+def test_backend_show_returns_none_on_missing(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = Backend(name="pass", binary="pass", extension="gpg", store_dir=tmp_path)
+    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
+    completed.returncode = 1
+    completed.stdout = ""
+    completed.stderr = "Error: aws is not in the password store."
+    mocker.patch("subprocess.run", return_value=completed)
+    assert backend.show("config/env/aws") is None
+
+
+def test_backend_list_tools_empty(tmp_path: Path) -> None:
+    backend = Backend(
+        name="passage", binary="passage", extension="age", store_dir=tmp_path
+    )
+    assert backend.list_tools() == []
+
+
+def test_backend_list_tools_lists_entries(tmp_path: Path) -> None:
+    env_dir = tmp_path / "config" / "env"
+    env_dir.mkdir(parents=True)
+    (env_dir / "aws.age").write_bytes(b"")
+    (env_dir / "claude.age").write_bytes(b"")
+    (env_dir / "ignored.gpg").write_bytes(b"")  # wrong extension
+    (env_dir / "subdir").mkdir()  # directories are skipped
+    backend = Backend(
+        name="passage", binary="passage", extension="age", store_dir=tmp_path
+    )
+    assert backend.list_tools() == ["aws", "claude"]

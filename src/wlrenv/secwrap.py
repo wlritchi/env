@@ -9,9 +9,13 @@ See docs/specs/2026-05-07-secwrap-includes-design.md.
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 _ENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
@@ -87,6 +91,93 @@ def parse_args(argv: list[str]) -> Args:
         command=command,
         forwarded=forwarded,
     )
+
+
+class BackendError(RuntimeError):
+    """Raised when the backend cannot be resolved or invoked."""
+
+
+_BACKENDS: dict[str, tuple[str, str, str]] = {
+    # name -> (binary, extension, default_store_dir_relative_to_home)
+    "passage": ("passage", "age", ".passage/store"),
+    "pass": ("pass", "gpg", ".password-store"),
+}
+
+_STORE_ENV: dict[str, str] = {
+    "passage": "PASSAGE_DIR",
+    "pass": "PASSWORD_STORE_DIR",
+}
+
+
+@dataclass(frozen=True)
+class Backend:
+    name: str
+    binary: str
+    extension: str
+    store_dir: Path
+
+    @classmethod
+    def detect(cls) -> Backend:
+        explicit = os.environ.get("SECWRAP_BACKEND")
+        if explicit is not None:
+            if explicit not in _BACKENDS:
+                raise BackendError(
+                    f"SECWRAP_BACKEND={explicit!r} is not one of pass, passage"
+                )
+            store = cls._resolve_store(explicit)
+            if store is None:
+                raise BackendError(
+                    f"SECWRAP_BACKEND={explicit!r} but no store directory found"
+                )
+            binary, ext, _ = _BACKENDS[explicit]
+            return cls(name=explicit, binary=binary, extension=ext, store_dir=store)
+
+        # Auto-detect: passage first, then pass.
+        for name in ("passage", "pass"):
+            binary, ext, _ = _BACKENDS[name]
+            if shutil.which(binary) is None:
+                continue
+            store = cls._resolve_store(name)
+            if store is None:
+                continue
+            return cls(name=name, binary=binary, extension=ext, store_dir=store)
+
+        raise BackendError(
+            "no usable backend found; install pass or passage, or set SECWRAP_BACKEND"
+        )
+
+    @staticmethod
+    def _resolve_store(name: str) -> Path | None:
+        env_var = _STORE_ENV[name]
+        _, _, default_rel = _BACKENDS[name]
+        raw = os.environ.get(env_var)
+        path = Path(raw) if raw else Path.home() / default_rel
+        return path if path.is_dir() else None
+
+    def show(self, secret_path: str) -> str | None:
+        """Return decrypted content, or None if the entry doesn't exist."""
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            [self.binary, "show", secret_path],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout
+
+    def list_tools(self) -> list[str]:
+        """List base names of entries under config/env/ matching our extension."""
+        env_dir = self.store_dir / "config" / "env"
+        if not env_dir.is_dir():
+            return []
+        suffix = f".{self.extension}"
+        names = [
+            p.name[: -len(suffix)]
+            for p in env_dir.iterdir()
+            if p.is_file() and p.name.endswith(suffix)
+        ]
+        return sorted(names)
 
 
 def main(argv: list[str] | None = None) -> int:
