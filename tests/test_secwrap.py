@@ -12,6 +12,7 @@ from wlrenv.secwrap import (
     BackendError,
     IncludeError,
     format_marker,
+    main,
     parse_args,
     parse_env_lines,
     parse_includes,
@@ -371,8 +372,6 @@ from wlrenv.secwrap import USAGE
 def test_main_help_prints_usage_and_exits_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from wlrenv.secwrap import main
-
     rc = main(["--help"])
     assert rc == 0
     captured = capsys.readouterr()
@@ -398,8 +397,6 @@ def test_main_list_prints_tools(
         if name in {"pass", "passage"}
         else None,
     )
-    from wlrenv.secwrap import main
-
     rc = main(["--list"])
     assert rc == 0
     out_lines = capsys.readouterr().out.strip().splitlines()
@@ -412,8 +409,6 @@ def test_main_no_command_prints_usage_to_stderr_and_exits_one(
     mocker.patch.dict("os.environ", {"SECWRAP_BACKEND": "pass"}, clear=True)
     # Backend.detect needs a real store dir; skip detection by going straight
     # to the "no command" branch via empty argv.
-    from wlrenv.secwrap import main
-
     rc = main([])
     assert rc == 1
     assert "Usage:" in capsys.readouterr().err
@@ -422,8 +417,6 @@ def test_main_no_command_prints_usage_to_stderr_and_exits_one(
 def test_main_unknown_flag_exits_one(
     mocker: MockerFixture, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from wlrenv.secwrap import main
-
     rc = main(["--bogus"])
     assert rc == 1
     err = capsys.readouterr().err
@@ -454,8 +447,6 @@ def test_main_wrap_with_entry_execs_with_merged_env(
     completed.stderr = ""
     mocker.patch("subprocess.run", return_value=completed)
     execvpe = mocker.patch("os.execvpe")
-
-    from wlrenv.secwrap import main
 
     main(["aws", "s3", "ls"])
 
@@ -493,8 +484,6 @@ def test_main_wrap_no_entry_execs_with_unmodified_env(
     mocker.patch("subprocess.run", return_value=completed)
     execvpe = mocker.patch("os.execvpe")
 
-    from wlrenv.secwrap import main
-
     main(["aws", "--version"])
 
     execvpe.assert_called_once()
@@ -525,8 +514,6 @@ def test_main_wrap_uses_from_for_lookup_not_command(
     completed.stderr = ""
     run_mock = mocker.patch("subprocess.run", return_value=completed)
     execvpe = mocker.patch("os.execvpe")
-
-    from wlrenv.secwrap import main
 
     main(["--from", "claude", "node", "script.js"])
 
@@ -806,7 +793,7 @@ def test_resolve_includes_pass_backend_no_includes_no_warning(
 
 
 def test_main_wrap_short_circuits_when_target_in_marker(
-    mocker: MockerFixture, tmp_path: Path
+    mocker: MockerFixture,
 ) -> None:
     # If pnpm is already in the marker, secwrap should NOT detect the backend
     # and should NOT call show.
@@ -817,8 +804,6 @@ def test_main_wrap_short_circuits_when_target_in_marker(
     )
     detect_mock = mocker.patch("wlrenv.secwrap.Backend.detect")
     execvpe = mocker.patch("os.execvpe")
-
-    from wlrenv.secwrap import main
 
     main(["pnpm", "install"])
 
@@ -832,7 +817,7 @@ def test_main_wrap_short_circuits_when_target_in_marker(
 
 
 def test_main_wrap_short_circuits_with_from(
-    mocker: MockerFixture, tmp_path: Path
+    mocker: MockerFixture,
 ) -> None:
     # --from rules: marker tracks secret name, so claude in marker means
     # `secwrap --from claude bar` short-circuits.
@@ -843,8 +828,6 @@ def test_main_wrap_short_circuits_with_from(
     )
     detect_mock = mocker.patch("wlrenv.secwrap.Backend.detect")
     execvpe = mocker.patch("os.execvpe")
-
-    from wlrenv.secwrap import main
 
     main(["--from", "claude", "bar"])
 
@@ -879,8 +862,6 @@ def test_main_wrap_with_includes_merges_in_topological_order(
     )
     show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
-
-    from wlrenv.secwrap import main
 
     main(["claude", "--version"])
 
@@ -918,15 +899,13 @@ def test_main_wrap_marker_union_with_existing(
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
 
-    from wlrenv.secwrap import main
-
     main(["claude"])
 
     _file, _argv, env_arg = execvpe.call_args.args
     assert env_arg["_SECWRAP_LOADED"] == "claude:existing"
 
 
-def test_main_wrap_no_entry_still_sets_marker(
+def test_main_wrap_no_entry_does_not_set_marker(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
     # No config/env/aws entry. We should still exec, with no env mutation
@@ -948,8 +927,6 @@ def test_main_wrap_no_entry_still_sets_marker(
     )
     mocker.patch.object(Backend, "show", return_value=None)
     execvpe = mocker.patch("os.execvpe")
-
-    from wlrenv.secwrap import main
 
     main(["aws", "--version"])
 
@@ -977,8 +954,6 @@ def test_main_wrap_missing_include_exits_one(
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
 
-    from wlrenv.secwrap import main
-
     rc = main(["claude"])
     assert rc == 1
     execvpe.assert_not_called()
@@ -1005,8 +980,6 @@ def test_main_wrap_cycle_exits_one(
         else None,
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
-
-    from wlrenv.secwrap import main
 
     rc = main(["a"])
     assert rc == 1
@@ -1040,8 +1013,6 @@ def test_main_wrap_marker_skip_does_not_re_decrypt(
     )
     show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
-
-    from wlrenv.secwrap import main
 
     main(["claude"])
 
