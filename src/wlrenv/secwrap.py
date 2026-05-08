@@ -239,6 +239,77 @@ class Backend:
         return sorted(names)
 
 
+class IncludeError(RuntimeError):
+    """Raised when include resolution fails (cycle, missing dep, etc.)."""
+
+
+_PASS_INCLUDES_WARNING = (
+    "secwrap: include comments are not yet implemented for the pass backend; ignoring"  # noqa: S105 - not a password; name refers to `pass` backend
+)
+
+
+def resolve_includes(
+    backend: Backend, root: str, marker_loaded: set[str]
+) -> list[tuple[str, str | None]]:
+    """Walk the include graph from `root` and return entries in merge order.
+
+    Returns a list of (name, blob) pairs:
+      - Deepest dependency first, root last.
+      - Siblings sorted alphabetically.
+      - blob is None when the entry was already in `marker_loaded` and skipped.
+
+    The pass backend does NOT walk includes in Phase 2a; it loads only the
+    root and emits a one-time stderr warning if the blob contains include
+    comments.
+
+    A missing root returns []. A missing non-root include raises IncludeError.
+    A cycle raises IncludeError.
+    """
+    if backend.name == "pass":
+        if root in marker_loaded:
+            return [(root, None)]
+        blob = backend.show(f"config/env/{root}")
+        if blob is None:
+            return []
+        if parse_includes(blob):
+            print(_PASS_INCLUDES_WARNING, file=sys.stderr)
+        return [(root, blob)]
+
+    # passage: full graph walk.
+    result: list[tuple[str, str | None]] = []
+    visited: set[str] = set()
+    path: list[str] = []
+
+    def visit(name: str, parent: str | None) -> None:
+        if name in visited:
+            return
+        if name in path:
+            cycle = " → ".join([*path[path.index(name) :], name])
+            raise IncludeError(f"cycle detected: {cycle}")
+        path.append(name)
+        try:
+            if name in marker_loaded:
+                visited.add(name)
+                result.append((name, None))
+                return
+            blob = backend.show(f"config/env/{name}")
+            if blob is None:
+                if parent is None:
+                    return  # root missing → caller falls through
+                raise IncludeError(
+                    f"{parent} includes '{name}' but config/env/{name} not found"
+                )
+            for dep in sorted(set(parse_includes(blob))):
+                visit(dep, parent=name)
+            visited.add(name)
+            result.append((name, blob))
+        finally:
+            path.pop()
+
+    visit(root, parent=None)
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]

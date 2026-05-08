@@ -10,11 +10,13 @@ from wlrenv.secwrap import (
     ArgError,
     Backend,
     BackendError,
+    IncludeError,
     format_marker,
     parse_args,
     parse_env_lines,
     parse_includes,
     parse_marker,
+    resolve_includes,
 )
 
 
@@ -632,3 +634,172 @@ def test_format_marker_dedupes() -> None:
 def test_format_marker_round_trips_through_parse() -> None:
     names = {"claude", "docker", "pnpm"}
     assert parse_marker(format_marker(names)) == names
+
+
+def _make_passage_backend(tmp_path: Path) -> Backend:
+    return Backend(
+        name="passage", binary="passage", extension="age", store_dir=tmp_path
+    )
+
+
+def _make_pass_backend(tmp_path: Path) -> Backend:
+    return Backend(name="pass", binary="pass", extension="gpg", store_dir=tmp_path)
+
+
+def test_resolve_includes_root_missing_returns_empty(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value=None)
+    assert resolve_includes(backend, "ghost", marker_loaded=set()) == []
+
+
+def test_resolve_includes_root_with_no_includes(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value="FOO=bar\n")
+    assert resolve_includes(backend, "claude", marker_loaded=set()) == [
+        ("claude", "FOO=bar\n"),
+    ]
+
+
+def test_resolve_includes_simple_chain(mocker: MockerFixture, tmp_path: Path) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blobs = {
+        "config/env/claude": "# secwrap-include: docker\nFOO=claude\n",
+        "config/env/docker": "BAR=docker\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    result = resolve_includes(backend, "claude", marker_loaded=set())
+    assert result == [
+        ("docker", "BAR=docker\n"),
+        ("claude", "# secwrap-include: docker\nFOO=claude\n"),
+    ]
+
+
+def test_resolve_includes_diamond_dedupes(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # claude -> {a, b}, a -> shared, b -> shared. shared loaded once.
+    backend = _make_passage_backend(tmp_path)
+    blobs = {
+        "config/env/claude": "# secwrap-include: a b\n",
+        "config/env/a": "# secwrap-include: shared\n",
+        "config/env/b": "# secwrap-include: shared\n",
+        "config/env/shared": "X=1\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    result = resolve_includes(backend, "claude", marker_loaded=set())
+    names = [n for n, _ in result]
+    # `shared` appears once and before its parents; siblings (a, b) in
+    # alphabetical order; claude last.
+    assert names == ["shared", "a", "b", "claude"]
+
+
+def test_resolve_includes_siblings_alphabetical(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blobs = {
+        "config/env/root": "# secwrap-include: zebra apple mango\n",
+        "config/env/apple": "X=1\n",
+        "config/env/mango": "Y=2\n",
+        "config/env/zebra": "Z=3\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    result = resolve_includes(backend, "root", marker_loaded=set())
+    names = [n for n, _ in result]
+    assert names == ["apple", "mango", "zebra", "root"]
+
+
+def test_resolve_includes_missing_dep_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blobs = {
+        "config/env/claude": "# secwrap-include: ghost\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    with pytest.raises(
+        IncludeError, match=r"claude includes 'ghost' but config/env/ghost not found"
+    ):
+        resolve_includes(backend, "claude", marker_loaded=set())
+
+
+def test_resolve_includes_direct_cycle_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blobs = {
+        "config/env/a": "# secwrap-include: b\n",
+        "config/env/b": "# secwrap-include: a\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    with pytest.raises(IncludeError, match=r"cycle detected: a → b → a"):
+        resolve_includes(backend, "a", marker_loaded=set())
+
+
+def test_resolve_includes_self_cycle_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    blobs = {
+        "config/env/a": "# secwrap-include: a\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    with pytest.raises(IncludeError, match=r"cycle detected: a → a"):
+        resolve_includes(backend, "a", marker_loaded=set())
+
+
+def test_resolve_includes_marker_skips_subgraph(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # docker is in marker; we should NOT call show for docker.
+    backend = _make_passage_backend(tmp_path)
+    blobs = {
+        "config/env/claude": "# secwrap-include: docker\nFOO=claude\n",
+        # config/env/docker would error if fetched — proves it isn't.
+    }
+    show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    result = resolve_includes(backend, "claude", marker_loaded={"docker"})
+    assert result == [
+        ("docker", None),
+        ("claude", "# secwrap-include: docker\nFOO=claude\n"),
+    ]
+    # show was called only for claude (not docker).
+    fetched = [c.args[0] for c in show_mock.call_args_list]
+    assert fetched == ["config/env/claude"]
+
+
+def test_resolve_includes_marker_skips_root(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    show_mock = mocker.patch.object(Backend, "show")
+    result = resolve_includes(backend, "claude", marker_loaded={"claude"})
+    assert result == [("claude", None)]
+    show_mock.assert_not_called()
+
+
+def test_resolve_includes_pass_backend_warns_and_ignores(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    mocker.patch.object(
+        Backend, "show", return_value="# secwrap-include: docker\nFOO=claude\n"
+    )
+    result = resolve_includes(backend, "claude", marker_loaded=set())
+    assert result == [("claude", "# secwrap-include: docker\nFOO=claude\n")]
+    err = capsys.readouterr().err
+    assert "include comments are not yet implemented for the pass backend" in err
+
+
+def test_resolve_includes_pass_backend_no_includes_no_warning(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value="FOO=bar\n")
+    result = resolve_includes(backend, "claude", marker_loaded=set())
+    assert result == [("claude", "FOO=bar\n")]
+    assert capsys.readouterr().err == ""
