@@ -328,7 +328,10 @@ _PASS_INCLUDES_WARNING = (
 
 
 def resolve_includes(
-    backend: Backend, root: str, marker_loaded: set[str]
+    backend: Backend,
+    root: str,
+    marker_loaded: set[str],
+    meta_key: MetaKey | None = None,
 ) -> list[tuple[str, str | None]]:
     """Walk the include graph from `root` and return entries in merge order.
 
@@ -337,9 +340,14 @@ def resolve_includes(
       - Siblings sorted alphabetically.
       - blob is None when the entry was already in `marker_loaded` and skipped.
 
-    The pass backend does NOT walk includes in Phase 2a; it loads only the
+    When `meta_key` is provided, decryption goes through `meta_key.decrypt()`
+    (in-process via age) instead of `backend.show()` (subprocess that prompts
+    for credentials). The meta key path is only taken on the passage backend;
+    the pass backend short-circuits as in Phase 2a.
+
+    The pass backend does NOT walk includes in Phase 2b; it loads only the
     root and emits a one-time stderr warning if the blob contains include
-    comments.
+    comments. The pass backend has no meta key in Phase 2b.
 
     A missing root returns []. A missing non-root include raises IncludeError.
     A cycle raises IncludeError.
@@ -371,7 +379,13 @@ def resolve_includes(
                 visited.add(name)
                 result.append((name, None))
                 return
-            blob = backend.show(f"config/env/{name}")
+            if meta_key is not None:
+                try:
+                    blob = meta_key.decrypt(backend.store_dir, name, backend.extension)
+                except MetaKeyError:
+                    blob = None
+            else:
+                blob = backend.show(f"config/env/{name}")
             if blob is None:
                 if parent is None:
                     return  # root missing → caller falls through
@@ -432,10 +446,30 @@ def main(argv: list[str] | None = None) -> int:
     marker_loaded = parse_marker(os.environ.get("_SECWRAP_LOADED", ""))
 
     try:
-        resolved = resolve_includes(backend, secret_key, marker_loaded)
+        meta_key = load_meta_key(backend)
+    except MetaKeyError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        return 1
+
+    meta_was_absent = meta_key is None
+
+    try:
+        resolved = resolve_includes(
+            backend, secret_key, marker_loaded, meta_key=meta_key
+        )
     except IncludeError as exc:
         print(f"secwrap: {exc}", file=sys.stderr)
         return 1
+    finally:
+        meta_key = None  # release reference
+
+    decrypt_count = sum(1 for _name, blob in resolved if blob is not None)
+    if meta_was_absent and decrypt_count >= 2:
+        print(
+            f"secwrap: meta key absent; {decrypt_count} includes will require "
+            f"{decrypt_count} prompts (run `secwrap bootstrap` to fix)",
+            file=sys.stderr,
+        )
 
     env = os.environ.copy()
     for _name, blob in resolved:

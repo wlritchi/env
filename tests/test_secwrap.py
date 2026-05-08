@@ -421,6 +421,10 @@ def test_main_unknown_flag_exits_one(
 def test_main_wrap_with_entry_execs_with_merged_env(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
+    blobs = {
+        "config/env-meta": None,
+        "config/env/aws": "TOKEN=abc\nREGION=us-east-1\n",
+    }
     mocker.patch.dict(
         "os.environ",
         {
@@ -436,11 +440,7 @@ def test_main_wrap_with_entry_execs_with_merged_env(
         if name in {"pass", "passage"}
         else None,
     )
-    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
-    completed.returncode = 0
-    completed.stdout = "TOKEN=abc\nREGION=us-east-1\n"
-    completed.stderr = ""
-    mocker.patch("subprocess.run", return_value=completed)
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
 
     main(["aws", "s3", "ls"])
@@ -492,6 +492,10 @@ def test_main_wrap_no_entry_execs_with_unmodified_env(
 def test_main_wrap_uses_from_for_lookup_not_command(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
+    blobs = {
+        "config/env-meta": None,
+        "config/env/claude": "TOKEN=abc\n",
+    }
     mocker.patch.dict(
         "os.environ",
         {"SECWRAP_BACKEND": "passage", "PASSAGE_DIR": str(tmp_path)},
@@ -503,18 +507,15 @@ def test_main_wrap_uses_from_for_lookup_not_command(
         if name in {"pass", "passage"}
         else None,
     )
-    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
-    completed.returncode = 0
-    completed.stdout = "TOKEN=abc\n"
-    completed.stderr = ""
-    run_mock = mocker.patch("subprocess.run", return_value=completed)
+    show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
 
     main(["--from", "claude", "node", "script.js"])
 
-    # subprocess.run called with config/env/claude (the --from name), not 'node'.
-    pass_args = run_mock.call_args.args[0]
-    assert pass_args[2] == "config/env/claude"
+    # show called with config/env/claude (the --from name), not 'node'.
+    fetched = [c.args[0] for c in show_mock.call_args_list]
+    assert "config/env/claude" in fetched
+    assert "config/env/node" not in fetched
     # exec called with the actual command 'node'.
     file_arg, argv_arg, _ = execvpe.call_args.args
     assert file_arg == "node"
@@ -986,8 +987,9 @@ def test_main_wrap_marker_skip_does_not_re_decrypt(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
     # claude includes docker; docker is already in marker. show should be
-    # called for claude only.
+    # called for claude only (plus the meta key probe).
     blobs = {
+        "config/env-meta": None,
         "config/env/claude": "# secwrap-include: docker\nFOO=bar\n",
     }
     mocker.patch.dict(
@@ -1012,7 +1014,8 @@ def test_main_wrap_marker_skip_does_not_re_decrypt(
     main(["claude"])
 
     fetched = [c.args[0] for c in show_mock.call_args_list]
-    assert fetched == ["config/env/claude"]
+    assert "config/env/claude" in fetched
+    assert "config/env/docker" not in fetched
     _file, _argv, env_arg = execvpe.call_args.args
     assert env_arg["_SECWRAP_LOADED"] == "claude:docker"
     assert env_arg["FOO"] == "bar"
@@ -1122,3 +1125,177 @@ def test_meta_key_decrypt_failure_raises(mocker: MockerFixture, tmp_path: Path) 
     )
     with pytest.raises(MetaKeyError, match=r"age decryption failed"):
         mk.decrypt(tmp_path, "claude", "age")
+
+
+def test_resolve_includes_uses_meta_key_when_provided(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mk = MetaKey(backend="age", key=b"FAKEKEY")
+    blobs = {
+        "claude": "# secwrap-include: docker\nFOO=claude\n",
+        "docker": "BAR=docker\n",
+    }
+    decrypt_mock = mocker.patch.object(
+        MetaKey, "decrypt", side_effect=lambda _store, name, _ext: blobs[name]
+    )
+    show_mock = mocker.patch.object(Backend, "show")
+
+    result = resolve_includes(backend, "claude", marker_loaded=set(), meta_key=mk)
+
+    # Should have used decrypt, not show.
+    assert decrypt_mock.call_count == 2
+    show_mock.assert_not_called()
+    names = [n for n, _ in result]
+    assert names == ["docker", "claude"]
+
+
+def test_resolve_includes_meta_key_none_falls_back_to_show(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # meta_key=None: behavior identical to Phase 2a.
+    backend = _make_passage_backend(tmp_path)
+    blobs = {"config/env/claude": "FOO=bar\n"}
+    show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+
+    result = resolve_includes(backend, "claude", marker_loaded=set(), meta_key=None)
+
+    show_mock.assert_called_once_with("config/env/claude")
+    assert result == [("claude", "FOO=bar\n")]
+
+
+def test_main_loads_meta_key_and_uses_it(mocker: MockerFixture, tmp_path: Path) -> None:
+    blobs = {
+        "config/env-meta": '{"backend": "age", "key": "FAKE"}',
+    }
+    decrypt_blobs = {
+        "claude": "# secwrap-include: docker\nKEY=claude\n",
+        "docker": "DOCKER=yes\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch.object(
+        MetaKey, "decrypt", side_effect=lambda _store, name, _ext: decrypt_blobs[name]
+    )
+    execvpe = mocker.patch("os.execvpe")
+
+    main(["claude"])
+
+    execvpe.assert_called_once()
+    _file, _argv, env_arg = execvpe.call_args.args
+    assert env_arg["KEY"] == "claude"
+    assert env_arg["DOCKER"] == "yes"
+    assert env_arg["_SECWRAP_LOADED"] == "claude:docker"
+
+
+def test_main_warns_when_meta_absent_and_includes_present(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # meta entry missing, but claude has includes -> warn.
+    blobs = {
+        "config/env-meta": None,
+        "config/env/claude": "# secwrap-include: docker\nKEY=claude\n",
+        "config/env/docker": "DOCKER=yes\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("os.execvpe")
+
+    main(["claude"])
+
+    err = capsys.readouterr().err
+    assert "meta key absent" in err
+    assert "2 includes" in err  # claude + docker = 2 entries
+    assert "secwrap bootstrap" in err
+
+
+def test_main_no_warn_for_single_entry_no_meta(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # Single entry, no includes — meta absent shouldn't warn.
+    blobs = {
+        "config/env-meta": None,
+        "config/env/claude": "FOO=bar\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("os.execvpe")
+
+    main(["claude"])
+
+    assert capsys.readouterr().err == ""
+
+
+def test_main_meta_key_error_exits_one(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # Malformed meta entry: hard error, exit 1, don't exec.
+    blobs = {
+        "config/env-meta": "not json",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "passage",
+            "PASSAGE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    execvpe = mocker.patch("os.execvpe")
+
+    rc = main(["claude"])
+
+    assert rc == 1
+    execvpe.assert_not_called()
+    err = capsys.readouterr().err
+    assert "config/env-meta is not valid JSON" in err
