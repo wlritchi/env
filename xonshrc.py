@@ -297,7 +297,7 @@ def _setup() -> None:
             for cmd in result.stdout.splitlines():
                 cmd = cmd.strip()
                 if cmd:
-                    XSH.aliases[cmd] = f'secwrap {cmd}'
+                    XSH.aliases[cmd] = f'secwrap -- {cmd}'
 
         if which('sshx'):
             XSH.aliases['ssh'] = 'sshx'

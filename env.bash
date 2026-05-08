@@ -408,7 +408,7 @@ command -v k9sx > /dev/null 2>&1 && alias k9s='k9sx'
 if command -v secwrap >/dev/null 2>&1; then
     while IFS= read -r cmd; do
         [ -n "$cmd" ] || continue
-        alias "$cmd=secwrap $cmd"
+        alias "$cmd=secwrap -- $cmd"
     done < <(secwrap --list)
     unset cmd
 fi
