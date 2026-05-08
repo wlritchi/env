@@ -16,6 +16,7 @@ from wlrenv.secwrap import (
     MetaKey,
     MetaKeyError,
     do_bootstrap,
+    do_doctor,
     do_rotate_meta,
     format_marker,
     load_meta_key,
@@ -1732,3 +1733,133 @@ def test_do_rotate_meta_no_existing_meta(
     err = capsys.readouterr().err
     assert "no config/env-meta found" in err
     assert "bootstrap" in err
+
+
+def test_do_doctor_all_clean(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    recipients = tmp_path / "config" / "env" / ".age-recipients"
+    recipients.write_text("age1user\nage1meta\n")
+
+    # Two entries.
+    (tmp_path / "config" / "env" / "claude.age").write_bytes(b"fake-encrypted")
+    (tmp_path / "config" / "env" / "docker.age").write_bytes(b"fake-encrypted")
+
+    # show: meta entry; list_tools: claude, docker.
+    blobs = {
+        "config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}',
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    decrypt_blobs = {
+        "claude": "# secwrap-include: docker\nFOO=claude\n",
+        "docker": "BAR=docker\n",
+    }
+    mocker.patch.object(
+        MetaKey, "decrypt", side_effect=lambda _store, name, _ext: decrypt_blobs[name]
+    )
+    mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess([], 0, "age1meta\n", ""),
+    )
+
+    rc = do_doctor(backend, [])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "OK" in out or "✓" in out  # some indicator of pass
+
+
+def test_do_doctor_missing_meta(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value=None)
+    rc = do_doctor(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "config/env-meta" in err
+
+
+def test_do_doctor_recipient_drift(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    # Recipient list MISSING the meta pubkey.
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1user\n")
+
+    blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    # age-keygen -y returns a pubkey not in the recipients file.
+    mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess([], 0, "age1meta-missing\n", ""),
+    )
+
+    rc = do_doctor(backend, [])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "recipient" in err.lower()
+    assert "age1meta-missing" in err
+
+
+def test_do_doctor_entry_decrypt_failure(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1user\nage1meta\n")
+    (tmp_path / "config" / "env" / "broken.age").write_bytes(b"fake")
+
+    blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess([], 0, "age1meta\n", ""),
+    )
+    # Decrypt raises for the broken entry.
+    mocker.patch.object(
+        MetaKey,
+        "decrypt",
+        side_effect=MetaKeyError("age decryption failed for broken: bad MAC"),
+    )
+
+    rc = do_doctor(backend, [])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "broken" in err
+    assert "decrypt" in err.lower()
+
+
+def test_do_doctor_cycle_detected(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1user\nage1meta\n")
+    (tmp_path / "config" / "env" / "a.age").write_bytes(b"fake")
+    (tmp_path / "config" / "env" / "b.age").write_bytes(b"fake")
+
+    blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess([], 0, "age1meta\n", ""),
+    )
+    decrypt_blobs = {
+        "a": "# secwrap-include: b\n",
+        "b": "# secwrap-include: a\n",
+    }
+    mocker.patch.object(
+        MetaKey, "decrypt", side_effect=lambda _store, name, _ext: decrypt_blobs[name]
+    )
+
+    rc = do_doctor(backend, [])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "cycle" in err.lower()

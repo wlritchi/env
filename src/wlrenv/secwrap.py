@@ -662,7 +662,90 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
 
 
 def do_doctor(backend: Backend, args: list[str]) -> int:
-    raise NotImplementedError("doctor: implemented in Task 7")
+    """Verify the meta-key invariants and the include graph.
+
+    Output: progress and per-check status to stdout; failure details to stderr.
+    Exit 0 if all clean; 1 if any check fails.
+    """
+    failures: list[str] = []
+
+    # Check 1: meta entry exists and parses.
+    print("Checking config/env-meta ...", file=sys.stdout)
+    try:
+        meta_key = load_meta_key(backend)
+    except MetaKeyError as exc:
+        failures.append(f"meta entry: {exc}")
+        meta_key = None
+    if meta_key is None and not failures:
+        failures.append("config/env-meta missing (run `secwrap bootstrap` first)")
+    if not failures:
+        print("  OK", file=sys.stdout)
+
+    # Check 2: recipients contain meta pubkey.
+    if meta_key is not None and shutil.which("age-keygen") is not None:
+        print("Checking .age-recipients ...", file=sys.stdout)
+        with tempfile.NamedTemporaryFile(
+            mode="w", prefix="secwrap-doctor-", suffix=".txt", delete=False
+        ) as tf:
+            keyfile = Path(tf.name)
+            tf.write(meta_key.key.decode("utf-8"))
+        try:
+            result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+                ["age-keygen", "-y", str(keyfile)],  # noqa: S607
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                failures.append(f"age-keygen -y failed: {result.stderr.strip()}")
+            else:
+                meta_pubkey = result.stdout.strip()
+                recipients_path = (
+                    backend.store_dir / "config" / "env" / ".age-recipients"
+                )
+                if not recipients_path.exists():
+                    failures.append(".age-recipients missing")
+                else:
+                    recipients = recipients_path.read_text().splitlines()
+                    if meta_pubkey not in [r.strip() for r in recipients]:
+                        failures.append(
+                            f"meta pubkey {meta_pubkey} not in .age-recipients"
+                        )
+                    else:
+                        print("  OK", file=sys.stdout)
+        finally:
+            keyfile.unlink(missing_ok=True)
+
+    # Check 3: every entry decrypts.
+    if meta_key is not None:
+        print("Checking entry decryption ...", file=sys.stdout)
+        decrypted: dict[str, str] = {}
+        for tool in backend.list_tools():
+            try:
+                blob = meta_key.decrypt(backend.store_dir, tool, backend.extension)
+                decrypted[tool] = blob
+            except MetaKeyError as exc:
+                failures.append(f"entry {tool} failed to decrypt: {exc}")
+        if all(t in decrypted for t in backend.list_tools()):
+            print(f"  OK ({len(decrypted)} entries)", file=sys.stdout)
+
+        # Check 4: include graph well-formed.
+        print("Checking include graph ...", file=sys.stdout)
+        try:
+            for tool in backend.list_tools():
+                resolve_includes(backend, tool, marker_loaded=set(), meta_key=meta_key)
+            print("  OK", file=sys.stdout)
+        except IncludeError as exc:
+            failures.append(f"include graph: {exc}")
+
+    if failures:
+        print("\nDoctor found issues:", file=sys.stderr)
+        for f in failures:
+            print(f"  - {f}", file=sys.stderr)
+        return 1
+
+    print("\nAll checks passed.", file=sys.stdout)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
