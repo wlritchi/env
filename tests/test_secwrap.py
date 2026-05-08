@@ -1759,6 +1759,7 @@ def test_do_doctor_all_clean(
     mocker.patch.object(
         MetaKey, "decrypt", side_effect=lambda _store, name, _ext: decrypt_blobs[name]
     )
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
     mocker.patch(
         "subprocess.run",
         return_value=subprocess.CompletedProcess([], 0, "age1meta\n", ""),
@@ -1792,6 +1793,7 @@ def test_do_doctor_recipient_drift(
 
     blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
     # age-keygen -y returns a pubkey not in the recipients file.
     mocker.patch(
         "subprocess.run",
@@ -1816,6 +1818,7 @@ def test_do_doctor_entry_decrypt_failure(
 
     blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
     mocker.patch(
         "subprocess.run",
         return_value=subprocess.CompletedProcess([], 0, "age1meta\n", ""),
@@ -1846,6 +1849,7 @@ def test_do_doctor_cycle_detected(
 
     blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
     mocker.patch(
         "subprocess.run",
         return_value=subprocess.CompletedProcess([], 0, "age1meta\n", ""),

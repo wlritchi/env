@@ -681,6 +681,9 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
     if not failures:
         print("  OK", file=sys.stdout)
 
+    if meta_key is None:
+        print("  Skipping recipient/decrypt/include checks (no meta key).")
+
     # Check 2: recipients contain meta pubkey.
     if meta_key is not None and shutil.which("age-keygen") is not None:
         print("Checking .age-recipients ...", file=sys.stdout)
@@ -731,12 +734,16 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
 
         # Check 4: include graph well-formed.
         print("Checking include graph ...", file=sys.stdout)
-        try:
-            for tool in backend.list_tools():
+        include_failures: list[str] = []
+        for tool in backend.list_tools():
+            try:
                 resolve_includes(backend, tool, marker_loaded=set(), meta_key=meta_key)
+            except IncludeError as exc:
+                include_failures.append(f"include graph for {tool}: {exc}")
+        if include_failures:
+            failures.extend(include_failures)
+        else:
             print("  OK", file=sys.stdout)
-        except IncludeError as exc:
-            failures.append(f"include graph: {exc}")
 
     if failures:
         print("\nDoctor found issues:", file=sys.stderr)
