@@ -132,15 +132,6 @@ def test_parse_args_flags_after_command_are_forwarded() -> None:
     assert args.forwarded == ["--help"]
 
 
-def test_parse_args_double_dash_treated_as_command() -> None:
-    # `--` is treated as the command name, not as a flag. The bash original
-    # rejects it via the `-*) ... unknown option` case; we accept it so the
-    # downstream exec produces a clearer "command not found" diagnostic.
-    args = parse_args(["--", "echo", "hi"])
-    assert args.command == "--"
-    assert args.forwarded == ["echo", "hi"]
-
-
 def test_parse_args_negative_token_is_unknown_flag() -> None:
     # Bash rejects unknown -* tokens before the command.
     with pytest.raises(ArgError, match="unknown option"):
@@ -1021,3 +1012,30 @@ def test_main_wrap_marker_skip_does_not_re_decrypt(
     _file, _argv, env_arg = execvpe.call_args.args
     assert env_arg["_SECWRAP_LOADED"] == "claude:docker"
     assert env_arg["FOO"] == "bar"
+
+
+def test_parse_args_double_dash_sets_force_wrap_and_consumes() -> None:
+    args = parse_args(["--", "bootstrap", "arg1"])
+    assert args.force_wrap is True
+    assert args.command == "bootstrap"
+    assert args.forwarded == ["arg1"]
+
+
+def test_parse_args_double_dash_after_from() -> None:
+    args = parse_args(["--from", "claude", "--", "doctor"])
+    assert args.force_wrap is True
+    assert args.from_name == "claude"
+    assert args.command == "doctor"
+
+
+def test_parse_args_double_dash_alone_is_error() -> None:
+    # `secwrap --` with no command after: USAGE error path (no command).
+    args = parse_args(["--"])
+    assert args.force_wrap is True
+    assert args.command is None
+
+
+def test_parse_args_no_double_dash_force_wrap_false() -> None:
+    args = parse_args(["claude"])
+    assert args.force_wrap is False
+    assert args.command == "claude"

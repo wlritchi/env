@@ -106,6 +106,7 @@ class Args:
     help_mode: bool = False
     list_mode: bool = False
     from_name: str | None = None
+    force_wrap: bool = False
     command: str | None = None
     forwarded: list[str] = field(default_factory=list)
 
@@ -132,7 +133,17 @@ def parse_args(argv: list[str]) -> Args:
                 raise ArgError("--from requires an argument")
             from_name = args[1]
             del args[:2]
-        elif a == "--" or not a.startswith("-"):
+        elif a == "--":
+            del args[0]
+            return Args(
+                help_mode=help_mode,
+                list_mode=list_mode,
+                from_name=from_name,
+                force_wrap=True,
+                command=args[0] if args else None,
+                forwarded=args[1:] if args else [],
+            )
+        elif not a.startswith("-"):
             break
         else:
             raise ArgError(f"unknown option: {a}")
