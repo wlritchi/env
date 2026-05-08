@@ -1477,31 +1477,23 @@ def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch(
         "shutil.which",
         side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage", "shred"}
+        if name in {"age-keygen", "passage"}
         else None,
     )
 
     # Mock subprocess.run for each shell-out.
-    keygen_calls = {"count": 0}
-    captured_keyfile: list[str] = []
     insert_inputs: list[str | None] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
-            keygen_calls["count"] += 1
-            # Write a fake key to the output file.
-            out_idx = cmd.index("-o") + 1
-            captured_keyfile.append(cmd[out_idx])
-            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1FAKE\n")
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+            # Key emitted on stdout (no -o flag).
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1FAKE\n", "")
         if cmd[0] == "age-keygen" and "-y" in cmd:
             return subprocess.CompletedProcess(cmd, 0, "age1pub...\n", "")
         if cmd[0] == "passage" and cmd[1] == "reencrypt":
             return subprocess.CompletedProcess(cmd, 0, "", "")
         if cmd[0] == "passage" and cmd[1] == "insert":
             insert_inputs.append(kwargs.get("input"))  # type: ignore[arg-type]
-            return subprocess.CompletedProcess(cmd, 0, "", "")
-        if cmd[0] == "shred":
             return subprocess.CompletedProcess(cmd, 0, "", "")
         raise AssertionError(f"unexpected command: {cmd}")
 
@@ -1513,10 +1505,6 @@ def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
     assert "age1user..." in contents
     assert "age1pub..." in contents
 
-    # Keyfile is cleaned up after success.
-    assert captured_keyfile, "keygen should have been invoked with -o <path>"
-    assert not Path(captured_keyfile[0]).exists()
-
     # passage insert stdin payload is valid JSON with the right schema.
     assert insert_inputs, "passage insert should have been invoked"
     payload_str = insert_inputs[0]
@@ -1524,8 +1512,7 @@ def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
     payload = json.loads(payload_str)
     assert isinstance(payload, dict)
     assert payload["backend"] == "age"
-    assert isinstance(payload["key"], str)
-    assert payload["key"]  # non-empty
+    assert payload["key"] == "AGE-SECRET-KEY-1FAKE"
 
 
 def test_do_bootstrap_meta_already_exists(
@@ -1579,10 +1566,8 @@ def test_do_bootstrap_keygen_fallback_to_x25519(
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
             return subprocess.CompletedProcess(cmd, 1, "", "unrecognized flag: -pq\n")
-        if cmd[0] == "age-keygen" and "-pq" not in cmd and "-o" in cmd:
-            out_idx = cmd.index("-o") + 1
-            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1FALLBACK\n")
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "age-keygen" and "-pq" not in cmd and "-y" not in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1FALLBACK\n", "")
         if cmd[0] == "age-keygen" and "-y" in cmd:
             return subprocess.CompletedProcess(cmd, 0, "age1pub...\n", "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -1609,14 +1594,9 @@ def test_do_bootstrap_reencrypt_failure_aborts(
         else None,
     )
 
-    captured_keyfile: list[str] = []
-
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
-            out_idx = cmd.index("-o") + 1
-            captured_keyfile.append(cmd[out_idx])
-            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1FAKE\n")
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1FAKE\n", "")
         if cmd[0] == "age-keygen" and "-y" in cmd:
             return subprocess.CompletedProcess(cmd, 0, "age1pub\n", "")
         if cmd[0] == "passage" and cmd[1] == "reencrypt":
@@ -1629,10 +1609,6 @@ def test_do_bootstrap_reencrypt_failure_aborts(
     assert rc == 1
     err = capsys.readouterr().err
     assert "passage reencrypt failed" in err
-
-    # Keyfile is cleaned up even when the subcommand aborts.
-    assert captured_keyfile, "keygen should have been invoked with -o <path>"
-    assert not Path(captured_keyfile[0]).exists()
 
 
 def test_do_rotate_meta_without_yes_describes(
@@ -1674,20 +1650,17 @@ def test_do_rotate_meta_with_yes_happy_path(
         else None,
     )
 
-    captured_keyfiles: list[str] = []
     insert_calls: list[tuple[list[str], str | None]] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
-            out_idx = cmd.index("-o") + 1
-            captured_keyfiles.append(cmd[out_idx])
-            Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1NEW\n")
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+            # Generate new key on stdout.
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1NEW\n", "")
         if cmd[0] == "age-keygen" and "-y" in cmd:
-            captured_keyfiles.append(cmd[-1])
-            # Return different pubkeys for old vs new based on input file content.
-            content = Path(cmd[-1]).read_text().strip()
-            if "OLD" in content:
+            # Distinguish OLD vs NEW based on the key piped in via stdin.
+            stdin_text = kwargs.get("input") or ""
+            assert isinstance(stdin_text, str)
+            if "OLD" in stdin_text:
                 return subprocess.CompletedProcess(cmd, 0, "age1oldmeta\n", "")
             return subprocess.CompletedProcess(cmd, 0, "age1newmeta\n", "")
         if cmd[0] == "passage" and cmd[1] == "insert":
@@ -1714,11 +1687,6 @@ def test_do_rotate_meta_with_yes_happy_path(
     assert isinstance(payload, dict)
     assert payload["backend"] == "age"
     assert payload["key"] == "AGE-SECRET-KEY-1NEW"
-
-    # Both temp keyfiles are cleaned up.
-    assert captured_keyfiles, "age-keygen should have been invoked with paths"
-    for path in captured_keyfiles:
-        assert not Path(path).exists(), f"keyfile {path} not cleaned up"
 
 
 def test_do_rotate_meta_no_existing_meta(

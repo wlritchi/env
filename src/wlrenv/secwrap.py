@@ -15,7 +15,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -465,28 +464,26 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
         )
         return 1
 
-    # Generate key.
-    with tempfile.NamedTemporaryFile(
-        mode="w", prefix="secwrap-meta-", suffix=".txt", delete=False
-    ) as tf:
-        keyfile = Path(tf.name)
     try:
-        # Try -pq (post-quantum); fall back to default if unsupported.
+        # Generate key. Try -pq (post-quantum); fall back to default if unsupported.
+        # Capture key on stdout to avoid writing it to disk.
         result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
-            ["age-keygen", "-pq", "-o", str(keyfile)],  # noqa: S607
+            ["age-keygen", "-pq"],  # noqa: S607
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
-            _run_or_fail(
-                ["age-keygen", "-o", str(keyfile)],
+            result = _run_or_fail(
+                ["age-keygen"],
                 "age-keygen",
             )
-        # Extract pubkey.
+        key_text = result.stdout
+        # Extract pubkey by piping the key back in via stdin.
         pubkey_result = _run_or_fail(
-            ["age-keygen", "-y", str(keyfile)],
+            ["age-keygen", "-y", "/dev/stdin"],
             "age-keygen -y",
+            input=key_text,
         )
         pubkey = pubkey_result.stdout.strip()
 
@@ -500,8 +497,7 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
         )
 
         # Insert meta entry.
-        key_content = keyfile.read_text().strip()
-        payload = json.dumps({"backend": "age", "key": key_content})
+        payload = json.dumps({"backend": "age", "key": key_text.strip()})
         _run_or_fail(
             ["passage", "insert", "-m", "config/env-meta"],
             "passage insert config/env-meta",
@@ -513,16 +509,6 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
     except ShellOutError as exc:
         print(f"secwrap: {exc}", file=sys.stderr)
         return 1
-    finally:
-        # Best-effort secure deletion.
-        if shutil.which("shred") is not None:
-            subprocess.run(  # noqa: S603 - trusted binary, controlled args
-                ["shred", "-u", str(keyfile)],  # noqa: S607
-                capture_output=True,
-                check=False,
-            )
-        if keyfile.exists():
-            keyfile.unlink()
 
 
 def _swap_age_recipient(store_dir: Path, old_pubkey: str, new_pubkey: str) -> None:
@@ -587,40 +573,33 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
         print("secwrap: passage not found on PATH", file=sys.stderr)
         return 1
 
-    # Derive old pubkey to know which recipient to remove.
-    with tempfile.NamedTemporaryFile(
-        mode="w", prefix="secwrap-old-meta-", suffix=".txt", delete=False
-    ) as tf:
-        old_keyfile = Path(tf.name)
-        tf.write(old_key)
-    new_keyfile: Path | None = None
     try:
+        # Derive old pubkey to know which recipient to remove. Pipe old key via stdin.
         old_pubkey_result = _run_or_fail(
-            ["age-keygen", "-y", str(old_keyfile)],
+            ["age-keygen", "-y", "/dev/stdin"],
             "age-keygen -y (old key)",
+            input=old_key,
         )
         old_pubkey = old_pubkey_result.stdout.strip()
 
-        # Generate new key.
-        with tempfile.NamedTemporaryFile(
-            mode="w", prefix="secwrap-new-meta-", suffix=".txt", delete=False
-        ) as tf:
-            new_keyfile = Path(tf.name)
+        # Generate new key on stdout.
         result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
-            ["age-keygen", "-pq", "-o", str(new_keyfile)],  # noqa: S607
+            ["age-keygen", "-pq"],  # noqa: S607
             capture_output=True,
             text=True,
             check=False,
         )
         if result.returncode != 0:
-            _run_or_fail(
-                ["age-keygen", "-o", str(new_keyfile)],
+            result = _run_or_fail(
+                ["age-keygen"],
                 "age-keygen (new key)",
             )
+        new_key_text = result.stdout
 
         new_pubkey_result = _run_or_fail(
-            ["age-keygen", "-y", str(new_keyfile)],
+            ["age-keygen", "-y", "/dev/stdin"],
             "age-keygen -y (new key)",
+            input=new_key_text,
         )
         new_pubkey = new_pubkey_result.stdout.strip()
 
@@ -634,8 +613,7 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
         )
 
         # Replace meta entry.
-        new_key_content = new_keyfile.read_text().strip()
-        payload = json.dumps({"backend": "age", "key": new_key_content})
+        payload = json.dumps({"backend": "age", "key": new_key_text.strip()})
         _run_or_fail(
             ["passage", "insert", "--force", "-m", "config/env-meta"],
             "passage insert config/env-meta",
@@ -647,18 +625,6 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
     except ShellOutError as exc:
         print(f"secwrap: {exc}", file=sys.stderr)
         return 1
-    finally:
-        for path in (old_keyfile, new_keyfile):
-            if path is None:
-                continue
-            if shutil.which("shred") is not None:
-                subprocess.run(  # noqa: S603 - trusted binary, controlled args
-                    ["shred", "-u", str(path)],  # noqa: S607
-                    capture_output=True,
-                    check=False,
-                )
-            if path.exists():
-                path.unlink()
 
 
 def do_doctor(backend: Backend, args: list[str]) -> int:
@@ -687,37 +653,26 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
     # Check 2: recipients contain meta pubkey.
     if meta_key is not None and shutil.which("age-keygen") is not None:
         print("Checking .age-recipients ...", file=sys.stdout)
-        with tempfile.NamedTemporaryFile(
-            mode="w", prefix="secwrap-doctor-", suffix=".txt", delete=False
-        ) as tf:
-            keyfile = Path(tf.name)
-            tf.write(meta_key.key.decode("utf-8"))
-        try:
-            result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
-                ["age-keygen", "-y", str(keyfile)],  # noqa: S607
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                failures.append(f"age-keygen -y failed: {result.stderr.strip()}")
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            ["age-keygen", "-y", "/dev/stdin"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+            input=meta_key.key.decode("utf-8"),
+        )
+        if result.returncode != 0:
+            failures.append(f"age-keygen -y failed: {result.stderr.strip()}")
+        else:
+            meta_pubkey = result.stdout.strip()
+            recipients_path = backend.store_dir / "config" / "env" / ".age-recipients"
+            if not recipients_path.exists():
+                failures.append(".age-recipients missing")
             else:
-                meta_pubkey = result.stdout.strip()
-                recipients_path = (
-                    backend.store_dir / "config" / "env" / ".age-recipients"
-                )
-                if not recipients_path.exists():
-                    failures.append(".age-recipients missing")
+                recipients = recipients_path.read_text().splitlines()
+                if meta_pubkey not in [r.strip() for r in recipients]:
+                    failures.append(f"meta pubkey {meta_pubkey} not in .age-recipients")
                 else:
-                    recipients = recipients_path.read_text().splitlines()
-                    if meta_pubkey not in [r.strip() for r in recipients]:
-                        failures.append(
-                            f"meta pubkey {meta_pubkey} not in .age-recipients"
-                        )
-                    else:
-                        print("  OK", file=sys.stdout)
-        finally:
-            keyfile.unlink(missing_ok=True)
+                    print("  OK", file=sys.stdout)
 
     # Check 3: every entry decrypts.
     if meta_key is not None:
