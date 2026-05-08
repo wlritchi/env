@@ -540,6 +540,30 @@ def _remove_age_recipient(store_dir: Path, pubkey: str) -> None:
     tmp.replace(recipients_path)
 
 
+def _swap_age_recipient(store_dir: Path, old_pubkey: str, new_pubkey: str) -> None:
+    """Atomically replace `old_pubkey` with `new_pubkey` in `.age-recipients`.
+
+    Removes any line equal to `old_pubkey`. Adds `new_pubkey` if not already present.
+    Single atomic write via tempfile + os.replace.
+    """
+    recipients_path = store_dir / "config" / "env" / ".age-recipients"
+    existing: list[str] = []
+    if recipients_path.exists():
+        existing = [
+            line for line in recipients_path.read_text().splitlines() if line.strip()
+        ]
+    filtered = [line for line in existing if line != old_pubkey]
+    if new_pubkey not in filtered:
+        filtered.append(new_pubkey)
+    if filtered == existing:
+        return
+    new_contents = "\n".join(filtered) + ("\n" if filtered else "")
+    recipients_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = recipients_path.parent / (recipients_path.name + ".tmp")
+    tmp.write_text(new_contents)
+    tmp.replace(recipients_path)
+
+
 def do_rotate_meta(backend: Backend, args: list[str]) -> int:
     if "--yes" not in args:
         print(
@@ -563,8 +587,10 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
         return 1
     try:
         existing = json.loads(existing_blob)
+        if not isinstance(existing, dict):
+            raise ValueError("expected JSON object")
         old_key = existing["key"]
-    except (json.JSONDecodeError, KeyError) as exc:
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
         print(f"secwrap: existing config/env-meta is malformed: {exc}", file=sys.stderr)
         return 1
 
@@ -613,9 +639,8 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
         )
         new_pubkey = new_pubkey_result.stdout.strip()
 
-        # Update recipients atomically: remove old, add new.
-        _remove_age_recipient(backend.store_dir, old_pubkey)
-        _add_age_recipient(backend.store_dir, new_pubkey)
+        # Update recipients atomically: remove old, add new in a single write.
+        _swap_age_recipient(backend.store_dir, old_pubkey, new_pubkey)
 
         # Re-encrypt the env subtree.
         _run_or_fail(

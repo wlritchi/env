@@ -1673,17 +1673,25 @@ def test_do_rotate_meta_with_yes_happy_path(
         else None,
     )
 
+    captured_keyfiles: list[str] = []
+    insert_calls: list[tuple[list[str], str | None]] = []
+
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
             out_idx = cmd.index("-o") + 1
+            captured_keyfiles.append(cmd[out_idx])
             Path(cmd[out_idx]).write_text("AGE-SECRET-KEY-1NEW\n")
             return subprocess.CompletedProcess(cmd, 0, "", "")
         if cmd[0] == "age-keygen" and "-y" in cmd:
+            captured_keyfiles.append(cmd[-1])
             # Return different pubkeys for old vs new based on input file content.
             content = Path(cmd[-1]).read_text().strip()
             if "OLD" in content:
                 return subprocess.CompletedProcess(cmd, 0, "age1oldmeta\n", "")
             return subprocess.CompletedProcess(cmd, 0, "age1newmeta\n", "")
+        if cmd[0] == "passage" and cmd[1] == "insert":
+            insert_calls.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            return subprocess.CompletedProcess(cmd, 0, "", "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     mocker.patch("subprocess.run", side_effect=fake_run)
@@ -1695,6 +1703,21 @@ def test_do_rotate_meta_with_yes_happy_path(
     assert "age1user" in contents
     assert "age1newmeta" in contents
     assert "age1oldmeta" not in contents
+
+    # passage insert was called with --force and a valid JSON payload.
+    assert insert_calls, "passage insert should have been invoked"
+    insert_cmd, insert_stdin = insert_calls[0]
+    assert "--force" in insert_cmd
+    assert isinstance(insert_stdin, str)
+    payload = json.loads(insert_stdin)
+    assert isinstance(payload, dict)
+    assert payload["backend"] == "age"
+    assert payload["key"] == "AGE-SECRET-KEY-1NEW"
+
+    # Both temp keyfiles are cleaned up.
+    assert captured_keyfiles, "age-keygen should have been invoked with paths"
+    for path in captured_keyfiles:
+        assert not Path(path).exists(), f"keyfile {path} not cleaned up"
 
 
 def test_do_rotate_meta_no_existing_meta(
