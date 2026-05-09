@@ -12,7 +12,10 @@
   nix.enable = false;
 
   # Enable TouchID for sudo authentication
-  security.pam.services.sudo_local.touchIdAuth = true;
+  security.pam.services.sudo_local = {
+    touchIdAuth = true;
+    reattach = true; # make TouchID work inside tmux
+  };
 
   # Set the primary user
   system.primaryUser = username;
