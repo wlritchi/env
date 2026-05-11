@@ -15,6 +15,8 @@ from wlrenv.secwrap import (
     IncludeError,
     MetaKey,
     MetaKeyError,
+    _derive_recipients_from_identities,
+    _resolve_inherited_recipients,
     do_bootstrap,
     do_doctor,
     do_rotate_meta,
@@ -1835,3 +1837,342 @@ def test_do_doctor_cycle_detected(
     assert rc == 1
     err = capsys.readouterr().err
     assert "cycle" in err.lower()
+
+
+def test_derive_recipients_from_identities_plain_key(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    identities = tmp_path / "identities"
+    identities.write_text("AGE-SECRET-KEY-1FAKE\n")
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert cmd[:2] == ["age-keygen", "-y"]
+        assert kwargs.get("input") == "AGE-SECRET-KEY-1FAKE"
+        return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    assert _derive_recipients_from_identities(identities) == ["age1userpub"]
+
+
+def test_derive_recipients_from_identities_parses_plugin_comment(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    # Plugin identities (e.g. yubikey) carry the pubkey as a "# public key:"
+    # comment. age-keygen -y can't process the plugin line itself.
+    identities = tmp_path / "identities"
+    identities.write_text("# public key: age1yubipub\nAGE-PLUGIN-YUBIKEY-1ABCDEF\n")
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
+    # age-keygen returns no stdout (no plain key lines to convert).
+    mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess([], 0, "", ""),
+    )
+    assert _derive_recipients_from_identities(identities) == ["age1yubipub"]
+
+
+def test_derive_recipients_from_identities_mixed(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    identities = tmp_path / "identities"
+    identities.write_text(
+        "# public key: age1yubipub\nAGE-PLUGIN-YUBIKEY-1XYZ\nAGE-SECRET-KEY-1PLAIN\n"
+    )
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        # We expect only the plain key to be piped to age-keygen.
+        assert kwargs.get("input") == "AGE-SECRET-KEY-1PLAIN"
+        return subprocess.CompletedProcess(cmd, 0, "age1plainpub\n", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    assert _derive_recipients_from_identities(identities) == [
+        "age1yubipub",
+        "age1plainpub",
+    ]
+
+
+def test_derive_recipients_from_identities_missing_file(tmp_path: Path) -> None:
+    assert _derive_recipients_from_identities(tmp_path / "nope") == []
+
+
+def test_resolve_inherited_recipients_walks_up(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """When `<store>/.age-recipients` exists, use its contents — passage's
+    walk-up resolution."""
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / ".age-recipients").write_text("age1walkedup\nage1another\n")
+    mocker.patch.dict("os.environ", {}, clear=True)
+
+    assert _resolve_inherited_recipients(tmp_path) == [
+        "age1walkedup",
+        "age1another",
+    ]
+
+
+def test_resolve_inherited_recipients_prefers_closer_dir(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """`<store>/config/.age-recipients` wins over `<store>/.age-recipients`
+    because it's closer to `config/env/`."""
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / ".age-recipients").write_text("age1root\n")
+    (tmp_path / "config" / ".age-recipients").write_text("age1config\n")
+    mocker.patch.dict("os.environ", {}, clear=True)
+
+    assert _resolve_inherited_recipients(tmp_path) == ["age1config"]
+
+
+def test_resolve_inherited_recipients_falls_back_to_identities(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """No .age-recipients anywhere → derive from $PASSAGE_IDENTITIES_FILE.
+    This is the affected real-world case (passage with no recipients file)."""
+    identities = tmp_path / "identities"
+    identities.write_text("AGE-SECRET-KEY-1USER\n")
+    mocker.patch.dict(
+        "os.environ", {"PASSAGE_IDENTITIES_FILE": str(identities)}, clear=True
+    )
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
+    mocker.patch(
+        "subprocess.run",
+        return_value=subprocess.CompletedProcess([], 0, "age1userpub\n", ""),
+    )
+
+    assert _resolve_inherited_recipients(tmp_path) == ["age1userpub"]
+
+
+def test_resolve_inherited_recipients_honors_PASSAGE_RECIPIENTS_FILE(  # noqa: N802
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    overrides = tmp_path / "custom-recipients"
+    overrides.write_text("age1override\n")
+    # Walked-up file also exists, to verify the env var takes precedence.
+    (tmp_path / ".age-recipients").write_text("age1notthis\n")
+    mocker.patch.dict(
+        "os.environ", {"PASSAGE_RECIPIENTS_FILE": str(overrides)}, clear=True
+    )
+
+    assert _resolve_inherited_recipients(tmp_path) == ["age1override"]
+
+
+def test_resolve_inherited_recipients_honors_PASSAGE_RECIPIENTS(  # noqa: N802
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    (tmp_path / ".age-recipients").write_text("age1notthis\n")
+    mocker.patch.dict(
+        "os.environ",
+        {"PASSAGE_RECIPIENTS": "age1one age1two"},
+        clear=True,
+    )
+
+    assert _resolve_inherited_recipients(tmp_path) == ["age1one", "age1two"]
+
+
+def test_do_bootstrap_derives_from_identities_when_no_recipients_file(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """The reported real-world bug case: the store has no `.age-recipients`
+    file anywhere; passage was deriving from `~/.passage/identities`. Bootstrap
+    must capture the identity-derived pubkey in the new local file or the
+    user's main key loses decryption access."""
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    identities = tmp_path / "identities"
+    identities.write_text("AGE-SECRET-KEY-1USER\n")
+    mocker.patch.dict("os.environ", {"PASSAGE_IDENTITIES_FILE": str(identities)})
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1NEW\n", "")
+        if cmd[0] == "age-keygen" and "-y" in cmd:
+            piped = kwargs.get("input") or ""
+            assert isinstance(piped, str)
+            # When deriving inherited recipients, age-keygen -y is invoked on
+            # the user identity. When deriving the new meta pubkey, it's
+            # invoked on the freshly-generated meta key.
+            if "USER" in piped:
+                return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1metapub\n", "")
+        if cmd[0] == "passage":
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 0
+
+    local = (tmp_path / "config" / "env" / ".age-recipients").read_text().splitlines()
+    assert "age1userpub" in local
+    assert "age1metapub" in local
+
+
+def test_do_bootstrap_aborts_when_no_recipient_source(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """If neither inherited `.age-recipients` nor identities can yield any
+    recipient, bootstrap MUST refuse rather than silently writing a file
+    that drops the user's decryption access."""
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    # No identities file at the default path either.
+    mocker.patch.dict(
+        "os.environ",
+        {"PASSAGE_IDENTITIES_FILE": str(tmp_path / "nonexistent")},
+    )
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "cannot determine existing recipients" in err
+
+
+def test_do_doctor_detects_missing_inherited_recipient(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The buggy-bootstrap state: local file has only the meta pubkey; the
+    user's main identity (the inherited recipient) is missing."""
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    identities = tmp_path / "identities"
+    identities.write_text("AGE-SECRET-KEY-1USER\n")
+    # Local recipients file has ONLY the meta pubkey — the broken state.
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1meta\n")
+    mocker.patch.dict("os.environ", {"PASSAGE_IDENTITIES_FILE": str(identities)})
+
+    blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["age-keygen", "-y"]:
+            piped = kwargs.get("input") or ""
+            assert isinstance(piped, str)
+            if "USER" in piped:
+                return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1meta\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_doctor(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "inherited recipient" in err
+    assert "age1userpub" in err
+    assert "--fix" in err
+
+
+def test_do_doctor_fix_repairs_missing_recipients(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`doctor --fix` adds the missing inherited recipient(s) and re-encrypts
+    each entry so the user's main key regains decryption access."""
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    identities = tmp_path / "identities"
+    identities.write_text("AGE-SECRET-KEY-1USER\n")
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1meta\n")
+    (tmp_path / "config" / "env" / "claude.age").write_bytes(b"original-ciphertext")
+    (tmp_path / "config" / "env" / "docker.age").write_bytes(b"original-ciphertext")
+    mocker.patch.dict("os.environ", {"PASSAGE_IDENTITIES_FILE": str(identities)})
+
+    blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("shutil.which", return_value="/usr/bin/age")
+
+    decrypted = {"claude": "FOO=claude\n", "docker": "BAR=docker\n"}
+    mocker.patch.object(
+        MetaKey, "decrypt", side_effect=lambda _store, name, _ext: decrypted[name]
+    )
+
+    age_invocations: list[tuple[list[str], bytes | None]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["age-keygen", "-y"]:
+            piped = kwargs.get("input") or ""
+            assert isinstance(piped, str)
+            if "USER" in piped:
+                return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1meta\n", "")
+        if cmd[0] == "age" and "-e" in cmd:
+            age_invocations.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            # Honor the -o argument so .replace() finds the tmp file.
+            for i, arg in enumerate(cmd):
+                if arg == "-o" and i + 1 < len(cmd):
+                    Path(cmd[i + 1]).write_bytes(b"re-encrypted-ciphertext")
+                    break
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_doctor(backend, ["--fix"])
+    assert rc == 0
+
+    final_recipients = (
+        (tmp_path / "config" / "env" / ".age-recipients").read_text().splitlines()
+    )
+    assert "age1meta" in final_recipients
+    assert "age1userpub" in final_recipients
+
+    # Each entry got re-encrypted to BOTH recipients.
+    assert len(age_invocations) == 2
+    for cmd, _stdin in age_invocations:
+        rs = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-r"]
+        assert "age1meta" in rs
+        assert "age1userpub" in rs
+
+    # Output files reflect the new ciphertext.
+    assert (tmp_path / "config" / "env" / "claude.age").read_bytes() == (
+        b"re-encrypted-ciphertext"
+    )
+    out = capsys.readouterr().out
+    assert "Repairs applied" in out
+    assert "age1userpub" in out
+
+
+def test_do_doctor_fix_no_op_when_clean(mocker: MockerFixture, tmp_path: Path) -> None:
+    """`--fix` on an already-correct keystore should be a no-op."""
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    identities = tmp_path / "identities"
+    identities.write_text("AGE-SECRET-KEY-1USER\n")
+    (tmp_path / "config" / "env" / ".age-recipients").write_text(
+        "age1userpub\nage1meta\n"
+    )
+    mocker.patch.dict("os.environ", {"PASSAGE_IDENTITIES_FILE": str(identities)})
+
+    blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-1FAKE"}'}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("shutil.which", return_value="/usr/bin/age-keygen")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["age-keygen", "-y"]:
+            piped = kwargs.get("input") or ""
+            assert isinstance(piped, str)
+            if "USER" in piped:
+                return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1meta\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_doctor(backend, ["--fix"])
+    assert rc == 0

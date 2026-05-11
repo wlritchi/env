@@ -410,24 +410,147 @@ def resolve_includes(
     return result
 
 
-def _add_age_recipient(store_dir: Path, pubkey: str) -> None:
-    """Append `pubkey` to `<store_dir>/config/env/.age-recipients` if absent.
+def _derive_recipients_from_identities(identities_path: Path) -> list[str]:
+    """Extract pubkeys from a passage identities file.
 
-    Idempotent. Atomic write via tempfile + os.replace.
+    Plain `AGE-SECRET-KEY-1...` lines are converted via `age-keygen -y`.
+    Plugin identities (e.g. yubikey) carry their pubkey in a `# public key:
+    age1...` comment, which `age -e -i <file>` reads directly; we parse those
+    comments here so the resulting list matches what passage would derive.
+    """
+    if not identities_path.is_file():
+        return []
+    recipients: list[str] = []
+    seen: set[str] = set()
+    content = identities_path.read_text()
+
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            continue
+        lower = stripped.lower()
+        idx = lower.find("public key:")
+        if idx < 0:
+            continue
+        value = stripped[idx + len("public key:") :].strip()
+        if value.startswith("age1") and value not in seen:
+            seen.add(value)
+            recipients.append(value)
+
+    plain_keys = "\n".join(
+        line
+        for line in content.splitlines()
+        if line.strip().startswith("AGE-SECRET-KEY")
+    )
+    if plain_keys and shutil.which("age-keygen") is not None:
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            ["age-keygen", "-y", "/dev/stdin"],  # noqa: S607
+            input=plain_keys,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("age1") and stripped not in seen:
+                seen.add(stripped)
+                recipients.append(stripped)
+
+    return recipients
+
+
+def _resolve_inherited_recipients(store_dir: Path) -> list[str]:
+    """Mirror passage's `set_age_recipients()` for the `config/env/` subtree.
+
+    Returns the recipient pubkeys passage would use to encrypt files under
+    `<store>/config/env/` if `<store>/config/env/.age-recipients` did NOT
+    exist. The local file is deliberately excluded so callers can compare
+    "what should be there" against "what is there".
+
+    Resolution order matches FiloSottile/passage's `src/password-store.sh`:
+      1. `$PASSAGE_RECIPIENTS_FILE` (file contents).
+      2. `$PASSAGE_RECIPIENTS` (whitespace-separated).
+      3. Walk up from `config/env/` looking for `.age-recipients` at
+         `<store>/config/.age-recipients`, then `<store>/.age-recipients`.
+      4. Otherwise derive from `$PASSAGE_IDENTITIES_FILE`
+         (default `~/.passage/identities`).
+    """
+    recipients_file_env = os.environ.get("PASSAGE_RECIPIENTS_FILE")
+    if recipients_file_env:
+        path = Path(recipients_file_env)
+        if path.is_file():
+            return [line for line in path.read_text().splitlines() if line.strip()]
+        return []
+
+    recipients_env = os.environ.get("PASSAGE_RECIPIENTS")
+    if recipients_env:
+        return [r for r in recipients_env.split() if r]
+
+    for path in (store_dir / "config", store_dir):
+        candidate = path / ".age-recipients"
+        if candidate.is_file():
+            return [line for line in candidate.read_text().splitlines() if line.strip()]
+
+    identities_env = os.environ.get("PASSAGE_IDENTITIES_FILE")
+    identities_path = (
+        Path(identities_env)
+        if identities_env
+        else Path.home() / ".passage" / "identities"
+    )
+    return _derive_recipients_from_identities(identities_path)
+
+
+def _write_age_recipients(store_dir: Path, recipients: Iterable[str]) -> None:
+    """Atomically write `<store>/config/env/.age-recipients` from `recipients`.
+
+    Deduplicates while preserving order. No-op if the file already has these
+    contents (compare-before-write). Atomic via tempfile + os.replace.
     """
     recipients_path = store_dir / "config" / "env" / ".age-recipients"
-    existing: list[str] = []
-    if recipients_path.exists():
-        existing = [
-            line for line in recipients_path.read_text().splitlines() if line.strip()
-        ]
-    if pubkey in existing:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for r in recipients:
+        if r and r not in seen:
+            seen.add(r)
+            deduped.append(r)
+    new_contents = "\n".join(deduped) + ("\n" if deduped else "")
+    if recipients_path.exists() and recipients_path.read_text() == new_contents:
         return
-    new_contents = "\n".join([*existing, pubkey]) + "\n"
     recipients_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = recipients_path.parent / (recipients_path.name + ".tmp")
     tmp.write_text(new_contents)
     tmp.replace(recipients_path)
+
+
+def _age_encrypt_to_recipients(
+    plaintext: str, recipients: list[str], output_path: Path
+) -> None:
+    """Encrypt `plaintext` to `output_path` for `recipients` via `age -e`.
+
+    Atomic: writes to a sibling `.tmp` file and renames on success. Raises
+    `ShellOutError` if `age` exits non-zero.
+    """
+    cmd: list[str] = ["age", "-e"]
+    for r in recipients:
+        cmd.extend(["-r", r])
+    tmp_path = output_path.parent / (output_path.name + ".tmp")
+    cmd.extend(["-o", str(tmp_path)])
+    result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+        cmd,
+        input=plaintext.encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise ShellOutError(
+            f"age encrypt failed: "
+            f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+        )
+    tmp_path.replace(output_path)
 
 
 def _run_or_fail(
@@ -464,6 +587,29 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
         )
         return 1
 
+    # Compute the recipient set passage is currently using under config/env/,
+    # so the new local .age-recipients we write doesn't drop the user's pubkey.
+    # If a local file already exists, use its contents as the base; otherwise
+    # resolve the inherited set (walked-up .age-recipients, or identities).
+    local_recipients_path = backend.store_dir / "config" / "env" / ".age-recipients"
+    if local_recipients_path.is_file():
+        base_recipients = [
+            line
+            for line in local_recipients_path.read_text().splitlines()
+            if line.strip()
+        ]
+    else:
+        base_recipients = _resolve_inherited_recipients(backend.store_dir)
+    if not base_recipients:
+        print(
+            "secwrap: cannot determine existing recipients for config/env/ "
+            "(no .age-recipients found in ancestors and no pubkeys derived "
+            "from $PASSAGE_IDENTITIES_FILE). Set up your identities file or "
+            "create config/env/.age-recipients manually before bootstrapping.",
+            file=sys.stderr,
+        )
+        return 1
+
     try:
         # Generate key. Try -pq (post-quantum); fall back to default if unsupported.
         # Capture key on stdout to avoid writing it to disk.
@@ -487,8 +633,10 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
         )
         pubkey = pubkey_result.stdout.strip()
 
-        # Add to recipients.
-        _add_age_recipient(backend.store_dir, pubkey)
+        # Write the local recipients file with the base set + the meta pubkey.
+        # Includes the user pubkey(s) so they retain decryption access after
+        # `passage reencrypt`.
+        _write_age_recipients(backend.store_dir, [*base_recipients, pubkey])
 
         # Re-encrypt the env subtree.
         _run_or_fail(
@@ -627,13 +775,44 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
         return 1
 
 
+def _repair_recipients(
+    backend: Backend, meta_key: MetaKey, new_recipients: list[str]
+) -> int:
+    """Repair a broken-bootstrap keystore: rewrite `.age-recipients` to
+    `new_recipients` and re-encrypt every `config/env/*.<ext>` entry so the
+    new recipient set is honored.
+
+    Returns the number of entries re-encrypted. Raises `MetaKeyError` if
+    decryption via the meta key fails, or `ShellOutError` if `age` fails.
+
+    Assumes `meta_key` can decrypt every entry — i.e., the broken state is
+    "encrypted only to the meta key", which is exactly what a buggy bootstrap
+    produces. If some entries were never re-encrypted to the meta key, this
+    helper will fail loudly on the first such entry.
+    """
+    _write_age_recipients(backend.store_dir, new_recipients)
+    count = 0
+    for tool in backend.list_tools():
+        plaintext = meta_key.decrypt(backend.store_dir, tool, backend.extension)
+        target = backend.store_dir / "config" / "env" / f"{tool}.{backend.extension}"
+        _age_encrypt_to_recipients(plaintext, new_recipients, target)
+        count += 1
+    return count
+
+
 def do_doctor(backend: Backend, args: list[str]) -> int:
     """Verify the meta-key invariants and the include graph.
 
     Output: progress and per-check status to stdout; failure details to stderr.
     Exit 0 if all clean; 1 if any check fails.
+
+    Passing `--fix` enables repair for missing inherited recipients: doctor
+    adds them to `config/env/.age-recipients` and re-encrypts every entry via
+    the meta key so the inherited identities can decrypt again.
     """
+    fix_mode = "--fix" in args
     failures: list[str] = []
+    repairs: list[str] = []
 
     # Check 1: meta entry exists and parses.
     print("Checking config/env-meta ...", file=sys.stdout)
@@ -650,7 +829,10 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
     if meta_key is None:
         print("  Skipping recipient/decrypt/include checks (no meta key).")
 
-    # Check 2: recipients contain meta pubkey.
+    # Check 2: recipients contain meta pubkey AND any inherited recipients
+    # (e.g. user identity) that passage would have used pre-bootstrap. A
+    # bootstrap before this check was added wrote the local file with only the
+    # meta pubkey, locking the user's main identity out of config/env/*.
     if meta_key is not None and shutil.which("age-keygen") is not None:
         print("Checking .age-recipients ...", file=sys.stdout)
         result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
@@ -668,9 +850,43 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
             if not recipients_path.exists():
                 failures.append(".age-recipients missing")
             else:
-                recipients = recipients_path.read_text().splitlines()
-                if meta_pubkey not in [r.strip() for r in recipients]:
-                    failures.append(f"meta pubkey {meta_pubkey} not in .age-recipients")
+                local_recipients = [
+                    line.strip()
+                    for line in recipients_path.read_text().splitlines()
+                    if line.strip()
+                ]
+                issues: list[str] = []
+                if meta_pubkey not in local_recipients:
+                    issues.append(f"meta pubkey {meta_pubkey} not in .age-recipients")
+                inherited = _resolve_inherited_recipients(backend.store_dir)
+                missing_inherited = [r for r in inherited if r not in local_recipients]
+                if missing_inherited:
+                    msg = (
+                        f".age-recipients missing inherited recipient(s) "
+                        f"{', '.join(missing_inherited)}"
+                    )
+                    if not fix_mode:
+                        msg += " (run `secwrap doctor --fix` to repair)"
+                    issues.append(msg)
+
+                if fix_mode and missing_inherited:
+                    repaired_recipients = local_recipients + missing_inherited
+                    try:
+                        count = _repair_recipients(
+                            backend, meta_key, repaired_recipients
+                        )
+                    except (MetaKeyError, ShellOutError) as exc:
+                        failures.append(f"repair: {exc}")
+                    else:
+                        repairs.append(
+                            f"added recipient(s) {', '.join(missing_inherited)} "
+                            f"and re-encrypted {count} entr"
+                            f"{'y' if count == 1 else 'ies'}"
+                        )
+                        issues = [i for i in issues if "inherited recipient" not in i]
+
+                if issues:
+                    failures.extend(issues)
                 else:
                     print("  OK", file=sys.stdout)
 
@@ -699,6 +915,11 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
             failures.extend(include_failures)
         else:
             print("  OK", file=sys.stdout)
+
+    if repairs:
+        print("\nRepairs applied:", file=sys.stdout)
+        for r in repairs:
+            print(f"  - {r}", file=sys.stdout)
 
     if failures:
         print("\nDoctor found issues:", file=sys.stderr)
