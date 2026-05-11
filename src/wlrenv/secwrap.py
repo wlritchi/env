@@ -410,6 +410,46 @@ def resolve_includes(
     return result
 
 
+def _classify_pubkey(pubkey: str) -> str:
+    """Return 'pq' or 'classic' for an age recipient pubkey.
+
+    age (≥ 1.3.0) refuses to encrypt to recipient sets that mix post-quantum
+    and classic keys. PQ recipients use HRP `age1pq` (start with `age1pq1`);
+    classic X25519 and plugin recipients (`age1yubikey1...`, `age1se1...`,
+    etc.) all sit on the classic side of age's mixing rule.
+    """
+    return "pq" if pubkey.startswith("age1pq1") else "classic"
+
+
+def _classify_recipients(recipients: Iterable[str]) -> set[str]:
+    """Return the set of distinct recipient kinds present in `recipients`."""
+    return {_classify_pubkey(r) for r in recipients if r}
+
+
+def _generate_meta_key(*, want_pq: bool) -> tuple[str, str]:
+    """Generate an age meta key, returning `(key_text, pubkey)`.
+
+    When `want_pq` is True, invokes `age-keygen -pq` and propagates any
+    failure (older age binaries that lack `-pq` cannot be reconciled with a
+    PQ recipient set, so falling back to classic would just produce a key
+    age refuses to mix). When False, invokes plain `age-keygen`.
+    """
+    if want_pq:
+        result = _run_or_fail(
+            ["age-keygen", "-pq"],
+            "age-keygen -pq (need PQ meta to match existing PQ recipients)",
+        )
+    else:
+        result = _run_or_fail(["age-keygen"], "age-keygen")
+    key_text = result.stdout
+    pubkey = _run_or_fail(
+        ["age-keygen", "-y", "/dev/stdin"],
+        "age-keygen -y",
+        input=key_text,
+    ).stdout.strip()
+    return key_text, pubkey
+
+
 def _derive_recipients_from_identities(identities_path: Path) -> list[str]:
     """Extract pubkeys from a passage identities file.
 
@@ -610,28 +650,23 @@ def do_bootstrap(backend: Backend, args: list[str]) -> int:
         )
         return 1
 
+    # age refuses to encrypt to a mixed PQ/classic recipient set. Pick the
+    # meta key type to match the existing recipients; bail if the existing
+    # set is itself mixed (age would already be unable to encrypt to it).
+    kinds = _classify_recipients(base_recipients)
+    if len(kinds) > 1:
+        print(
+            "secwrap: existing recipients mix post-quantum and classic age keys; "
+            "age cannot encrypt to mixed sets. Resolve this in your identities "
+            "or .age-recipients file before bootstrapping.",
+            file=sys.stderr,
+        )
+        return 1
+    want_pq = kinds == {"pq"}
+
     try:
-        # Generate key. Try -pq (post-quantum); fall back to default if unsupported.
         # Capture key on stdout to avoid writing it to disk.
-        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
-            ["age-keygen", "-pq"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            result = _run_or_fail(
-                ["age-keygen"],
-                "age-keygen",
-            )
-        key_text = result.stdout
-        # Extract pubkey by piping the key back in via stdin.
-        pubkey_result = _run_or_fail(
-            ["age-keygen", "-y", "/dev/stdin"],
-            "age-keygen -y",
-            input=key_text,
-        )
-        pubkey = pubkey_result.stdout.strip()
+        key_text, pubkey = _generate_meta_key(want_pq=want_pq)
 
         # Write the local recipients file with the base set + the meta pubkey.
         # Includes the user pubkey(s) so they retain decryption access after
@@ -730,26 +765,38 @@ def do_rotate_meta(backend: Backend, args: list[str]) -> int:
         )
         old_pubkey = old_pubkey_result.stdout.strip()
 
-        # Generate new key on stdout.
-        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
-            ["age-keygen", "-pq"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=False,
+        # Match the new meta key type to the existing non-meta recipients,
+        # since age refuses mixed sets. Bail on mixed or empty residue.
+        recipients_path = backend.store_dir / "config" / "env" / ".age-recipients"
+        existing_recipients = (
+            [
+                line.strip()
+                for line in recipients_path.read_text().splitlines()
+                if line.strip()
+            ]
+            if recipients_path.is_file()
+            else []
         )
-        if result.returncode != 0:
-            result = _run_or_fail(
-                ["age-keygen"],
-                "age-keygen (new key)",
+        residue = [r for r in existing_recipients if r != old_pubkey]
+        if not residue:
+            print(
+                "secwrap: .age-recipients has no non-meta recipients to match; "
+                "add your identity's pubkey before rotating (otherwise the new "
+                "meta key would lock you out, just like the original bootstrap bug).",
+                file=sys.stderr,
             )
-        new_key_text = result.stdout
+            return 1
+        kinds = _classify_recipients(residue)
+        if len(kinds) > 1:
+            print(
+                "secwrap: .age-recipients mixes post-quantum and classic age keys; "
+                "age cannot encrypt to mixed sets. Resolve this before rotating.",
+                file=sys.stderr,
+            )
+            return 1
+        want_pq = kinds == {"pq"}
 
-        new_pubkey_result = _run_or_fail(
-            ["age-keygen", "-y", "/dev/stdin"],
-            "age-keygen -y (new key)",
-            input=new_key_text,
-        )
-        new_pubkey = new_pubkey_result.stdout.strip()
+        new_key_text, new_pubkey = _generate_meta_key(want_pq=want_pq)
 
         # Update recipients atomically: remove old, add new in a single write.
         _swap_age_recipient(backend.store_dir, old_pubkey, new_pubkey)
@@ -798,6 +845,50 @@ def _repair_recipients(
         _age_encrypt_to_recipients(plaintext, new_recipients, target)
         count += 1
     return count
+
+
+def _repair_with_meta_rotation(
+    backend: Backend,
+    old_meta_key: MetaKey,
+    target_recipients_excluding_meta: list[str],
+    *,
+    want_pq: bool,
+) -> tuple[int, str]:
+    """Repair a keystore whose meta key type is incompatible with the
+    inherited recipients: decrypt every entry with `old_meta_key`, generate
+    a fresh meta key of the requested type, rewrite `.age-recipients` to
+    `[*target_recipients_excluding_meta, new_meta_pubkey]`, re-encrypt every
+    entry to that set, and finally replace `config/env-meta`.
+
+    Returns `(count_reencrypted, new_meta_pubkey)`.
+
+    Order matters: the old meta entry stays in place until after all
+    re-encrypts succeed, so a mid-loop failure leaves untouched entries
+    still decryptable by the old meta. Re-encrypt writes are atomic per
+    entry via tempfile + rename.
+    """
+    plaintexts: dict[str, str] = {}
+    for tool in backend.list_tools():
+        plaintexts[tool] = old_meta_key.decrypt(
+            backend.store_dir, tool, backend.extension
+        )
+
+    new_key_text, new_pubkey = _generate_meta_key(want_pq=want_pq)
+    full_recipients = [*target_recipients_excluding_meta, new_pubkey]
+    _write_age_recipients(backend.store_dir, full_recipients)
+
+    for tool, plaintext in plaintexts.items():
+        target = backend.store_dir / "config" / "env" / f"{tool}.{backend.extension}"
+        _age_encrypt_to_recipients(plaintext, full_recipients, target)
+
+    payload = json.dumps({"backend": "age", "key": new_key_text.strip()})
+    _run_or_fail(
+        ["passage", "insert", "--force", "-m", "config/env-meta"],
+        "passage insert config/env-meta",
+        input=payload + "\n",
+    )
+
+    return len(plaintexts), new_pubkey
 
 
 def do_doctor(backend: Backend, args: list[str]) -> int:
@@ -870,19 +961,57 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
                     issues.append(msg)
 
                 if fix_mode and missing_inherited:
-                    repaired_recipients = local_recipients + missing_inherited
+                    # If the meta key type and the missing inherited recipients
+                    # disagree (PQ vs classic), age will refuse to encrypt to
+                    # the merged set. Rotate the meta to the inherited's type
+                    # as part of the repair so the resulting recipient set is
+                    # homogeneous.
+                    meta_kind = _classify_pubkey(meta_pubkey)
+                    inherited_kinds = _classify_recipients(missing_inherited)
                     try:
-                        count = _repair_recipients(
-                            backend, meta_key, repaired_recipients
-                        )
+                        if len(inherited_kinds) > 1:
+                            raise ShellOutError(
+                                "missing inherited recipients mix post-quantum "
+                                "and classic age keys; resolve this in your "
+                                "identities/recipients before --fix"
+                            )
+                        inherited_kind = next(iter(inherited_kinds))
+                        if meta_kind != inherited_kind:
+                            # Keep any existing non-meta recipients (e.g. an
+                            # already-listed user pubkey of the inherited
+                            # kind) and drop the now-stale meta pubkey.
+                            target_excl_meta = [
+                                r for r in local_recipients if r != meta_pubkey
+                            ] + missing_inherited
+                            count, new_meta_pubkey = _repair_with_meta_rotation(
+                                backend,
+                                meta_key,
+                                target_excl_meta,
+                                want_pq=(inherited_kind == "pq"),
+                            )
+                            repairs.append(
+                                f"rotated meta key ({meta_kind}→{inherited_kind}), "
+                                f"added recipient(s) "
+                                f"{', '.join(missing_inherited)}, and "
+                                f"re-encrypted {count} entr"
+                                f"{'y' if count == 1 else 'ies'} "
+                                f"(new meta pubkey: {new_meta_pubkey})"
+                            )
+                        else:
+                            count = _repair_recipients(
+                                backend,
+                                meta_key,
+                                local_recipients + missing_inherited,
+                            )
+                            repairs.append(
+                                f"added recipient(s) "
+                                f"{', '.join(missing_inherited)} and "
+                                f"re-encrypted {count} entr"
+                                f"{'y' if count == 1 else 'ies'}"
+                            )
                     except (MetaKeyError, ShellOutError) as exc:
                         failures.append(f"repair: {exc}")
                     else:
-                        repairs.append(
-                            f"added recipient(s) {', '.join(missing_inherited)} "
-                            f"and re-encrypted {count} entr"
-                            f"{'y' if count == 1 else 'ies'}"
-                        )
                         issues = [i for i in issues if "inherited recipient" not in i]
 
                 if issues:

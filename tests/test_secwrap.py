@@ -15,6 +15,8 @@ from wlrenv.secwrap import (
     IncludeError,
     MetaKey,
     MetaKeyError,
+    _classify_pubkey,
+    _classify_recipients,
     _derive_recipients_from_identities,
     _resolve_inherited_recipients,
     do_bootstrap,
@@ -1488,10 +1490,14 @@ def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
-            # Key emitted on stdout (no -o flag).
-            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1FAKE\n", "")
+            raise AssertionError(
+                "bootstrap should NOT request -pq when recipients are classic"
+            )
         if cmd[0] == "age-keygen" and "-y" in cmd:
             return subprocess.CompletedProcess(cmd, 0, "age1pub...\n", "")
+        if cmd[0] == "age-keygen":
+            # Classic key emitted on stdout (no -o flag).
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1FAKE\n", "")
         if cmd[0] == "passage" and cmd[1] == "reencrypt":
             return subprocess.CompletedProcess(cmd, 0, "", "")
         if cmd[0] == "passage" and cmd[1] == "insert":
@@ -1549,13 +1555,15 @@ def test_do_bootstrap_age_keygen_missing(
     assert "age-keygen not found" in err
 
 
-def test_do_bootstrap_keygen_fallback_to_x25519(
-    mocker: MockerFixture, tmp_path: Path
+def test_do_bootstrap_errors_when_pq_needed_but_unsupported(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    # First age-keygen with -pq fails (older age); second without -pq succeeds.
+    # Existing recipients are PQ, so meta MUST be PQ. If age-keygen lacks
+    # `-pq`, bootstrap must error rather than silently producing a classic
+    # meta (which age would then refuse to mix with the PQ recipients).
     backend = _make_passage_backend(tmp_path)
     (tmp_path / "config" / "env").mkdir(parents=True)
-    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1user\n")
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1pq1userpq\n")
 
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
@@ -1568,16 +1576,20 @@ def test_do_bootstrap_keygen_fallback_to_x25519(
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
             return subprocess.CompletedProcess(cmd, 1, "", "unrecognized flag: -pq\n")
-        if cmd[0] == "age-keygen" and "-pq" not in cmd and "-y" not in cmd:
-            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1FALLBACK\n", "")
         if cmd[0] == "age-keygen" and "-y" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, "age1pub...\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1pq1metapub\n", "")
+        if cmd[0] == "age-keygen":
+            raise AssertionError(
+                "bootstrap should NOT fall back to classic when -pq is required"
+            )
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     mocker.patch("subprocess.run", side_effect=fake_run)
 
     rc = do_bootstrap(backend, [])
-    assert rc == 0
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "age-keygen -pq" in err
 
 
 def test_do_bootstrap_reencrypt_failure_aborts(
@@ -1656,8 +1668,9 @@ def test_do_rotate_meta_with_yes_happy_path(
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
-            # Generate new key on stdout.
-            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1NEW\n", "")
+            raise AssertionError(
+                "rotate-meta should NOT request -pq when residue is classic"
+            )
         if cmd[0] == "age-keygen" and "-y" in cmd:
             # Distinguish OLD vs NEW based on the key piped in via stdin.
             stdin_text = kwargs.get("input") or ""
@@ -1665,6 +1678,9 @@ def test_do_rotate_meta_with_yes_happy_path(
             if "OLD" in stdin_text:
                 return subprocess.CompletedProcess(cmd, 0, "age1oldmeta\n", "")
             return subprocess.CompletedProcess(cmd, 0, "age1newmeta\n", "")
+        if cmd[0] == "age-keygen":
+            # Classic new key on stdout.
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1NEW\n", "")
         if cmd[0] == "passage" and cmd[1] == "insert":
             insert_calls.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
             return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -1992,7 +2008,9 @@ def test_do_bootstrap_derives_from_identities_when_no_recipients_file(
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "age-keygen" and "-pq" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1NEW\n", "")
+            raise AssertionError(
+                "bootstrap should NOT request -pq when identity is classic"
+            )
         if cmd[0] == "age-keygen" and "-y" in cmd:
             piped = kwargs.get("input") or ""
             assert isinstance(piped, str)
@@ -2002,6 +2020,9 @@ def test_do_bootstrap_derives_from_identities_when_no_recipients_file(
             if "USER" in piped:
                 return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
             return subprocess.CompletedProcess(cmd, 0, "age1metapub\n", "")
+        if cmd[0] == "age-keygen":
+            # Classic meta key on stdout.
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1NEW\n", "")
         if cmd[0] == "passage":
             return subprocess.CompletedProcess(cmd, 0, "", "")
         raise AssertionError(f"unexpected command: {cmd}")
@@ -2176,3 +2197,260 @@ def test_do_doctor_fix_no_op_when_clean(mocker: MockerFixture, tmp_path: Path) -
 
     rc = do_doctor(backend, ["--fix"])
     assert rc == 0
+
+
+def test_classify_pubkey_classic() -> None:
+    assert _classify_pubkey("age1u7kymyknstr8wm9fr3za5vncph7q560") == "classic"
+
+
+def test_classify_pubkey_pq() -> None:
+    assert _classify_pubkey("age1pq13v5u7z5qe0l8w2rsgkapsecasmj") == "pq"
+
+
+def test_classify_pubkey_plugin_is_classic() -> None:
+    # Plugin recipients (yubikey, se, etc.) sit on the classic side of age's
+    # PQ/classic mixing rule.
+    assert _classify_pubkey("age1yubikey1qwerty") == "classic"
+    assert _classify_pubkey("age1se1plugin") == "classic"
+
+
+def test_classify_recipients_homogeneous_and_mixed() -> None:
+    assert _classify_recipients(["age1classic1", "age1classic2"]) == {"classic"}
+    assert _classify_recipients(["age1pq1one", "age1pq1two"]) == {"pq"}
+    assert _classify_recipients(["age1classic", "age1pq1mixed"]) == {"classic", "pq"}
+    assert _classify_recipients([]) == set()
+
+
+def test_do_bootstrap_generates_pq_meta_when_recipients_are_pq(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1pq1userpq\n")
+
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-PQ-1NEW\n", "")
+        if cmd[0] == "age-keygen" and "-y" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "age1pq1metapub\n", "")
+        if cmd[0] == "age-keygen":
+            raise AssertionError("bootstrap MUST request -pq when recipients are PQ")
+        if cmd[0] == "passage":
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 0
+    contents = (
+        (tmp_path / "config" / "env" / ".age-recipients").read_text().splitlines()
+    )
+    assert "age1pq1userpq" in contents
+    assert "age1pq1metapub" in contents
+
+
+def test_do_bootstrap_aborts_on_mixed_recipients(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / "config" / "env" / ".age-recipients").write_text(
+        "age1classic\nage1pq1other\n"
+    )
+
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+    mocker.patch(
+        "subprocess.run",
+        side_effect=AssertionError("should abort before shelling out"),
+    )
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "mix post-quantum and classic" in err
+
+
+def test_do_rotate_meta_matches_pq_residue(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    recipients = tmp_path / "config" / "env" / ".age-recipients"
+    recipients.write_text("age1pq1userpq\nage1pq1oldmeta\n")
+
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "age", "key": "AGE-SECRET-KEY-PQ-1OLD"}',
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-PQ-1NEW\n", "")
+        if cmd[0] == "age-keygen" and "-y" in cmd:
+            stdin_text = kwargs.get("input") or ""
+            assert isinstance(stdin_text, str)
+            if "OLD" in stdin_text:
+                return subprocess.CompletedProcess(cmd, 0, "age1pq1oldmeta\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1pq1newmeta\n", "")
+        if cmd[0] == "age-keygen":
+            raise AssertionError("rotate-meta MUST request -pq when residue is PQ")
+        if cmd[0] == "passage":
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_rotate_meta(backend, ["--yes"])
+    assert rc == 0
+    contents = recipients.read_text().splitlines()
+    assert "age1pq1userpq" in contents
+    assert "age1pq1newmeta" in contents
+    assert "age1pq1oldmeta" not in contents
+
+
+def test_do_rotate_meta_aborts_when_residue_empty(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # .age-recipients contains ONLY the old meta pubkey (the broken-bootstrap
+    # state). Rotating without inherited recipients in the file would just
+    # produce another locked-out state — bail with guidance.
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1oldmeta\n")
+
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "age", "key": "AGE-SECRET-KEY-1OLD"}',
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"age-keygen", "passage"}
+        else None,
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["age-keygen", "-y"]:
+            return subprocess.CompletedProcess(cmd, 0, "age1oldmeta\n", "")
+        if cmd[0] == "age-keygen":
+            raise AssertionError("should abort before generating new key")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_rotate_meta(backend, ["--yes"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "no non-meta recipients" in err
+
+
+def test_do_doctor_fix_rotates_meta_when_types_incompatible(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The user's real-world scenario: bootstrap (with the original bug) wrote
+    `.age-recipients` containing only a PQ meta pubkey, encrypting all entries
+    to that PQ key. The user's actual identity is classic, so the inherited
+    pubkey is classic — irreconcilable with the PQ meta. `doctor --fix` must
+    detect this and rotate the meta to a classic key as part of the repair."""
+    backend = _make_passage_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    identities = tmp_path / "identities"
+    identities.write_text("AGE-SECRET-KEY-1USER\n")
+    (tmp_path / "config" / "env" / ".age-recipients").write_text("age1pq1meta\n")
+    (tmp_path / "config" / "env" / "claude.age").write_bytes(b"original-ciphertext")
+    mocker.patch.dict("os.environ", {"PASSAGE_IDENTITIES_FILE": str(identities)})
+
+    blobs = {"config/env-meta": '{"backend": "age", "key": "AGE-SECRET-KEY-PQ-1OLD"}'}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch("shutil.which", return_value="/usr/bin/age")
+
+    decrypted = {"claude": "FOO=claude\n"}
+    mocker.patch.object(
+        MetaKey, "decrypt", side_effect=lambda _store, name, _ext: decrypted[name]
+    )
+
+    age_invocations: list[tuple[list[str], bytes | None]] = []
+    insert_calls: list[tuple[list[str], str | None]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["age-keygen", "-y"]:
+            piped = kwargs.get("input") or ""
+            assert isinstance(piped, str)
+            if "USER" in piped:
+                return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
+            if "OLD" in piped:
+                return subprocess.CompletedProcess(cmd, 0, "age1pq1meta\n", "")
+            return subprocess.CompletedProcess(cmd, 0, "age1newclassicmeta\n", "")
+        if cmd[0] == "age-keygen" and "-pq" in cmd:
+            raise AssertionError(
+                "doctor --fix should NOT request -pq when inherited is classic"
+            )
+        if cmd[0] == "age-keygen":
+            return subprocess.CompletedProcess(
+                cmd, 0, "AGE-SECRET-KEY-1NEWCLASSIC\n", ""
+            )
+        if cmd[0] == "age" and "-e" in cmd:
+            age_invocations.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            for i, arg in enumerate(cmd):
+                if arg == "-o" and i + 1 < len(cmd):
+                    Path(cmd[i + 1]).write_bytes(b"re-encrypted-ciphertext")
+                    break
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "passage" and cmd[1] == "insert":
+            insert_calls.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_doctor(backend, ["--fix"])
+    assert rc == 0
+
+    final_recipients = (
+        (tmp_path / "config" / "env" / ".age-recipients").read_text().splitlines()
+    )
+    assert "age1pq1meta" not in final_recipients
+    assert "age1userpub" in final_recipients
+    assert "age1newclassicmeta" in final_recipients
+
+    assert len(age_invocations) == 1
+    cmd, _stdin = age_invocations[0]
+    rs = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-r"]
+    assert "age1pq1meta" not in rs
+    assert "age1userpub" in rs
+    assert "age1newclassicmeta" in rs
+
+    assert insert_calls, "passage insert should have been invoked"
+    insert_cmd, insert_stdin = insert_calls[0]
+    assert "--force" in insert_cmd
+    assert isinstance(insert_stdin, str)
+    payload = json.loads(insert_stdin)
+    assert payload["key"] == "AGE-SECRET-KEY-1NEWCLASSIC"
+
+    out = capsys.readouterr().out
+    assert "Repairs applied" in out
+    assert "rotated meta key" in out
+    assert "pq" in out and "classic" in out
