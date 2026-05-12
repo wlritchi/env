@@ -54,6 +54,35 @@
     };
   };
 
+  # Register podvorak (custom Dvorak-based layout) as an enabled input source.
+  # The KeyboardLayout ID is the `id` attribute from podvorak.keylayout, and the
+  # name must match the layout's `name` attribute. The .keylayout file itself is
+  # copied into ~/Library/Keyboard Layouts/ by home-manager (see darwin.nix).
+  system.defaults.CustomUserPreferences."com.apple.HIToolbox".AppleEnabledInputSources = [
+    {
+      InputSourceKind = "Keyboard Layout";
+      "KeyboardLayout ID" = -27322;
+      "KeyboardLayout Name" = "Programisto Dvorak";
+    }
+    {
+      InputSourceKind = "Keyboard Layout";
+      "KeyboardLayout ID" = 29;
+      "KeyboardLayout Name" = "Canadian";
+    }
+    {
+      "Bundle ID" = "com.apple.CharacterPaletteIM";
+      InputSourceKind = "Non Keyboard Input Method";
+    }
+  ];
+
+  # cfprefsd caches user defaults in memory and will clobber on-disk writes from
+  # `defaults write` (which is how CustomUserPreferences are applied). Restarting
+  # it forces a re-read from disk so the HIToolbox / symbolichotkeys changes
+  # actually stick without requiring a logout.
+  system.activationScripts.postUserActivation.text = ''
+    killall cfprefsd 2>/dev/null || true
+  '';
+
   # Configure nix-homebrew
   nix-homebrew = {
     enable = true;
