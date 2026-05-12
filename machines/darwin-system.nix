@@ -1,4 +1,5 @@
 {
+  lib,
   username,
   homebrew-core,
   homebrew-cask,
@@ -78,10 +79,19 @@
   # cfprefsd caches user defaults in memory and will clobber on-disk writes from
   # `defaults write` (which is how CustomUserPreferences are applied). Restarting
   # it forces a re-read from disk so the HIToolbox / symbolichotkeys changes
-  # actually stick without requiring a logout.
-  system.activationScripts.postUserActivation.text = ''
-    killall cfprefsd 2>/dev/null || true
-  '';
+  # actually stick without requiring a logout. Activation runs as root, so we
+  # drop into the primary user's bootstrap namespace via `launchctl asuser` to
+  # target the per-user cfprefsd (this is the same pattern nix-darwin itself
+  # uses for user-scoped activation commands).
+  system.activationScripts.postActivation.text =
+    let
+      user = lib.escapeShellArg username;
+    in
+    ''
+      if uid=$(id -u -- ${user} 2>/dev/null) && launchctl asuser "$uid" true 2>/dev/null; then
+        launchctl asuser "$uid" sudo --user=${user} -- killall cfprefsd 2>/dev/null || true
+      fi
+    '';
 
   # Configure nix-homebrew
   nix-homebrew = {
