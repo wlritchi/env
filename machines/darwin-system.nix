@@ -76,6 +76,27 @@
     }
   ];
 
+  # autokbisw is a Swift CLI binary launched from aerospace startup; without a
+  # bundle identifier its UserDefaults.standard writes to the `autokbisw` domain
+  # (~/Library/Preferences/autokbisw.plist). Seed per-keyboard layout mappings
+  # so a fresh install picks the right layout immediately instead of requiring
+  # a manual selection on each device.
+  system.defaults.CustomUserPreferences."autokbisw" = {
+    keyboardISMapping = {
+      "Apple Internal Keyboard / Trackpad-[unknown-unknown-Apple-unknown]" =
+        "org.unknown.keylayout.ProgramistoDvorak";
+      "Moonlander Mark I-[12951-6505-ZSA Technology Labs-default/latest]" =
+        "com.apple.keylayout.Canadian";
+      "Moonlander Mark I-[12951-6514-ZSA Technology Labs-default/latest]" =
+        "com.apple.keylayout.Canadian";
+    };
+    mappingEnabled = {
+      "Apple Internal Keyboard / Trackpad-[unknown-unknown-Apple-unknown]" = true;
+      "Moonlander Mark I-[12951-6505-ZSA Technology Labs-default/latest]" = true;
+      "Moonlander Mark I-[12951-6514-ZSA Technology Labs-default/latest]" = true;
+    };
+  };
+
   # cfprefsd caches user defaults in memory and will clobber on-disk writes from
   # `defaults write` (which is how CustomUserPreferences are applied). Restarting
   # it forces a re-read from disk so the HIToolbox / symbolichotkeys changes
