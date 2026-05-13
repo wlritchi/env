@@ -66,8 +66,13 @@ Use in-project git worktrees when working on large multi-step tasks in repos tha
 uncommitted changes. In clean repos, worktrees are not necessary unless the user specifically asks
 for you to use them.
 
-Do NOT create worktrees adjacent to the repository; instead, place them under a `.worktrees/`
-folder inside the root repository. If `.worktrees/` isn't gitignored, add it to the root gitignore.
+Do NOT create worktrees adjacent to the repository; instead, place them under `.claude/worktrees/`
+inside the root repository. Some versions of the harness may offer a native tool for worktrees; you
+may use this tool unless you need to interact with a legacy worktree that's not compatible.
+
+Legacy worktrees will have been created in a `.worktrees/` folder inside the root repository. If
+you need to work with an existing legacy worktree and `.worktrees/` isn't gitignored, add it to the
+root gitignore.
 
 # Using plans (for Superpowers)
 
