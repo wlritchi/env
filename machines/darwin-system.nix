@@ -36,6 +36,20 @@
     autohide-delay = 3.0;
   };
 
+  # Disable the four Window > Move & Resize half-tile shortcuts. The Keyboard
+  # Shortcuts UI labels them Tile {Left,Right,Top,Bottom} Half with Ctrl+Fn+arrow
+  # equivalents, but on external keyboards Fn+arrow is just how the internal
+  # layer expresses Home/End/PageUp/PageDown, so the bindings actually fire on
+  # Ctrl+{Home,End,PageUp,PageDown}. The menu items themselves are simply named
+  # Left/Right/Top/Bottom. Remap to an unreachable combo (cmd+opt+ctrl+shift+DEL)
+  # so the menu items still work via click.
+  system.defaults.CustomUserPreferences.NSGlobalDomain.NSUserKeyEquivalents = {
+    "Left" = "@~^$\\U007F";
+    "Right" = "@~^$\\U007F";
+    "Top" = "@~^$\\U007F";
+    "Bottom" = "@~^$\\U007F";
+  };
+
   system.defaults.CustomUserPreferences."com.apple.symbolichotkeys".AppleSymbolicHotKeys = {
     "53" = {
       # decrease brightness (F14)
