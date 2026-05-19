@@ -110,6 +110,10 @@ alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 
 alt-cmd-up = 'workspace prev'
 alt-cmd-down = 'workspace next'
+alt-cmd-left = 'focus left --boundaries-action wrap-around-the-workspace'
+alt-cmd-right = 'focus right --boundaries-action wrap-around-the-workspace'
+alt-cmd-shift-left = 'move left'
+alt-cmd-shift-right = 'move right'
 
 # === WINDOWNAV keybinds ===
 # Synthetic keybinds from ZSA Moonlander WINDOWNAV layer.
