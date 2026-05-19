@@ -51,6 +51,18 @@
   };
 
   system.defaults.CustomUserPreferences."com.apple.symbolichotkeys".AppleSymbolicHotKeys = {
+    "64" = {
+      # Show Spotlight search - alt+p
+      enabled = true;
+      value = {
+        type = "standard";
+        parameters = [
+          112
+          35
+          524288
+        ];
+      };
+    };
     "53" = {
       # decrease brightness (F14)
       enabled = false;
