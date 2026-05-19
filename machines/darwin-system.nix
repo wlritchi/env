@@ -42,12 +42,15 @@
   # layer expresses Home/End/PageUp/PageDown, so the bindings actually fire on
   # Ctrl+{Home,End,PageUp,PageDown}. The menu items themselves are simply named
   # Left/Right/Top/Bottom. Remap to an unreachable combo (cmd+opt+ctrl+shift+DEL)
-  # so the menu items still work via click.
+  # so the menu items still work via click. Window > Minimize (cmd+m) is also
+  # neutered here — too easy to hit by accident and recovering a minimized
+  # window without the dock is a hassle.
   system.defaults.CustomUserPreferences.NSGlobalDomain.NSUserKeyEquivalents = {
     "Left" = "@~^$\\U007F";
     "Right" = "@~^$\\U007F";
     "Top" = "@~^$\\U007F";
     "Bottom" = "@~^$\\U007F";
+    "Minimize" = "@~^$\\U007F";
   };
 
   system.defaults.CustomUserPreferences."com.apple.symbolichotkeys".AppleSymbolicHotKeys = {
