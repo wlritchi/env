@@ -29,8 +29,11 @@ keybind = cmd+a=text:\x01
 # keysyms that Ghostty doesn't recognize. Ghostty Linux support is deferred.
 
 # Pane navigate (Super + F13-F16)
-keybind = super+f13=text:\x1b[200~
-keybind = super+f14=text:\x1b[201~
+# NOTE: F13/F14 emit \x1b[231~/\x1b[232~ instead of \x1b[200~/\x1b[201~
+# because the latter are the standard bracketed-paste start/end markers (DEC
+# mode 2004) and registering them as tmux user-keys breaks paste.
+keybind = super+f13=text:\x1b[231~
+keybind = super+f14=text:\x1b[232~
 keybind = super+f15=text:\x1b[202~
 keybind = super+f16=text:\x1b[203~
 

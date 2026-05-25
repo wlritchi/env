@@ -386,13 +386,18 @@ sequences via `user-keys`.
 
 #### Escape sequence convention
 
-Custom CSI sequences `\e[200~` through `\e[230~` encode pane-scope and tab
-operations. These are well outside the standard F-key range (`\e[1~`-`\e[34~`).
+Custom CSI sequences `\e[202~` through `\e[232~` encode pane-scope and tab
+operations. These are outside the standard F-key range (`\e[1~`-`\e[34~`). Note
+that `\e[200~` and `\e[201~` are skipped: they are the standard bracketed-paste
+start/end markers (DEC mode 2004), and registering them as tmux `user-keys`
+breaks pasting (the start marker is consumed as a user-key, so tmux never
+enters paste mode and the end marker leaks through as literal `[201~` text).
+The first two slots (User0, User1) instead use `\e[231~` and `\e[232~`.
 
 | Sequence | Operation | Keyboard keybind |
 |----------|-----------|------------------|
-| `\e[200~` | Navigate pane left | Super+F13 |
-| `\e[201~` | Navigate pane up | Super+F14 |
+| `\e[231~` | Navigate pane left | Super+F13 |
+| `\e[232~` | Navigate pane up | Super+F14 |
 | `\e[202~` | Navigate pane down | Super+F15 |
 | `\e[203~` | Navigate pane right | Super+F16 |
 | `\e[204~` | Move pane left | Super+Shift+F13 |

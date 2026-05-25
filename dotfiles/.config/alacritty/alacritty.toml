@@ -803,25 +803,28 @@ key = "NumpadEnter"
 # One-shot bindings use F17-F21 scancodes (Linux) and names (macOS).
 
 # --- Pane navigate (Super + F13-F16) ---
+# NOTE: F13/F14 emit \u001b[231~/\u001b[232~ instead of \u001b[200~/\u001b[201~
+# because the latter are the standard bracketed-paste start/end markers (DEC
+# mode 2004) and registering them as tmux user-keys breaks paste.
 [[keyboard.bindings]]
 key = 183
 mods = "Super"
-chars = "\u001b[200~"
+chars = "\u001b[231~"
 
 [[keyboard.bindings]]
 key = "F13"
 mods = "Super"
-chars = "\u001b[200~"
+chars = "\u001b[231~"
 
 [[keyboard.bindings]]
 key = 184
 mods = "Super"
-chars = "\u001b[201~"
+chars = "\u001b[232~"
 
 [[keyboard.bindings]]
 key = "F14"
 mods = "Super"
-chars = "\u001b[201~"
+chars = "\u001b[232~"
 
 [[keyboard.bindings]]
 key = 185
