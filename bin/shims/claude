@@ -324,6 +324,108 @@ BINARY_PATCHER_V1 = BinaryPatcher(
 )
 
 
+# Syntax-highlight scope-map patch (2.1.151+). Recolors the dark "Monokai" token
+# map to Catppuccin Macchiato. The map is a hardcoded `new Map([["keyword",...]])`
+# literal, NOT reachable via the theme `overrides` system (which only covers the
+# named UI palette). The custom Catppuccin theme has base "dark", so it renders
+# code through this map.
+#
+# Length-preserving trick: Catppuccin's mostly-3-digit channels make the naive
+# replacement +13 bytes over the 697-byte original. The scope lookup is
+# `scopes.get(s) ?? scopes.get(_7(s,".")) ?? foreground`, where `_7(s,".")` is the
+# substring before the FIRST dot, so a missing `title.function` falls back to
+# `title`. We map both to the same blue, drop the `title.function` entry (zero
+# visual change), and space-pad the literal back to the original byte length.
+_SYNTAX_DARK_MAP: tuple[tuple[str, int, int, int], ...] = (
+    ("keyword", 249, 38, 114),
+    ("_storage", 102, 217, 239),
+    ("built_in", 166, 226, 46),
+    ("type", 166, 226, 46),
+    ("literal", 190, 132, 255),
+    ("number", 190, 132, 255),
+    ("string", 230, 219, 116),
+    ("title", 166, 226, 46),
+    ("title.function", 166, 226, 46),
+    ("title.class", 166, 226, 46),
+    ("title.class.inherited", 166, 226, 46),
+    ("params", 253, 151, 31),
+    ("comment", 117, 113, 94),
+    ("meta", 117, 113, 94),
+    ("attr", 166, 226, 46),
+    ("attribute", 166, 226, 46),
+    ("variable", 255, 255, 255),
+    ("variable.language", 255, 255, 255),
+    ("property", 255, 255, 255),
+    ("operator", 249, 38, 114),
+    ("punctuation", 248, 248, 242),
+    ("symbol", 190, 132, 255),
+    ("regexp", 230, 219, 116),
+    ("subst", 248, 248, 242),
+)
+# scope -> Catppuccin Macchiato rgb. `title.function` is intentionally omitted: it
+# inherits `title` (same blue) via the first-dot lookup fallback, which frees the
+# bytes that keep the edit length-preserving.
+_CATPPUCCIN_SCOPES: dict[str, tuple[int, int, int]] = {
+    "keyword": (198, 160, 246),
+    "_storage": (198, 160, 246),
+    "built_in": (237, 135, 150),
+    "type": (238, 212, 159),
+    "literal": (245, 169, 127),
+    "number": (245, 169, 127),
+    "string": (166, 218, 149),
+    "title": (138, 173, 244),
+    "title.class": (238, 212, 159),
+    "title.class.inherited": (238, 212, 159),
+    "params": (238, 153, 160),
+    "comment": (110, 115, 141),
+    "meta": (198, 160, 246),
+    "attr": (238, 212, 159),
+    "attribute": (238, 212, 159),
+    "variable": (202, 211, 245),
+    "variable.language": (237, 135, 150),
+    "property": (202, 211, 245),
+    "operator": (145, 215, 227),
+    "punctuation": (147, 154, 183),
+    "symbol": (237, 135, 150),
+    "regexp": (245, 189, 230),
+    "subst": (202, 211, 245),
+}
+
+
+def _syntax_scope_pattern() -> re.Pattern[bytes]:
+    """Match the exact original dark scope-map literal (var name captured)."""
+    parts: list[str] = []
+    for i, (scope, r, g, b) in enumerate(_SYNTAX_DARK_MAP):
+        var = r"([A-Za-z0-9_$]+)" if i == 0 else r"\1"
+        parts.append(rf'\["{re.escape(scope)}",{var}\({r},{g},{b}\)\]')
+    return re.compile((r"new Map\(\[" + ",".join(parts) + r"\]\)").encode())
+
+
+def _syntax_scope_replacement(m: re.Match[bytes]) -> bytes:
+    var = m.group(1).decode()
+    entries = [
+        (s, _CATPPUCCIN_SCOPES[s])
+        for s, *_ in _SYNTAX_DARK_MAP
+        if s in _CATPPUCCIN_SCOPES
+    ]
+    body = ",".join(f'["{s}",{var}({c[0]},{c[1]},{c[2]})]' for s, c in entries)
+    core = f"new Map([{body}])"
+    pad = len(m.group(0)) - len(core)
+    if pad < 0:
+        raise PatchError(f"syntax scope-map replacement too long by {-pad} bytes")
+    return f"new Map([{' ' * pad}{body}])".encode()
+
+
+SYNTAX_SCOPE_PATCH = BinaryPatch(
+    name="catppuccin-syntax-scopes",
+    pattern=_syntax_scope_pattern(),
+    replacement=_syntax_scope_replacement,
+)
+SYNTAX_SCOPE_VERIFY = re.compile(
+    rb'new Map\(\[ *\["keyword",[A-Za-z0-9_$]+\(198,160,246\)'
+)
+
+
 # Binary patcher for 2.1.151+. Starting in the 2.1.151 dev cycle (first shipped
 # publicly in 2.1.152), Claude Code folds an assistant turn's thinking block into
 # the adjacent tool-use group: the reducer that builds `grouped_tool_use` records
@@ -343,7 +445,9 @@ BINARY_PATCHER_V1 = BinaryPatcher(
 # it. This restores pre-2.1.151 behavior (thinking always shown in full) while
 # leaving tool-use grouping/collapse intact.
 BINARY_PATCHER_V2 = BinaryPatcher(
-    revision=2,
+    # revision 3 was a since-reverted color-mode experiment; 4 avoids reusing
+    # any stale `_patched_r3` dirs from machines that pulled that commit.
+    revision=4,
     min_version="2.1.151",
     patches=(
         # The two V1 render-side patches still apply (the standalone
@@ -365,11 +469,14 @@ BINARY_PATCHER_V2 = BinaryPatcher(
                 m.group(1) + b"void" + b" " * (len(m.group(2)) - 5) + b"0" + m.group(3)
             ),
         ),
+        # Recolor the dark syntax-highlight scope map to Catppuccin Macchiato.
+        SYNTAX_SCOPE_PATCH,
     ),
     verify=(
         *BINARY_PATCHER_V1.verify,
         # Thinking extractor neutralized: the ternary now yields undefined.
         re.compile(rb":null,[A-Za-z0-9_$]+=[A-Za-z0-9_$]+===null\?void +0:void 0"),
+        SYNTAX_SCOPE_VERIFY,
     ),
 )
 
