@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# Usage: kubectl dsh [--install] [--configure] <kubectl-exec-args> [-- <shell_plus-args>...]
+#
+#   --install    pip install ptpython and django-extensions in the target
+#   --configure  push the local ptpython config and run shell_plus with --ptpython
+#
+# Args before -- are passed to `kubectl exec`; args after -- are passed to
+# `manage.py shell_plus`.
+
 install=0
 configure=0
 
@@ -53,6 +61,11 @@ for arg in ${shell_plus_args[@]+"${shell_plus_args[@]}"}; do
     shell_plus_quoted+=" '$escaped'"
 done
 
-remote_cmd+="exec ./manage.py shell_plus --ptpython${shell_plus_quoted}"
+ptpython_flag=""
+if [[ $configure -eq 1 ]]; then
+    ptpython_flag=" --ptpython"
+fi
+
+remote_cmd+="exec ./manage.py shell_plus${ptpython_flag}${shell_plus_quoted}"
 
 kubectl exec --stdin --tty "${kubectl_args[@]}" -- /bin/sh -c "$remote_cmd"
