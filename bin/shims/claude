@@ -281,7 +281,7 @@ TEXT_PATCHER_V0 = TextPatcher(
 BINARY_PATCHER_V1 = BinaryPatcher(
     revision=1,
     min_version="2.1.113",
-    max_version="2.1.142",  # 2.1.142+ also needs the color-mode fix; see V1_COLOR/V2
+    max_version="2.1.151",  # 2.1.151+ also folds thinking into tool groups; see V2
     patches=(
         # 1. Neutralize the thinking-block early return by rewriting the first
         #    `!<var>` to `!1...1` (same width). `!11...1` evaluates to false
@@ -324,41 +324,6 @@ BINARY_PATCHER_V1 = BinaryPatcher(
 )
 
 
-# Color-mode patch (2.1.142+). 2.1.142 rewrote the syntax-highlighter's color
-# mode helper from reading COLORTERM directly —
-#     return process.env.COLORTERM==="truecolor"||...==="24bit"?"truecolor":"color256"
-# — to keying off chalk's runtime color level —
-#     return <chalk>.level>=3?"truecolor":"color256"
-# That helper feeds the diff/code highlighter; in the dark theme the only fields
-# that differ between its truecolor and color256 branches are the ADDED line/word
-# backgrounds (truecolor near-black green rgb(2,40,0)/rgb(4,71,0) vs color256
-# ansi256 #22/#28 = the far brighter rgb(0,95,0)/rgb(0,135,0)). Chalk's level is
-# < 3 whenever the rendering process isn't a truecolor TTY at init — notably the
-# daemon/attacher path, where an attaching client reports its colorLevel via an
-# internal setLevel() that COLORTERM/FORCE_COLOR in the parent env can't override
-# — so added-line diffs lose contrast ("light-on-light") while removed lines
-# (always rgb) stay fine. Forcing the comparison to `>=0` makes the helper always
-# pick truecolor for non-ansi themes, restoring pre-2.1.142 behavior. The edit is
-# length-preserving (single byte, '3' -> '0'); the pattern occurs once per build.
-COLOR_MODE_PATCH = BinaryPatch(
-    name="force-truecolor-color-mode",
-    pattern=re.compile(rb'(\.level>=)3(\?"truecolor":"color256")'),
-    replacement=lambda m: m.group(1) + b"0" + m.group(2),
-)
-COLOR_MODE_VERIFY = re.compile(rb'\.level>=0\?"truecolor":"color256"')
-
-
-# 2.1.142 to 2.1.150: same thinking patches as V1, plus the color-mode fix. (The
-# thinking-grouping change that V2 also handles only lands in 2.1.151.)
-BINARY_PATCHER_V1_COLOR = BinaryPatcher(
-    revision=2,
-    min_version="2.1.142",
-    max_version="2.1.151",
-    patches=(*BINARY_PATCHER_V1.patches, COLOR_MODE_PATCH),
-    verify=(*BINARY_PATCHER_V1.verify, COLOR_MODE_VERIFY),
-)
-
-
 # Binary patcher for 2.1.151+. Starting in the 2.1.151 dev cycle (first shipped
 # publicly in 2.1.152), Claude Code folds an assistant turn's thinking block into
 # the adjacent tool-use group: the reducer that builds `grouped_tool_use` records
@@ -378,7 +343,7 @@ BINARY_PATCHER_V1_COLOR = BinaryPatcher(
 # it. This restores pre-2.1.151 behavior (thinking always shown in full) while
 # leaving tool-use grouping/collapse intact.
 BINARY_PATCHER_V2 = BinaryPatcher(
-    revision=3,
+    revision=2,
     min_version="2.1.151",
     patches=(
         # The two V1 render-side patches still apply (the standalone
@@ -400,14 +365,11 @@ BINARY_PATCHER_V2 = BinaryPatcher(
                 m.group(1) + b"void" + b" " * (len(m.group(2)) - 5) + b"0" + m.group(3)
             ),
         ),
-        # Same color-mode fix as 2.1.142+ (see COLOR_MODE_PATCH).
-        COLOR_MODE_PATCH,
     ),
     verify=(
         *BINARY_PATCHER_V1.verify,
         # Thinking extractor neutralized: the ternary now yields undefined.
         re.compile(rb":null,[A-Za-z0-9_$]+=[A-Za-z0-9_$]+===null\?void +0:void 0"),
-        COLOR_MODE_VERIFY,
     ),
 )
 
@@ -416,7 +378,6 @@ PATCHERS: tuple[Patcher, ...] = (
     TEXT_PATCHER_V0,
     TEXT_PATCHER_V1,
     BINARY_PATCHER_V1,
-    BINARY_PATCHER_V1_COLOR,
     BINARY_PATCHER_V2,
 )
 
@@ -589,6 +550,18 @@ def main(argv: list[str]) -> int:
         forwarded = ["--thinking-display", "summarized", *forwarded]
 
     env = {**os.environ, "BUN_INSTALL": str(bun_install)}
+    # Claude Code caps tmux sessions (TMUX set) to 256 colors at startup,
+    # ignoring COLORTERM, unless CLAUDE_CODE_TMUX_TRUECOLOR is set. That cap runs
+    # during module init, before settings.json's `env` block is applied, so the
+    # var has to be in the process environment at exec time. When COLORTERM
+    # advertises truecolor, lift the cap so diff/theme colors render in true
+    # color rather than a 256-color downsample (e.g. added-diff backgrounds). An
+    # explicit user value wins — set CLAUDE_CODE_TMUX_TRUECOLOR=0 to opt out.
+    if "CLAUDE_CODE_TMUX_TRUECOLOR" not in env and env.get("COLORTERM") in (
+        "truecolor",
+        "24bit",
+    ):
+        env["CLAUDE_CODE_TMUX_TRUECOLOR"] = "1"
     bin_path = claude_bin(bun_install)
     if uses_native_binary(shim.version):
         # Native binary: exec directly, bypassing bun.
