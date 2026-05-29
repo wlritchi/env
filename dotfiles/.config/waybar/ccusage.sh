@@ -9,7 +9,7 @@ usage=$(bunx ccusage --since "$since_date" -j 2>/dev/null || echo '{"daily":[],"
 
 # Extract and format costs
 today=$(date +%Y-%m-%d)
-last_date=$(echo "$usage" | jq -r '.daily[-1].date // ""')
+last_date=$(echo "$usage" | jq -r '.daily[-1].period // ""')
 if [[ "$last_date" == "$today" ]]; then
     daily=$(echo "$usage" | jq -r '.daily[-1].totalCost // 0')
 else
