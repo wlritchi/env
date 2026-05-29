@@ -1,5 +1,58 @@
 #!/bin/bash
 set -euo pipefail
 
-ptpython_config="$(cat "$HOME/.config/ptpython/config.py" | base64)"
-kubectl exec --stdin --tty "$@" -- /bin/sh -c 'mkdir -p "$HOME/.config/ptpython"; echo "'"$ptpython_config"'" | base64 -d > "$HOME/.config/ptpython/config.py"; pip install ptpython django-extensions; exec ./manage.py shell_plus --ptpython'
+install=0
+configure=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --install)
+            install=1
+            shift
+            ;;
+        --configure)
+            configure=1
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+kubectl_args=()
+shell_plus_args=()
+saw_separator=0
+for arg in "$@"; do
+    if [[ $saw_separator -eq 0 && "$arg" == "--" ]]; then
+        saw_separator=1
+        continue
+    fi
+    if [[ $saw_separator -eq 0 ]]; then
+        kubectl_args+=("$arg")
+    else
+        shell_plus_args+=("$arg")
+    fi
+done
+
+remote_cmd=""
+
+if [[ $configure -eq 1 ]]; then
+    ptpython_config="$(base64 < "$HOME/.config/ptpython/config.py")"
+    remote_cmd+='mkdir -p "$HOME/.config/ptpython"; '
+    remote_cmd+="echo '${ptpython_config}' | base64 -d > \"\$HOME/.config/ptpython/config.py\"; "
+fi
+
+if [[ $install -eq 1 ]]; then
+    remote_cmd+='pip install ptpython django-extensions; '
+fi
+
+shell_plus_quoted=""
+for arg in ${shell_plus_args[@]+"${shell_plus_args[@]}"}; do
+    escaped=${arg//\'/\'\\\'\'}
+    shell_plus_quoted+=" '$escaped'"
+done
+
+remote_cmd+="exec ./manage.py shell_plus --ptpython${shell_plus_quoted}"
+
+kubectl exec --stdin --tty "${kubectl_args[@]}" -- /bin/sh -c "$remote_cmd"
