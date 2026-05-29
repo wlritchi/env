@@ -281,6 +281,7 @@ TEXT_PATCHER_V0 = TextPatcher(
 BINARY_PATCHER_V1 = BinaryPatcher(
     revision=1,
     min_version="2.1.113",
+    max_version="2.1.151",  # 2.1.151+ also folds thinking into tool groups; see V2
     patches=(
         # 1. Neutralize the thinking-block early return by rewriting the first
         #    `!<var>` to `!1...1` (same width). `!11...1` evaluates to false
@@ -323,7 +324,62 @@ BINARY_PATCHER_V1 = BinaryPatcher(
 )
 
 
-PATCHERS: tuple[Patcher, ...] = (TEXT_PATCHER_V0, TEXT_PATCHER_V1, BINARY_PATCHER_V1)
+# Binary patcher for 2.1.151+. Starting in the 2.1.151 dev cycle (first shipped
+# publicly in 2.1.152), Claude Code folds an assistant turn's thinking block into
+# the adjacent tool-use group: the reducer that builds `grouped_tool_use` records
+# a `latestThinkingSummary`/`thoughtForMs` and pushes the thinking message into
+# the group, and the group renderer only shows the full thinking inside its
+# `if(verbose)` branch (the global ctrl-o toggle), collapsing it to a one-line
+# summary by default. The two render-side patches in V1 only force the STANDALONE
+# `case"thinking"` block expanded — a path the grouped turn no longer reaches —
+# so on their own they silently no-op for grouped thinking (the patterns still
+# match, so the verify step can't catch it; the thinking just renders collapsed).
+#
+# The third patch neutralizes the thinking extraction in the grouping reducer
+# (`f=O===null?ob_(Y):void 0` -> `f=O===null?void 0:void 0`), so the extractor
+# always yields undefined. The absorption branch (`else if(f!==void 0){... ;
+# K.messages.push(f.message)}`) then never fires, the thinking message falls
+# through to the standalone render path, and the V1 render-side patches expand
+# it. This restores pre-2.1.151 behavior (thinking always shown in full) while
+# leaving tool-use grouping/collapse intact.
+BINARY_PATCHER_V2 = BinaryPatcher(
+    revision=2,
+    min_version="2.1.151",
+    patches=(
+        # The two V1 render-side patches still apply (the standalone
+        # `case"thinking"` switch is what renders the now-ungrouped thinking).
+        *BINARY_PATCHER_V1.patches,
+        # Make the thinking extractor return undefined so thinking is never
+        # absorbed into the tool group. Length-preserving: the extractor call is
+        # replaced by `void`+spaces+`0` of equal byte width. Anchored on the
+        # `latestThinkingSummary` reset that immediately follows, so it can only
+        # match the grouping reducer and nowhere else.
+        BinaryPatch(
+            name="disable-thinking-grouping",
+            pattern=re.compile(
+                rb"(:null,[A-Za-z0-9_$]+=[A-Za-z0-9_$]+===null\?)"
+                rb"([A-Za-z0-9_$]+\([A-Za-z0-9_$,]*\))"
+                rb"(:void 0;if\([A-Za-z0-9_$]+\)\{[A-Za-z0-9_$]+\.latestThinkingSummary)"
+            ),
+            replacement=lambda m: (
+                m.group(1) + b"void" + b" " * (len(m.group(2)) - 5) + b"0" + m.group(3)
+            ),
+        ),
+    ),
+    verify=(
+        *BINARY_PATCHER_V1.verify,
+        # Thinking extractor neutralized: the ternary now yields undefined.
+        re.compile(rb":null,[A-Za-z0-9_$]+=[A-Za-z0-9_$]+===null\?void +0:void 0"),
+    ),
+)
+
+
+PATCHERS: tuple[Patcher, ...] = (
+    TEXT_PATCHER_V0,
+    TEXT_PATCHER_V1,
+    BINARY_PATCHER_V1,
+    BINARY_PATCHER_V2,
+)
 
 
 def pick_patcher(version: str) -> Patcher | None:
