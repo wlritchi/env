@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+# In Claude Code, fall back to real dd. The warning is aimed at humans who
+# might reach for dd reflexively; agents have already picked it deliberately.
+if [ "${CLAUDECODE:-}" = "1" ]; then
+    exec dd "$@"
+fi
+
 wlr-err '"dd" stands for "don'\''t do".' >&2
 printf 'Use "head -c[BYTES]" to limit bytes read.
 Use "pv" to monitor progress. Use "spv" if "sudo pv" produces no output.
