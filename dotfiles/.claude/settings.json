@@ -1,6 +1,7 @@
 {
   "cleanupPeriodDays": 99999,
   "effortLevel": "xhigh",
+  "theme": "custom:catppuccin-macchiato",
   "env": {
     "DISABLE_AUTOUPDATER": "1",
     "DISABLE_AUTO_MIGRATE_TO_NATIVE": "1",
