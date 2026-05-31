@@ -1,7 +1,5 @@
 {
   "cleanupPeriodDays": 99999,
-  "effortLevel": "xhigh",
-  "theme": "custom:catppuccin-macchiato",
   "env": {
     "DISABLE_AUTOUPDATER": "1",
     "DISABLE_AUTO_MIGRATE_TO_NATIVE": "1",
@@ -56,6 +54,9 @@
   },
   "syntaxHighlightingDisabled": false,
   "alwaysThinkingEnabled": true,
+  "effortLevel": "xhigh",
   "showThinkingSummaries": true,
-  "voiceEnabled": true
+  "theme": "custom:catppuccin-macchiato",
+  "voiceEnabled": true,
+  "skipWorkflowUsageWarning": true
 }
