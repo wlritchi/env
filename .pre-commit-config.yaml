@@ -155,6 +155,10 @@ repos:
       - id: check-toml
       - id: check-json
         exclude: ^dotfiles/\.config/zed/.*\.json$  # Zed uses JSONC (JSON with comments)
+      - id: pretty-format-json
+        name: alphabetize & pretty-format Claude settings.json
+        args: [--autofix, --indent=2]
+        files: ^dotfiles/\.claude/settings\.json$
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: check-executables-have-shebangs
