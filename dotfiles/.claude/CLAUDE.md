@@ -156,3 +156,28 @@ Use `mocker: MockerFixture` and `mocker.patch` rather than the `@patch` and `@pa
 decorators.
 
 When creating a `MagicMock`, ALWAYS pass the `spec` parameter.
+
+# Proactively saving workflow notes to memory
+
+Save memory notes proactively for workflow tricks, hardware/environment configuration details,
+debugging discoveries, and other things learned during the dev process. Don't wait for me to ask.
+
+**Why:** Context compaction destroys hard-won incidental knowledge — wiring topologies, baud rates,
+pin assignments, command credentials, "this looks hung but is actually doing a 4GB DMA" type
+discoveries. I've been burned by you forgetting these across compactions and having to re-derive
+them. Asking me to re-tell things I've already told you is friction.
+
+**When to save:** whenever you learn something that future-you couldn't re-derive by reading the
+current code or running a quick command. Examples of save-worthy moments:
+
+- Credentials, ports, IPs, hostnames I give you
+- Which physical thing connects to which (e.g. USB topology, UART pairings, cable maps)
+- "Gotcha" behaviors of tools/hardware (e.g. a dev-board LED wired to a coprocessor pin rather than
+  a GPIO, a package manager whose eval is slow, a serial adapter that only reads via pyserial and
+  not `cat`)
+- Patches to vendored third-party code that must survive across upstream pulls
+- Non-obvious build/deploy/flash command sequences
+- One-line root causes for bugs that took more than ~10 min to diagnose
+
+Prefer updating an existing memory if one already covers the topic. Keep each memory tightly
+scoped — the memory index is one line per entry, not a container.
