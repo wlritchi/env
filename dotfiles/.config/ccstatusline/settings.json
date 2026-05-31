@@ -84,6 +84,17 @@
         "character": " "
       },
       {
+        "id": "576e5576-5e66-492b-8f9b-6226c9816bea",
+        "type": "session-clock",
+        "rawValue": true,
+        "color": "hex:F5BDE6"
+      },
+      {
+        "id": "aedb2dc0-846f-41b6-b108-a88bfd369ca8",
+        "type": "separator",
+        "character": " "
+      },
+      {
         "id": "a33e7857-8cc9-4379-91ed-960670f0ee73",
         "type": "tokens-cached",
         "color": "hex:EED49F",
@@ -126,9 +137,76 @@
         "metadata": {
           "windowSeconds": "60"
         }
+      },
+      {
+        "id": "fb9ea37f-023a-491b-bb1c-467c2ba9581c",
+        "type": "separator",
+        "character": " "
       }
     ],
-    [],
+    [
+      {
+        "id": "0a834b0f-b310-4c6b-9f14-0c7b645be7c5",
+        "type": "session-usage",
+        "rawValue": false,
+        "metadata": {
+          "display": "progress-short"
+        },
+        "color": "hex:8AADF4"
+      },
+      {
+        "id": "60dfa1bd-45f1-4133-8757-fda826270db9",
+        "type": "separator",
+        "character": " "
+      },
+      {
+        "id": "6942a0d8-bb0b-447c-9c8a-27bf1fa27259",
+        "type": "separator",
+        "character": " "
+      },
+      {
+        "id": "9719281b-5564-4279-bb3e-21743a9bf37d",
+        "type": "weekly-usage",
+        "metadata": {
+          "display": "progress-short"
+        },
+        "color": "hex:8AADF4"
+      },
+      {
+        "id": "82d7e0e6-c1b4-44aa-8632-7df34ae2458d",
+        "type": "separator",
+        "character": " "
+      },
+      {
+        "id": "02d8c90a-3ca9-464b-9502-a7a9df911098",
+        "type": "separator",
+        "character": " "
+      },
+      {
+        "id": "071b825e-32ee-4434-8c6f-afae2362b101",
+        "type": "extra-usage-utilization",
+        "rawValue": false,
+        "metadata": {
+          "hideIfDisabled": "true",
+          "display": "progress-short"
+        },
+        "color": "hex:A6DA95"
+      },
+      {
+        "id": "da8c4b75-bcde-4328-9700-acba629695ce",
+        "type": "separator",
+        "character": " "
+      },
+      {
+        "id": "05cf2fb5-3f2d-4617-8bbb-df38290879ab",
+        "type": "extra-usage-remaining",
+        "rawValue": true,
+        "metadata": {
+          "hideIfDisabled": "true"
+        },
+        "color": "hex:A6DA95"
+      }
+    ],
     []
   ],
   "flexMode": "full-minus-40",
