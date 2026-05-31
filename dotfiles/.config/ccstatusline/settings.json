@@ -165,6 +165,17 @@
       },
       {
         "character": " ",
+        "id": "2a093f4c-4c25-4a09-a758-6cf2a2275914",
+        "type": "separator"
+      },
+      {
+        "color": "hex:8AADF4",
+        "id": "1b8c7070-e970-47f3-91f8-f43ae15e4e1b",
+        "rawValue": true,
+        "type": "reset-timer"
+      },
+      {
+        "character": " ",
         "id": "60dfa1bd-45f1-4133-8757-fda826270db9",
         "type": "separator"
       },
@@ -187,23 +198,19 @@
         "type": "separator"
       },
       {
+        "color": "hex:8AADF4",
+        "id": "1a75ec56-9201-4df8-84d3-738652ad0641",
+        "rawValue": true,
+        "type": "weekly-reset-timer"
+      },
+      {
         "character": " ",
-        "id": "02d8c90a-3ca9-464b-9502-a7a9df911098",
+        "id": "82d7e0e6-c1b4-44aa-8632-7df34ae2458d",
         "type": "separator"
       },
       {
-        "color": "hex:A6DA95",
-        "id": "071b825e-32ee-4434-8c6f-afae2362b101",
-        "metadata": {
-          "display": "progress-short",
-          "hideIfDisabled": "true"
-        },
-        "rawValue": false,
-        "type": "extra-usage-utilization"
-      },
-      {
         "character": " ",
-        "id": "da8c4b75-bcde-4328-9700-acba629695ce",
+        "id": "82d7e0e6-c1b4-44aa-8632-7df34ae2458d",
         "type": "separator"
       },
       {
