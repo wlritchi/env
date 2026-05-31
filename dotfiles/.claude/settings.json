@@ -1,17 +1,7 @@
 {
+  "alwaysThinkingEnabled": true,
   "cleanupPeriodDays": 99999,
-  "env": {
-    "DISABLE_AUTOUPDATER": "1",
-    "DISABLE_AUTO_MIGRATE_TO_NATIVE": "1",
-    "FORCE_AUTOUPDATE_PLUGINS": "1",
-    "BASH_DEFAULT_TIMEOUT_MS": "3600000",
-    "ANTHROPIC_MODEL": "opus",
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-    "OTEL_METRICS_EXPORTER": "otlp",
-    "OTEL_LOGS_EXPORTER": "otlp",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otel.wlritchi.com",
-    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"
-  },
+  "effortLevel": "xhigh",
   "enabledPlugins": {
     "agent-sdk-dev@claude-plugins-official": true,
     "clangd-lsp@claude-plugins-official": true,
@@ -38,25 +28,41 @@
     "swift-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true
   },
+  "env": {
+    "ANTHROPIC_MODEL": "opus",
+    "BASH_DEFAULT_TIMEOUT_MS": "3600000",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "DISABLE_AUTO_MIGRATE_TO_NATIVE": "1",
+    "FORCE_AUTOUPDATE_PLUGINS": "1",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otel.wlritchi.com",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_METRICS_EXPORTER": "otlp"
+  },
   "extraKnownMarketplaces": {
     "superpowers-marketplace": {
       "source": {
-        "source": "github",
-        "repo": "obra/superpowers-marketplace"
+        "repo": "obra/superpowers-marketplace",
+        "source": "github"
       }
     },
     "wlr-cc-plugins": {
       "source": {
-        "source": "github",
-        "repo": "wlritchi/wlr-cc-plugins"
+        "repo": "wlritchi/wlr-cc-plugins",
+        "source": "github"
       }
     }
   },
-  "syntaxHighlightingDisabled": false,
-  "alwaysThinkingEnabled": true,
-  "effortLevel": "xhigh",
   "showThinkingSummaries": true,
+  "skipWorkflowUsageWarning": true,
+  "statusLine": {
+    "command": "ccstatusline",
+    "padding": 0,
+    "refreshInterval": 10,
+    "type": "command"
+  },
+  "syntaxHighlightingDisabled": false,
   "theme": "custom:catppuccin-macchiato",
-  "voiceEnabled": true,
-  "skipWorkflowUsageWarning": true
+  "voiceEnabled": true
 }

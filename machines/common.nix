@@ -8,6 +8,7 @@
 }:
 
 let
+  ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
@@ -66,6 +67,7 @@ in
         (krew2nix.packages.${pkgs.stdenv.hostPlatform.system}.kubectl.withKrewPlugins (
           plugins: map (name: plugins.${name}) config.custom.krewPlugins
         ))
+        ccstatusline
         delta-realpath
         entire
         tryPkg
