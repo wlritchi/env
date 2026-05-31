@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
-DEFAULT_CLAUDE_VERSION = "2.1.154"
+DEFAULT_CLAUDE_VERSION = "2.1.158"
 HOME = Path.home()
 BUN_PATH = HOME / ".nix-profile" / "bin" / "bun"
 
