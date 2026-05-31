@@ -1,0 +1,16 @@
+# Rendered dotfiles — wlr-sync-dotfiles writes private renders here.
+rendered
+
+# Nix build artifacts.
+build
+result
+
+# Update bookkeeping.
+.last-update-check
+
+# Worktrees / scratch.
+.worktrees/
+.entire/
+
+# Claude local settings (never commit these).
+**/.claude/settings.local.json
