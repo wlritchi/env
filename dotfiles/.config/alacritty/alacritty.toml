@@ -11,6 +11,16 @@ duration = 0
 [colors]
 draw_bold_text_with_bright_colors = false
 
+# The Catppuccin Macchiato theme sets dim_foreground == foreground (#cad3f5),
+# which makes the SGR-2 "faint" attribute a no-op on default-foreground text.
+# Map dimmed default-fg to a Catppuccin grey so faint UI actually reads as muted
+# (Claude Code thinking/recap/tool-group headers, man-page secondary text, etc.).
+# Only default-fg + DIM is affected; explicitly-colored text still dims via
+# Alacritty's own x0.66 path, and non-dim text is untouched. Overlay0 #6e738d
+# matches the "comment" grey used elsewhere; bump to #8087a2 (Overlay1) if too dark.
+[colors.primary]
+dim_foreground = "#6e738d"
+
 [[colors.indexed_colors]]
 color = "0x002b36"
 index = 16
