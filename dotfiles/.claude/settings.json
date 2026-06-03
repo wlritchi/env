@@ -23,8 +23,6 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "skill-feedback@wlr-cc-plugins": true,
-    "superpowers-developing-for-claude-code@superpowers-marketplace": true,
-    "superpowers@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true
   },
@@ -41,12 +39,6 @@
     "OTEL_METRICS_EXPORTER": "otlp"
   },
   "extraKnownMarketplaces": {
-    "superpowers-marketplace": {
-      "source": {
-        "repo": "obra/superpowers-marketplace",
-        "source": "github"
-      }
-    },
     "wlr-cc-plugins": {
       "source": {
         "repo": "wlritchi/wlr-cc-plugins",
