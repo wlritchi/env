@@ -1,7 +1,7 @@
 {
   "colorLevel": 3,
   "compactThreshold": 60,
-  "flexMode": "full-minus-40",
+  "flexMode": "full",
   "gitCacheTtlSeconds": 5,
   "globalBold": false,
   "inheritSeparatorColors": false,
