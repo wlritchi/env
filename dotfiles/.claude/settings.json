@@ -28,7 +28,6 @@
     "typescript-lsp@claude-plugins-official": true
   },
   "env": {
-    "ANTHROPIC_MODEL": "opus",
     "BASH_DEFAULT_TIMEOUT_MS": "3600000",
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
     "DISABLE_AUTOUPDATER": "1",
