@@ -447,7 +447,7 @@ SYNTAX_SCOPE_VERIFY = re.compile(
 BINARY_PATCHER_V2 = BinaryPatcher(
     # revision 3 was a since-reverted color-mode experiment; 4 avoids reusing
     # any stale `_patched_r3` dirs from machines that pulled that commit.
-    revision=4,
+    revision=5,
     min_version="2.1.151",
     patches=(
         # The two V1 render-side patches still apply (the standalone
@@ -471,6 +471,17 @@ BINARY_PATCHER_V2 = BinaryPatcher(
         ),
         # Recolor the dark syntax-highlight scope map to Catppuccin Macchiato.
         SYNTAX_SCOPE_PATCH,
+        # Ensure Fable is registered in the model list
+        BinaryPatch(
+            name="enfable",
+            pattern=re.compile(
+                rb"(availableModels:([A-Za-z0-9_$]+)}=[A-Za-z0-9_$]+;if\(!\2\)return!0;)"
+                rb"(if\(\2.length===0\)return!1;)"
+            ),
+            replacement=lambda m: (
+                m.group(1) + m.group(2) + b".push('fable');" + b";" * (len(m.group(3)) - len(m.group(2)) - 15)
+            ),
+        ),
     ),
     verify=(
         *BINARY_PATCHER_V1.verify,
