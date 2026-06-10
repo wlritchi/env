@@ -34,6 +34,7 @@ in
         bun
         csvq
         eza
+        fd
         fnm
         fzf
         git
