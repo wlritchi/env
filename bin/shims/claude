@@ -447,7 +447,7 @@ SYNTAX_SCOPE_VERIFY = re.compile(
 BINARY_PATCHER_V2 = BinaryPatcher(
     # revision 3 was a since-reverted color-mode experiment; 4 avoids reusing
     # any stale `_patched_r3` dirs from machines that pulled that commit.
-    revision=5,
+    revision=6,
     min_version="2.1.151",
     patches=(
         # The two V1 render-side patches still apply (the standalone
@@ -481,6 +481,12 @@ BINARY_PATCHER_V2 = BinaryPatcher(
             replacement=lambda m: (
                 m.group(1) + m.group(2) + b".push('fable');" + b";" * (len(m.group(3)) - len(m.group(2)) - 15)
             ),
+        ),
+        # Enable channels
+        BinaryPatch(
+            name="channelator",
+            pattern=re.compile(rb"[A-Za-z0-9_$]+\?.channelsEnabled!==!0"),
+            replacement=lambda m: b"!" + b"1" * (len(m.group(0)) - 1),
         ),
     ),
     verify=(
