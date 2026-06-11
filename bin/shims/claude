@@ -426,6 +426,120 @@ SYNTAX_SCOPE_VERIFY = re.compile(
 )
 
 
+# Dev-channel inheritance for background agents (2.1.151+). Channels declared
+# with --dangerously-load-development-channels never reach the bg agent workers
+# the agents view spawns, for two independent reasons:
+#   1. The FleetView dispatch arg pipeline (gU$ -> $UH -> the `Mm$`
+#      dispatchExtraArgs global, prepended to every spawned/claimed worker) only
+#      forwards a fixed allowlist of flags: --settings, --add-dir, --plugin-dir,
+#      --mcp-config, --strict-mcp-config. The channel flags are dropped.
+#   2. Even if the flag did reach a worker, dev-channel *registration* (the
+#      n9H([...,{...,dev:true}]) call that marks a server as allowlist-bypassed)
+#      lives inside the startup dialog gate (showSetupScreens / NU9), which
+#      returns early for every background session: L7() is
+#      `CLAUDE_CODE_SESSION_KIND === "bg"`. So a bg worker would parse the flag
+#      into a local but never register it, and channel wiring later rejects the
+#      server as "not on the approved channels allowlist".
+#
+# Rebuilding the dispatch pipeline can't stay length-preserving, so instead the
+# shim exports CLAUDE_DEV_CHANNELS from the flag (see main()). That env var
+# rides along to every worker for free: all spawn paths (cold PTY host, claimed
+# --bg-spare, --resume) build their child env from {...process.env}, and the var
+# is on no strip-list. This patch teaches the worker to honor it: where the
+# binary would emit channel-flag telemetry, for bg sessions only, it parses the
+# env var's space-separated specs through the binary's own channel parser, tags
+# each {dev:true} (the same allowlist-bypass marker the accept dialog applies),
+# and registers them via the binary's own channel registrar onto the existing
+# channel list. Non-bg sessions are never touched, so the confirmation dialog
+# still gates the interactive parent exactly as before — accept once up front,
+# and the agents inherit silently.
+#
+# Length-preserving trick: the match spans the `--channels` registration plus the
+# `if(!isNonInteractive){...}` dev-channel parse (captured as group 1 and
+# re-emitted verbatim) through the `tengu_mcp_channel_flags` telemetry block
+# (purely analytics, consumed for byte budget). The injected registration plus
+# space padding refills exactly the telemetry block's bytes — the pad is computed
+# from the live match width since identifier widths vary across releases.
+#
+# Reminification-resilient: every minified identifier (W$, r$, c$, n9H, XH, U$,
+# Y$, ...) is matched by a capture-or-backref, so only the stable string and
+# property literals are pinned. The replacement reuses the captured parser
+# (c$ -> g4), registrar (n9H -> g5), and channel-list base (r$ -> g3), and
+# inlines the session-kind test rather than calling the minified L7()/$j(), so it
+# hardcodes no minified name that a future release could rename.
+_DEV_CHANNEL_ID = rb"([A-Za-z0-9_$]+)"
+
+
+def _dev_channel_inherit_pattern() -> re.Pattern[bytes]:
+    i = _DEV_CHANNEL_ID
+    return re.compile(
+        rb"("  # group 1: prefix, re-emitted verbatim
+        rb"if\("
+        + i
+        + rb"&&\2\.length>0\)"  # g2 = W$ (channels argv)
+        + i
+        + rb"="  # g3 = r$ (parsed --channels list, reused as base)
+        + i
+        + rb'\(\2,"--channels"\),'  # g4 = c$ (channel-spec parser)
+        + i
+        + rb"\(\3\);"  # g5 = n9H (registrar)
+        rb"if\(!" + i + rb"\)\{"  # g6 = isNonInteractive
+        rb"if\("
+        + i
+        + rb"&&\7\.length>0\)"  # g7 = U$ (dev-channels argv)
+        + i
+        + rb"=\4\(\7,"  # g8 = Y$ ; reuse g4 = c$
+        rb'"--dangerously-load-development-channels"\)\}'
+        rb")"  # end group 1
+        # telemetry block (consumed for byte budget, not re-emitted):
+        rb"if\(\3\.length>0\|\|\(\8\?\.length\?\?0\)>0\)\{"
+        rb"let " + i + rb"=\(" + i + rb"\)=>\{"  # g9, g10
+        rb"let " + i + rb"=\10\.flatMap\(\(" + i + rb"\)=>"  # g11, g12
+        rb'\12\.kind==="plugin"\?\[`\$\{\12\.name\}@\$\{\12\.marketplace\}`\]:\[\]\);'
+        rb'return \11\.length>0\?\11\.sort\(\)\.join\(","\):void 0\};'
+        + i
+        + rb'\("tengu_mcp_channel_flags",\{'  # g13
+        rb"channels_count:\3\.length,dev_count:\8\?\.length\?\?0,"
+        rb"plugins:\9\(\3\),dev_plugins:\9\(\8\?\?\[\]\)\}\)\}"
+    )
+
+
+def _dev_channel_inherit_replacement(m: re.Match[bytes]) -> bytes:
+    prefix, base, parse, register = m.group(1), m.group(3), m.group(4), m.group(5)
+    # devChannelsEnv/devEntry are descriptive enough that the minifier would
+    # never generate them, so they can't collide with the captured identifiers.
+    new = (
+        b'if(process.env.CLAUDE_CODE_SESSION_KIND==="bg"){'
+        b"let devChannelsEnv=process.env.CLAUDE_DEV_CHANNELS;"
+        b"if(devChannelsEnv)"
+        + register
+        + b"([..."
+        + base
+        + b",..."
+        + parse
+        + b'(devChannelsEnv.split(" ").filter(Boolean),'
+        b'"--dangerously-load-development-channels")'
+        b".map((devEntry)=>({...devEntry,dev:!0}))])}"
+    )
+    pad = len(m.group(0)) - len(prefix) - len(new)
+    if pad < 0:
+        raise PatchError(
+            f"dev-channel-inheritance replacement too long by {-pad} bytes"
+        )
+    return prefix + new + b" " * pad
+
+
+DEV_CHANNEL_INHERIT_PATCH = BinaryPatch(
+    name="dev-channel-inheritance",
+    pattern=_dev_channel_inherit_pattern(),
+    replacement=_dev_channel_inherit_replacement,
+)
+DEV_CHANNEL_INHERIT_VERIFY = re.compile(
+    rb'CLAUDE_CODE_SESSION_KIND==="bg"\)\{let devChannelsEnv='
+    rb"process\.env\.CLAUDE_DEV_CHANNELS;"
+)
+
+
 # Binary patcher for 2.1.151+. Starting in the 2.1.151 dev cycle (first shipped
 # publicly in 2.1.152), Claude Code folds an assistant turn's thinking block into
 # the adjacent tool-use group: the reducer that builds `grouped_tool_use` records
@@ -447,7 +561,7 @@ SYNTAX_SCOPE_VERIFY = re.compile(
 BINARY_PATCHER_V2 = BinaryPatcher(
     # revision 3 was a since-reverted color-mode experiment; 4 avoids reusing
     # any stale `_patched_r3` dirs from machines that pulled that commit.
-    revision=7,
+    revision=8,
     min_version="2.1.151",
     patches=(
         # The two V1 render-side patches still apply (the standalone
@@ -479,7 +593,10 @@ BINARY_PATCHER_V2 = BinaryPatcher(
                 rb"(if\(\2.length===0\)return!1;)"
             ),
             replacement=lambda m: (
-                m.group(1) + m.group(2) + b".push('fable');" + b";" * (len(m.group(3)) - len(m.group(2)) - 15)
+                m.group(1)
+                + m.group(2)
+                + b".push('fable');"
+                + b";" * (len(m.group(3)) - len(m.group(2)) - 15)
             ),
         ),
         # Enable channels
@@ -494,12 +611,16 @@ BINARY_PATCHER_V2 = BinaryPatcher(
             pattern=re.compile(rb'[A-Za-z0-9_$]+\("tengu_harbor",!1\)'),
             replacement=lambda m: b"!!" + b"1" * (len(m.group(0)) - 2),
         ),
+        # Let background agents inherit --dangerously-load-development-channels
+        # from the parent via CLAUDE_DEV_CHANNELS (set in main()).
+        DEV_CHANNEL_INHERIT_PATCH,
     ),
     verify=(
         *BINARY_PATCHER_V1.verify,
         # Thinking extractor neutralized: the ternary now yields undefined.
         re.compile(rb":null,[A-Za-z0-9_$]+=[A-Za-z0-9_$]+===null\?void +0:void 0"),
         SYNTAX_SCOPE_VERIFY,
+        DEV_CHANNEL_INHERIT_VERIFY,
     ),
 )
 
@@ -651,6 +772,38 @@ def ensure_installed(bun_install: Path, version: str, patcher: Patcher | None) -
 # Entrypoint
 
 
+def dev_channels_from_argv(argv: list[str]) -> str | None:
+    """Collect the specs passed to --dangerously-load-development-channels.
+
+    Returns them space-joined (the form CLAUDE_DEV_CHANNELS expects), or None if
+    the flag is absent. The flag is variadic in Claude Code's commander setup:
+    it swallows every following token until the next one starting with ``-`` (so
+    ``--dangerously-load-development-channels server:a server:b``); the ``=``
+    form (``--flag=server:a``) is also accepted for safety.
+
+    The flag is read but NOT consumed — it stays in the forwarded argv so the
+    top-level (interactive) session still parses it and shows the confirmation
+    dialog. The env var only matters to background workers, which never see the
+    flag themselves but do inherit the parent's environment. See the
+    ``dev-channel-inheritance`` binary patch for the worker side.
+    """
+    flag = "--dangerously-load-development-channels"
+    specs: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == flag:
+            i += 1
+            while i < len(argv) and not argv[i].startswith("-"):
+                specs.append(argv[i])
+                i += 1
+            continue
+        if a.startswith(f"{flag}="):
+            specs.extend(a[len(flag) + 1 :].split())
+        i += 1
+    return " ".join(specs) or None
+
+
 def main(argv: list[str]) -> int:
     shim = parse_shim_args(argv)
 
@@ -692,6 +845,16 @@ def main(argv: list[str]) -> int:
         "24bit",
     ):
         env["CLAUDE_CODE_TMUX_TRUECOLOR"] = "1"
+    # Background agents spawned by the agents view never receive
+    # --dangerously-load-development-channels (the dispatch pipeline drops it,
+    # and bg sessions skip dev-channel registration anyway). Export the specs so
+    # workers inherit them via the environment; the dev-channel-inheritance
+    # binary patch registers them on the worker side for bg sessions only. An
+    # explicit value already in the environment wins.
+    if "CLAUDE_DEV_CHANNELS" not in env:
+        dev_channels = dev_channels_from_argv(shim.forwarded)
+        if dev_channels is not None:
+            env["CLAUDE_DEV_CHANNELS"] = dev_channels
     bin_path = claude_bin(bun_install)
     if uses_native_binary(shim.version):
         # Native binary: exec directly, bypassing bun.
