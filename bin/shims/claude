@@ -447,7 +447,7 @@ SYNTAX_SCOPE_VERIFY = re.compile(
 BINARY_PATCHER_V2 = BinaryPatcher(
     # revision 3 was a since-reverted color-mode experiment; 4 avoids reusing
     # any stale `_patched_r3` dirs from machines that pulled that commit.
-    revision=6,
+    revision=7,
     min_version="2.1.151",
     patches=(
         # The two V1 render-side patches still apply (the standalone
@@ -487,6 +487,12 @@ BINARY_PATCHER_V2 = BinaryPatcher(
             name="channelator",
             pattern=re.compile(rb"[A-Za-z0-9_$]+\?.channelsEnabled!==!0"),
             replacement=lambda m: b"!" + b"1" * (len(m.group(0)) - 1),
+        ),
+        # at FF level too
+        BinaryPatch(
+            name="channelizer",
+            pattern=re.compile(rb'[A-Za-z0-9_$]+\("tengu_harbor",!1\)'),
+            replacement=lambda m: b"!!" + b"1" * (len(m.group(0)) - 2),
         ),
     ),
     verify=(
