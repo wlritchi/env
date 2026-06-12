@@ -55,6 +55,7 @@
     "refreshInterval": 10,
     "type": "command"
   },
+  "switchModelsOnFlag": false,
   "syntaxHighlightingDisabled": false,
   "theme": "custom:catppuccin-macchiato",
   "voiceEnabled": true
