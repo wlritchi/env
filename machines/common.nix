@@ -33,6 +33,9 @@ in
       (with pkgs; [
         bat
         bun
+        cargo-audit
+        cargo-deny
+        cargo-llvm-cov
         csvq
         eza
         fd
