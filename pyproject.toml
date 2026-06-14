@@ -37,6 +37,7 @@ dynamic = ["version"]
 
 [project.scripts]
 retainer = 'wlrenv.retainer:cli_main'
+wlr-ccpatch = 'wlrenv.ccpatch.cli:main'
 secwrap = 'wlrenv.secwrap:main'
 wlr-niri-librewolf-host = 'wlrenv.niri.cli:librewolf_native_host_cli'
 wlr-niri-restore-mosh = 'wlrenv.niri.cli:restore_mosh_cli'
@@ -114,6 +115,10 @@ select = [
 "src/wlrenv/retainer.py" = ["T201"]  # CLI tool uses print for output
 "src/wlrenv/niri/cli.py" = ["T201"]  # CLI entry points use print for errors
 "src/wlrenv/secwrap.py" = ["T201"]  # CLI entry point uses print for errors
+"src/wlrenv/ccpatch/cli.py" = ["T201"]  # CLI entry point uses print for output
+
+[tool.codespell]
+ignore-words-list = "lief"  # LIEF: binary-parsing library used by ccpatch.macho
 
 [dependency-groups]
 dev = [
