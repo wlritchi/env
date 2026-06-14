@@ -9,6 +9,7 @@
 
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
+  claude-code = pkgs.callPackage ./pkgs/claude-code.nix { };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
@@ -69,6 +70,7 @@ in
           plugins: map (name: plugins.${name}) config.custom.krewPlugins
         ))
         ccstatusline
+        claude-code
         delta-realpath
         entire
         tryPkg

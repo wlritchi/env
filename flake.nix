@@ -134,7 +134,14 @@
           extraModules ? [ ],
         }:
         home-manager.lib.homeManagerConfiguration {
-          pkgs = mkPkgs { inherit system extraUnfreePredicate; };
+          pkgs = mkPkgs {
+            inherit system;
+            # Always allow our build-time-patched Claude Code (the only unfree
+            # package in the base config); compose with any predicate an overlay
+            # repo extends us with.
+            extraUnfreePredicate =
+              pkg: nixpkgs.lib.getName pkg == "claude-code-patched" || extraUnfreePredicate pkg;
+          };
           modules = [ platformModule ] ++ extraModules;
           extraSpecialArgs = {
             inherit
