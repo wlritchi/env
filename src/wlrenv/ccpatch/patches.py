@@ -126,6 +126,201 @@ def thinking_expanded(version: Version | None) -> PatchSet:
     )
 
 
+# --- Fable in the model list (2.1.151+) -------------------------------------
+
+
+def _enfable_replacement(m: re.Match[str]) -> str:
+    # m.1 = "availableModels:VAR}=X;if(!VAR)return!0;", m.2 = VAR, m.3 = guard
+    return f"{m.group(1)}{m.group(2)}.push('fable');{m.group(3)}"
+
+
+FABLE_MODEL = PatchSet(
+    name="fable-in-model-list",
+    patches=(
+        Patch(
+            name="enfable",
+            pattern=re.compile(
+                rf"(availableModels:({_ID})\}}={_ID};if\(!\2\)return!0;)"
+                rf"(if\(\2\.length===0\)return!1;)"
+            ),
+            replacement=_enfable_replacement,
+        ),
+    ),
+    verify_present=(re.compile(r"\.push\('fable'\);if\([\w$]+\.length===0\)"),),
+    min_version=_V_2_1_151,
+)
+
+# --- enable channels (2.1.151+) ---------------------------------------------
+
+CHANNELS_ENABLED = PatchSet(
+    name="channels-enabled",
+    patches=(
+        # Force the "channels not enabled" subexpression false -> channels on.
+        Patch(
+            name="channelator",
+            pattern=re.compile(rf"{_ID}\?\.channelsEnabled!==!0"),
+            replacement="!1",
+        ),
+        # Force the tengu_harbor feature flag on.
+        Patch(
+            name="channelizer",
+            pattern=re.compile(rf'{_ID}\("tengu_harbor",!1\)'),
+            replacement="!!1",
+        ),
+    ),
+    verify_absent=(
+        re.compile(r"\?\.channelsEnabled!==!0"),
+        re.compile(r'"tengu_harbor",!1'),
+    ),
+    min_version=_V_2_1_151,
+)
+
+# --- dev-channel inheritance for background agents (2.1.151+) ----------------
+#
+# Channels passed via --dangerously-load-development-channels never reach the
+# bg-agent workers the agents view spawns (the dispatch pipeline drops the flag,
+# and bg sessions skip dev-channel registration). The claude shim exports the
+# specs as CLAUDE_DEV_CHANNELS, which rides along to every worker. This patch
+# teaches the worker to honor it: for bg sessions, parse the env var through the
+# binary's own channel parser, tag each {dev:!0} (the allowlist-bypass marker),
+# and register them via the binary's own registrar onto the existing list.
+#
+# Length-free: we append the registration after the existing channel-parse block
+# (captured verbatim as group 0); the telemetry block that follows is untouched.
+# Every minified identifier is captured, so only stable literals are pinned.
+
+
+def _dev_channel_replacement(m: re.Match[str]) -> str:
+    register, base, parse = m.group(4), m.group(2), m.group(3)
+    return m.group(0) + (
+        'if(process.env.CLAUDE_CODE_SESSION_KIND==="bg"){'
+        "let devChannelsEnv=process.env.CLAUDE_DEV_CHANNELS;"
+        f"if(devChannelsEnv){register}([...{base},...{parse}"
+        '(devChannelsEnv.split(" ").filter(Boolean),'
+        '"--dangerously-load-development-channels")'
+        ".map((devEntry)=>({...devEntry,dev:!0}))])}"
+    )
+
+
+DEV_CHANNEL_INHERITANCE = PatchSet(
+    name="dev-channel-inheritance",
+    patches=(
+        Patch(
+            name="dev-channel-inheritance",
+            pattern=re.compile(
+                rf"if\(({_ID})&&\1\.length>0\)({_ID})=({_ID})\(\1,\"--channels\"\),"
+                rf"({_ID})\(\2\);if\(!{_ID}\)\{{if\(({_ID})&&\5\.length>0\)"
+                rf"{_ID}=\3\(\5,\"--dangerously-load-development-channels\"\)\}}"
+            ),
+            replacement=_dev_channel_replacement,
+        ),
+    ),
+    verify_present=(
+        re.compile(r'CLAUDE_CODE_SESSION_KIND==="bg"\)\{let devChannelsEnv='),
+    ),
+    min_version=_V_2_1_151,
+)
+
+# --- Catppuccin Macchiato syntax highlighting (2.1.151+) ---------------------
+#
+# The dark "Monokai" token scope map is a hardcoded `new Map([["keyword",...]])`
+# literal not reachable via the theme overrides system. Recolor it to Catppuccin
+# Macchiato. Length-free: no padding, and we keep every entry (the byte-patch
+# version dropped `title.function` only to fit the original byte budget).
+_SYNTAX_DARK_MAP: tuple[tuple[str, int, int, int], ...] = (
+    ("keyword", 249, 38, 114),
+    ("_storage", 102, 217, 239),
+    ("built_in", 166, 226, 46),
+    ("type", 166, 226, 46),
+    ("literal", 190, 132, 255),
+    ("number", 190, 132, 255),
+    ("string", 230, 219, 116),
+    ("title", 166, 226, 46),
+    ("title.function", 166, 226, 46),
+    ("title.class", 166, 226, 46),
+    ("title.class.inherited", 166, 226, 46),
+    ("params", 253, 151, 31),
+    ("comment", 117, 113, 94),
+    ("meta", 117, 113, 94),
+    ("attr", 166, 226, 46),
+    ("attribute", 166, 226, 46),
+    ("variable", 255, 255, 255),
+    ("variable.language", 255, 255, 255),
+    ("property", 255, 255, 255),
+    ("operator", 249, 38, 114),
+    ("punctuation", 248, 248, 242),
+    ("symbol", 190, 132, 255),
+    ("regexp", 230, 219, 116),
+    ("subst", 248, 248, 242),
+)
+_CATPPUCCIN_MACCHIATO: dict[str, tuple[int, int, int]] = {
+    "keyword": (198, 160, 246),
+    "_storage": (198, 160, 246),
+    "built_in": (237, 135, 150),
+    "type": (238, 212, 159),
+    "literal": (245, 169, 127),
+    "number": (245, 169, 127),
+    "string": (166, 218, 149),
+    "title": (138, 173, 244),
+    "title.function": (138, 173, 244),
+    "title.class": (238, 212, 159),
+    "title.class.inherited": (238, 212, 159),
+    "params": (238, 153, 160),
+    "comment": (110, 115, 141),
+    "meta": (198, 160, 246),
+    "attr": (238, 212, 159),
+    "attribute": (238, 212, 159),
+    "variable": (202, 211, 245),
+    "variable.language": (237, 135, 150),
+    "property": (202, 211, 245),
+    "operator": (145, 215, 227),
+    "punctuation": (147, 154, 183),
+    "symbol": (237, 135, 150),
+    "regexp": (245, 189, 230),
+    "subst": (202, 211, 245),
+}
+
+
+def _syntax_scope_pattern() -> re.Pattern[str]:
+    parts: list[str] = []
+    for i, (scope, r, g, b) in enumerate(_SYNTAX_DARK_MAP):
+        var = rf"({_ID})" if i == 0 else r"\1"
+        parts.append(rf'\["{re.escape(scope)}",{var}\({r},{g},{b}\)\]')
+    return re.compile(r"new Map\(\[" + ",".join(parts) + r"\]\)")
+
+
+def _syntax_scope_replacement(m: re.Match[str]) -> str:
+    var = m.group(1)
+    entries = ",".join(
+        f'["{scope}",{var}'
+        f"({_CATPPUCCIN_MACCHIATO[scope][0]},"
+        f"{_CATPPUCCIN_MACCHIATO[scope][1]},"
+        f"{_CATPPUCCIN_MACCHIATO[scope][2]})]"
+        for scope, *_ in _SYNTAX_DARK_MAP
+    )
+    return f"new Map([{entries}])"
+
+
+CATPPUCCIN_SYNTAX = PatchSet(
+    name="catppuccin-syntax-scopes",
+    patches=(
+        Patch(
+            name="catppuccin-syntax-scopes",
+            pattern=_syntax_scope_pattern(),
+            replacement=_syntax_scope_replacement,
+        ),
+    ),
+    verify_present=(re.compile(r'new Map\(\[\["keyword",[\w$]+\(198,160,246\)'),),
+    min_version=_V_2_1_151,
+)
+
+
 def default_patch_sets(version: Version | None) -> list[PatchSet]:
     """The patch sets applied by ``ccpatch apply`` (order matters)."""
-    return [thinking_expanded(version)]
+    return [
+        thinking_expanded(version),
+        FABLE_MODEL,
+        CHANNELS_ENABLED,
+        DEV_CHANNEL_INHERITANCE,
+        CATPPUCCIN_SYNTAX,
+    ]
