@@ -1,9 +1,9 @@
 # cc-kimi: Kimi Code variant of Claude Code.
 #
 # Uses a Kimi-branded build of the patched claude-code binary (startup label
-# "Kimi Code"; theme/thinking-verbs are future tier-2 patches) pointed at Kimi's
-# coding API with the kimi-for-coding model mapping and an isolated config dir,
-# and shows the Kimi splash on interactive launch.
+# "Kimi Code", Kimi thinking verbs + spinner glyphs) pointed at Kimi's coding
+# API with the kimi-for-coding model mapping and an isolated config dir, ships
+# the Kimi Teal theme, and shows the Kimi splash on interactive launch.
 #
 # Auth is out of scope: provide the Kimi token via ANTHROPIC_AUTH_TOKEN in your
 # environment (e.g. from your secret manager). The wrapper clears
@@ -18,11 +18,17 @@
 }:
 let
   kimiSplash = ./cc-kimi-splash.txt;
-  # Seed onboarding so a fresh config dir doesn't trigger the first-run wizard.
+  # Kimi Teal UI palette as a Claude Code custom theme ({name,base,overrides}).
+  # This is the supported, version-robust path (overrides whose key is missing
+  # from the base just fall back) -- the same mechanism as the Catppuccin theme,
+  # not a binary patch.
+  kimiTealTheme = ./kimi-teal-theme.json;
+  # Seed onboarding so a fresh config dir doesn't trigger the first-run wizard,
+  # and default to the Kimi Teal theme on first run.
   seedClaudeJson = writeText "cc-kimi-claude.json" (
     builtins.toJSON {
       hasCompletedOnboarding = true;
-      theme = "dark";
+      theme = "custom:kimi-teal";
     }
   );
 in
@@ -34,6 +40,10 @@ writeShellScriptBin "cc-kimi" ''
   mkdir -p "$CLAUDE_CONFIG_DIR"
   [ -e "$CLAUDE_CONFIG_DIR/.claude.json" ] \
     || install -m600 ${seedClaudeJson} "$CLAUDE_CONFIG_DIR/.claude.json"
+
+  # Ship the Kimi Teal theme (managed: refreshed every launch to track the pkg).
+  mkdir -p "$CLAUDE_CONFIG_DIR/themes"
+  install -m644 ${kimiTealTheme} "$CLAUDE_CONFIG_DIR/themes/kimi-teal.json"
 
   # Kimi coding endpoint + model mapping (everything routes to kimi-for-coding).
   export ANTHROPIC_BASE_URL="https://api.kimi.com/coding"
