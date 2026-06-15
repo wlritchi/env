@@ -23,13 +23,14 @@ let
   # from the base just fall back) -- the same mechanism as the Catppuccin theme,
   # not a binary patch.
   kimiTealTheme = ./kimi-teal-theme.json;
-  # Seed onboarding so a fresh config dir doesn't trigger the first-run wizard,
-  # and default to the Kimi Teal theme on first run.
+  # Theme selection lives in a managed settings.json, rewritten every launch --
+  # the supported declarative mechanism (same as the Catppuccin theme). It must
+  # NOT live in .claude.json, which is seed-once: an existing one (from an
+  # earlier launch) would never pick the setting up, leaving stock dark.
+  kimiSettings = writeText "cc-kimi-settings.json" (builtins.toJSON { theme = "custom:kimi-teal"; });
+  # Seed onboarding so a fresh config dir doesn't trigger the first-run wizard.
   seedClaudeJson = writeText "cc-kimi-claude.json" (
-    builtins.toJSON {
-      hasCompletedOnboarding = true;
-      theme = "custom:kimi-teal";
-    }
+    builtins.toJSON { hasCompletedOnboarding = true; }
   );
 in
 writeShellScriptBin "cc-kimi" ''
@@ -41,9 +42,11 @@ writeShellScriptBin "cc-kimi" ''
   [ -e "$CLAUDE_CONFIG_DIR/.claude.json" ] \
     || install -m600 ${seedClaudeJson} "$CLAUDE_CONFIG_DIR/.claude.json"
 
-  # Ship the Kimi Teal theme (managed: refreshed every launch to track the pkg).
+  # Ship the Kimi Teal theme and select it via managed settings (both refreshed
+  # every launch, so updates propagate and a stale .claude.json can't shadow it).
   mkdir -p "$CLAUDE_CONFIG_DIR/themes"
   install -m644 ${kimiTealTheme} "$CLAUDE_CONFIG_DIR/themes/kimi-teal.json"
+  install -m644 ${kimiSettings} "$CLAUDE_CONFIG_DIR/settings.json"
 
   # Kimi coding endpoint + model mapping (everything routes to kimi-for-coding).
   export ANTHROPIC_BASE_URL="https://api.kimi.com/coding"
