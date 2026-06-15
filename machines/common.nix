@@ -78,6 +78,15 @@ in
         tryPkg
       ];
 
+    # Claude Code's startup "doctor" checks for a native install at
+    # ~/.local/bin/claude and warns if it's missing/broken, even though we run
+    # it from the nix profile. Point that canonical path at the profile binary
+    # (out-of-store so it tracks the live profile, not a pinned store path) to
+    # satisfy the check. mkOutOfStoreSymlink keeps it from dangling on version
+    # bumps + GC, unlike a resolved dotfile symlink.
+    home.file.".local/bin/claude".source =
+      config.lib.file.mkOutOfStoreSymlink "${config.home.profileDirectory}/bin/claude";
+
     programs.home-manager.enable = true;
 
     programs.gh = {
