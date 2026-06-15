@@ -10,14 +10,18 @@ from __future__ import annotations
 import pytest
 
 from wlrenv.ccpatch.patches import (
+    _KIMI_SYMBOLS,
+    _KIMI_VERBS,
     _SYNTAX_DARK_MAP,
     CATPPUCCIN_SYNTAX,
     CHANNELS_ENABLED,
     DEV_CHANNEL_INHERITANCE,
     FABLE_MODEL,
     PatchError,
+    PatchSet,
+    _startup_label_patch,
+    _verb_symbol_patches,
     brand_patch_sets,
-    kimi_brand,
 )
 
 # Real 2.1.170 startup-title anchor.
@@ -82,7 +86,9 @@ def test_version_gating_skips_below_2_1_151() -> None:
 
 
 def test_kimi_brand_relabels_startup_title() -> None:
-    out = kimi_brand().apply(_LABEL_SRC)
+    out = PatchSet(name="l", patches=(_startup_label_patch("Kimi Code"),)).apply(
+        _LABEL_SRC
+    )
     assert out == 'l=w1.createElement(y,{bold:!0},"Kimi Code")'
 
 
@@ -91,3 +97,19 @@ def test_brand_patch_sets_dispatch() -> None:
     assert len(brand_patch_sets("kimi")) == 1
     with pytest.raises(PatchError, match="unknown brand"):
         brand_patch_sets("nope")
+
+
+def test_kimi_verbs_and_symbols() -> None:
+    present = "[" + ",".join(f'"Word{i}ing"' for i in range(55)) + "]"
+    past = "[" + ",".join(f'"Word{i}ed"' for i in range(8)) + "]"
+    symbols = r'["\xB7","✢","✶","*"]'  # escaped, like the real binary
+    src = f"a={present};b={past};c={symbols};"
+
+    out = PatchSet(
+        name="vs", patches=_verb_symbol_patches(_KIMI_VERBS, _KIMI_SYMBOLS)
+    ).apply(src)
+
+    assert '"Sparking","Glinting"' in out  # present tense
+    assert '"Sparked","Glinted"' in out  # ing -> ed
+    assert '["·","•","◦","•"]' in out  # spinner glyphs
+    assert "Word0ing" not in out  # defaults replaced

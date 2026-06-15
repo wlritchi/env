@@ -13,6 +13,7 @@ pinning only stable string and property literals -- resilient to reminification.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -339,15 +340,67 @@ def _startup_label_patch(label: str) -> Patch:
     )
 
 
+# Thinking-spinner verbs and glyphs (ports tweakcc thinkingVerbs /
+# thinkerSymbolChars). thinker-symbol-speed is skipped (fixed upstream in
+# >=2.1.27), and thinker-symbol-{width,mirror} have ambiguous anchors on 2.1.170
+# (7 and 2 matches, one of which is the verbs mirror), so they're omitted.
+# Verbs may carry \xNN escapes (e.g. Flamb\xE9ing), hence the char class.
+_VERB_CHAR = r"[A-Z][a-z'é\-\\xA-F0-9]+"
+_PRESENT_VERBS = re.compile(rf'''\[("{_VERB_CHAR}in[g']",?){{50,}}\]''')
+_PAST_VERBS = re.compile(rf'''\[("{_VERB_CHAR}ed",?){{5,}}\]''')
+_SYM = (
+    r"(?:[·✢*✳✶✻✽]|\\u00b7|\\xb7|\\u2722|\\x2a|\\u002a"
+    r"|\\u2733|\\u2736|\\u273b|\\u273d)"
+)
+_THINKER_SYMBOLS = re.compile(rf'''\["{_SYM}",\s*(?:"{_SYM}",?\s*)+\]''', re.IGNORECASE)
+
+
+def _json_array(items: list[str]) -> str:
+    return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+
+
+def _verb_symbol_patches(verbs: list[str], symbols: list[str]) -> tuple[Patch, ...]:
+    present = _json_array(verbs)
+    past = _json_array([re.sub(r"ing$", "ed", v) for v in verbs])
+    glyphs = _json_array(symbols)
+    return (
+        Patch("thinking-verbs-present", _PRESENT_VERBS, lambda _m: present),
+        Patch("thinking-verbs-past", _PAST_VERBS, lambda _m: past),
+        Patch("thinker-symbol-chars", _THINKER_SYMBOLS, lambda _m: glyphs),
+    )
+
+
+_KIMI_VERBS = [
+    "Sparking",
+    "Glinting",
+    "Flowing",
+    "Weaving",
+    "Indexing",
+    "Synthesizing",
+    "Refining",
+    "Composing",
+    "Routing",
+    "Resolving",
+    "Calibrating",
+    "Compiling",
+]
+_KIMI_SYMBOLS = ["·", "•", "◦", "•"]
+
+
 def kimi_brand() -> PatchSet:
     # Only the startup-title ternary is relabeled (like cc-mirror); other bold
     # "Claude Code" strings elsewhere in the UI are intentionally left alone, so
     # we verify the new label appeared rather than the absence of the old one.
     return PatchSet(
         name="kimi-brand",
-        patches=(_startup_label_patch("Kimi Code"),),
+        patches=(
+            _startup_label_patch("Kimi Code"),
+            *_verb_symbol_patches(_KIMI_VERBS, _KIMI_SYMBOLS),
+        ),
         verify_present=(
             re.compile(r'createElement\([\w$]+,\{bold:!0\},"Kimi Code"\)'),
+            re.compile(r'"Sparking","Glinting"'),
+            re.compile(r'\["·","•","◦","•"\]'),
         ),
     )
 
