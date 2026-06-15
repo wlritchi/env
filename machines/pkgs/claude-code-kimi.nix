@@ -1,7 +1,9 @@
 # cc-kimi: Kimi Code variant of Claude Code. See claude-code-variant.nix for the
 # shared launcher. Pairs a Kimi-branded binary (startup label "Kimi Code", Kimi
-# thinking verbs + spinner glyphs) with the Kimi coding endpoint, the
-# kimi-for-coding model mapping, the Kimi Teal theme, and the Kimi splash.
+# thinking verbs + spinner glyphs, Kimi splash + onboarding skip baked in) with
+# the Kimi coding endpoint, the kimi-k2.7-code model, and the Kimi Teal theme.
+# The splash art (machines/pkgs/cc-kimi-splash.txt) is embedded into the binary
+# at build time -- see the claude-code-bin call in common.nix.
 #
 # Auth is out of scope: provide the token via ANTHROPIC_AUTH_TOKEN.
 {
@@ -13,7 +15,6 @@ claude-code-variant {
   binary = claude-code-bin;
   themeFile = ./kimi-teal-theme.json;
   themeSlug = "kimi-teal";
-  splash = ./cc-kimi-splash.txt;
   env = {
     ANTHROPIC_BASE_URL = "https://api.kimi.com/coding";
     ANTHROPIC_CUSTOM_HEADERS = "User-Agent: KimiCLI/1.5";

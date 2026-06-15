@@ -13,15 +13,24 @@ let
   claude-code-variant = pkgs.callPackage ./pkgs/claude-code-variant.nix { };
   claude-code-kimi = pkgs.callPackage ./pkgs/claude-code-kimi.nix {
     inherit claude-code-variant;
-    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix { brand = "kimi"; };
+    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      brand = "kimi";
+      brandSplash = ./pkgs/cc-kimi-splash.txt;
+    };
   };
   claude-code-zai = pkgs.callPackage ./pkgs/claude-code-zai.nix {
     inherit claude-code-variant;
-    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix { brand = "zai"; };
+    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      brand = "zai";
+      brandSplash = ./pkgs/cc-zai-splash.txt;
+    };
   };
   claude-code-minimax = pkgs.callPackage ./pkgs/claude-code-minimax.nix {
     inherit claude-code-variant;
-    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix { brand = "minimax"; };
+    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      brand = "minimax";
+      brandSplash = ./pkgs/cc-minimax-splash.txt;
+    };
   };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
@@ -94,14 +103,24 @@ in
         tryPkg
       ];
 
-    # Claude Code's startup "doctor" checks for a native install at
-    # ~/.local/bin/claude and warns if it's missing/broken, even though we run
-    # it from the nix profile. Point that canonical path at the profile binary
-    # (out-of-store so it tracks the live profile, not a pinned store path) to
-    # satisfy the check. mkOutOfStoreSymlink keeps it from dangling on version
-    # bumps + GC, unlike a resolved dotfile symlink.
-    home.file.".local/bin/claude".source =
-      config.lib.file.mkOutOfStoreSymlink "${config.home.profileDirectory}/bin/claude";
+    home.file = lib.mkMerge [
+      {
+        # Claude Code's startup "doctor" checks for a native install at
+        # ~/.local/bin/claude and warns if it's missing/broken, even though we run
+        # it from the nix profile. Point that canonical path at the profile binary
+        # (out-of-store so it tracks the live profile, not a pinned store path) to
+        # satisfy the check. mkOutOfStoreSymlink keeps it from dangling on version
+        # bumps + GC, unlike a resolved dotfile symlink.
+        ".local/bin/claude".source =
+          config.lib.file.mkOutOfStoreSymlink "${config.home.profileDirectory}/bin/claude";
+      }
+      # Each provider variant ships its theme + managed settings (theme selection
+      # and blocked tools) as read-only store symlinks under ~/.cc-<name>/,
+      # replacing the old per-launch wrapper writes.
+      claude-code-kimi.homeFiles
+      claude-code-zai.homeFiles
+      claude-code-minimax.homeFiles
+    ];
 
     programs.home-manager.enable = true;
 

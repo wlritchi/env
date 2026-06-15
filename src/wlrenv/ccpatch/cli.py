@@ -52,9 +52,11 @@ def _encode(s: str) -> bytes:
     return s.encode("utf-8", "surrogateescape")
 
 
-def _patch_source(source: str, version: str | None, brand: str | None) -> str:
+def _patch_source(
+    source: str, version: str | None, brand: str | None, splash: str | None
+) -> str:
     parsed = parse_version(version) if version else None
-    patch_sets = default_patch_sets(parsed) + brand_patch_sets(brand)
+    patch_sets = default_patch_sets(parsed) + brand_patch_sets(brand, splash)
     for patch_set in patch_sets:
         if patch_set.applies_to(parsed):
             source = patch_set.apply(source)
@@ -66,6 +68,7 @@ def apply_patches(
     *,
     version: str | None,
     brand: str | None,
+    splash: str | None,
     zero_bytecode: bool,
 ) -> bytes:
     """Return new binary bytes with patched ``cli.js`` source repacked in."""
@@ -76,7 +79,7 @@ def apply_patches(
     if entry is None:
         raise ApplyError("no entrypoint (cli.js) module found")
 
-    patched_source = _patch_source(_decode(entry.contents), version, brand)
+    patched_source = _patch_source(_decode(entry.contents), version, brand, splash)
 
     def transform(module: BunModule) -> BunModule | None:
         if not module.is_entrypoint():
@@ -124,13 +127,14 @@ def run_apply(
     *,
     version: str | None,
     brand: str | None,
+    splash: str | None,
     zero_bytecode: bool,
     smoke: bool,
 ) -> ApplyResult:
     data = in_path.read_bytes()
     before = len(_entry_source(data))
     new_data = apply_patches(
-        data, version=version, brand=brand, zero_bytecode=zero_bytecode
+        data, version=version, brand=brand, splash=splash, zero_bytecode=zero_bytecode
     )
 
     # Structural verify: the rewritten binary must re-extract and contain our edit.
@@ -153,6 +157,7 @@ def run_apply(
 
 def _cmd_apply(args: argparse.Namespace) -> int:
     out = Path(args.out) if args.out else Path(args.input)
+    splash = Path(args.splash).read_text(encoding="utf-8") if args.splash else None
     with tempfile.TemporaryDirectory() as tmp:
         staged = Path(tmp) / "claude"
         try:
@@ -161,6 +166,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
                 staged,
                 version=args.version,
                 brand=args.brand,
+                splash=splash,
                 zero_bytecode=args.zero_bytecode,
                 smoke=not args.no_smoke,
             )
@@ -197,6 +203,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--brand",
         help="apply a provider brand patch set on top of the defaults (e.g. kimi)",
+    )
+    ap.add_argument(
+        "--splash",
+        help="path to splash art embedded into the interactive startup (brand builds)",
     )
     ap.add_argument(
         "--zero-bytecode",

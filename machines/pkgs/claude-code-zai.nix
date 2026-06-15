@@ -1,9 +1,11 @@
 # cc-zai: Zai Cloud (GLM) variant of Claude Code. See claude-code-variant.nix.
 # Pairs a Z.ai-branded binary (startup label "Zai Cloud", Z.ai thinking verbs +
-# spinner glyphs) with the Z.ai coding endpoint, the per-tier GLM model mapping
-# (opus->glm-5.1, sonnet->glm-5-turbo, haiku->glm-4.5-air), the Z.ai Carbon
-# theme, and the Z.ai splash. Blocks the web tools Z.ai doesn't serve; Z.ai's
-# zai-cli replacement for them (search/read/vision) is out of scope here.
+# spinner glyphs, Z.ai splash + onboarding skip baked in) with the Z.ai coding
+# endpoint, the per-tier GLM model mapping (opus->glm-5.2, sonnet->glm-5-turbo,
+# haiku->glm-4.5-air), and the Z.ai Carbon theme. Blocks the web tools Z.ai
+# doesn't serve; Z.ai's zai-cli replacement (search/read/vision) is out of scope.
+# The splash art (cc-zai-splash.txt) is embedded into the binary at build time --
+# see the claude-code-bin call in common.nix.
 #
 # Auth is out of scope: provide the token via ANTHROPIC_AUTH_TOKEN.
 {
@@ -15,7 +17,6 @@ claude-code-variant {
   binary = claude-code-bin;
   themeFile = ./zai-carbon-theme.json;
   themeSlug = "zai-carbon";
-  splash = ./cc-zai-splash.txt;
   deny = [
     "mcp__4_5v_mcp__analyze_image"
     "mcp__milk_tea_server__claim_milk_tea_coupon"

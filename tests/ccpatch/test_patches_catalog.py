@@ -12,6 +12,7 @@ import pytest
 from wlrenv.ccpatch.patches import (
     _KIMI_SYMBOLS,
     _KIMI_VERBS,
+    _SKIP_ONBOARDING,
     _SYNTAX_DARK_MAP,
     CATPPUCCIN_SYNTAX,
     CHANNELS_ENABLED,
@@ -22,9 +23,20 @@ from wlrenv.ccpatch.patches import (
     _attribution_patch,
     _email_patch,
     _identity_patch,
+    _splash_patch,
     _startup_label_patch,
     _verb_symbol_patches,
     brand_patch_sets,
+)
+
+# Real 2.1.170 interactive-entry anchor: the point just past the print-mode early
+# returns where onboarding is gated and (now) the splash is injected.
+_ENTRY_SRC = (
+    "if($$(!1)||process.env.IS_DEMO)"
+    "return{onboardingShown:!1,mcpApprovalSkipWarning:A};"
+    "let z=S$(),Y=!1;if(!z.hasCompletedOnboarding||"
+    '(process.env.CLAUDE_CODE_TEAM_ONBOARDING==="banner"'
+    '||process.env.CLAUDE_CODE_TEAM_ONBOARDING==="step")){Y=!0}'
 )
 
 # Real 2.1.170 startup-title anchor.
@@ -129,11 +141,38 @@ def test_identity_and_email_rebrand() -> None:
     assert "noreply@anthropic.com" not in out
 
 
+def test_skip_onboarding_neutralizes_first_run() -> None:
+    out = PatchSet(name="o", patches=(_SKIP_ONBOARDING,)).apply(_ENTRY_SRC)
+    assert "!1||(process.env.CLAUDE_CODE_TEAM_ONBOARDING" in out
+    assert "hasCompletedOnboarding||(process.env" not in out  # first-run gate gone
+    assert 'CLAUDE_CODE_TEAM_ONBOARDING==="step"' in out  # env override preserved
+
+
+def test_splash_injects_on_interactive_tty() -> None:
+    out = PatchSet(name="s", patches=(_splash_patch("\x1b[1mHI\x1b[0m\n"),)).apply(
+        _ENTRY_SRC
+    )
+    assert (
+        "mcpApprovalSkipWarning:A};if(process.stdout.isTTY)process.stdout.write(" in out
+    )
+    assert "\\u001b[1mHI" in out  # ANSI escaped into the JS string literal
+    assert "let z=S$(),Y=!1;" in out  # original code preserved after the inject
+
+
+def test_splash_patch_appends_trailing_newline() -> None:
+    out = PatchSet(name="s", patches=(_splash_patch("HI"),)).apply(_ENTRY_SRC)
+    assert 'process.stdout.write("HI\\n")' in out
+
+
 def test_brand_patch_sets_dispatch() -> None:
     assert brand_patch_sets(None) == []
     assert len(brand_patch_sets("kimi")) == 1
     assert len(brand_patch_sets("zai")) == 1
     assert len(brand_patch_sets("minimax")) == 1
+    # label + 3 verb/symbol + attribution + identity + email + onboarding = 8;
+    # passing splash adds the startup-splash patch.
+    assert len(brand_patch_sets("kimi")[0].patches) == 8
+    assert len(brand_patch_sets("kimi", "ART")[0].patches) == 9
     with pytest.raises(PatchError, match="unknown brand"):
         brand_patch_sets("nope")
 

@@ -1,9 +1,11 @@
 # cc-minimax: MiniMax Cloud variant of Claude Code. See claude-code-variant.nix.
 # Pairs a MiniMax-branded binary (startup label "MiniMax Cloud", MiniMax thinking
-# verbs + spinner glyphs) with the MiniMax endpoint (everything routes to
-# MiniMax-M2.7), the MiniMax Nebula theme, and the MiniMax splash. Blocks
-# WebSearch (MiniMax serves web search via its own MCP server, which -- like
-# Z.ai's zai-cli -- is out of scope here).
+# verbs + spinner glyphs, MiniMax splash + onboarding skip baked in) with the
+# MiniMax endpoint (everything routes to MiniMax-M2.7) and the MiniMax Nebula
+# theme. Blocks WebSearch (MiniMax serves web search via its own MCP server,
+# which -- like Z.ai's zai-cli -- is out of scope here). The splash art
+# (cc-minimax-splash.txt) is embedded into the binary at build time -- see the
+# claude-code-bin call in common.nix.
 #
 # Auth is out of scope: provide the token via ANTHROPIC_AUTH_TOKEN.
 {
@@ -15,7 +17,6 @@ claude-code-variant {
   binary = claude-code-bin;
   themeFile = ./minimax-nebula-theme.json;
   themeSlug = "minimax-nebula";
-  splash = ./cc-minimax-splash.txt;
   deny = [ "WebSearch" ];
   env = {
     ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic";

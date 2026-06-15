@@ -26,8 +26,14 @@
   python3,
   makeWrapper,
   # Optional provider brand baked into the binary (e.g. "kimi" -> startup label,
-  # theme). null = the plain personal build used for `claude`.
+  # thinking verbs, identity/attribution rebrand, onboarding skip). null = the
+  # plain personal build used for `claude`.
   brand ? null,
+  # Optional splash art (a path) embedded into the interactive startup for a
+  # branded build; printed on TTY launch in place of the old wrapper `cat`. NOT
+  # named `splash`: callPackage would auto-fill that from nixpkgs' `splash`
+  # package (shadowing the null default) on the unbranded build.
+  brandSplash ? null,
 }:
 
 let
@@ -85,7 +91,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     export PYTHONDONTWRITEBYTECODE=1
     PYTHONPATH=${ccpatchSrc} ${pythonEnv}/bin/python -m wlrenv.ccpatch.cli apply \
       ./claude -o ./claude-patched --version ${version} --no-smoke \
-      ${lib.optionalString (brand != null) "--brand ${brand}"}
+      ${lib.optionalString (brand != null) "--brand ${brand}"} \
+      ${lib.optionalString (brandSplash != null) "--splash ${brandSplash}"}
 
     runHook postBuild
   '';

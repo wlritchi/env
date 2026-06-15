@@ -472,6 +472,42 @@ def _email_patch(domain: str) -> Patch:
     )
 
 
+# Skip the first-run onboarding flow (theme picker / login walkthrough). The
+# wrapper used to seed .claude.json with hasCompletedOnboarding:true; baking the
+# skip into the binary lets the variant ship no seeded config. Only the first-run
+# trigger is neutralized -- the CLAUDE_CODE_TEAM_ONBOARDING env override
+# (banner/step) still fires. Brand-only; the plain `claude` build keeps onboarding.
+_SKIP_ONBOARDING = Patch(
+    name="skip-onboarding",
+    pattern=re.compile(
+        r"!([\w$]+)\.hasCompletedOnboarding\|\|"
+        r"\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"
+    ),
+    replacement="!1||(process.env.CLAUDE_CODE_TEAM_ONBOARDING",
+)
+
+
+# Print the provider splash on interactive startup, replacing the wrapper's
+# `cat splash` step. Injected just past the print-mode early returns (so it only
+# runs in the TUI), guarded on isTTY so piped output stays clean. The art (ANSI
+# included) is embedded as a JSON string literal -- valid JS, control chars
+# escaped as \uXXXX -- so there is no template-literal/backtick wrinkle.
+_SPLASH_RE = re.compile(
+    r"(mcpApprovalSkipWarning:[\w$]+\};)(let [\w$]+=[\w$]+\(\),[\w$]+=!1;)"
+)
+
+
+def _splash_patch(splash: str) -> Patch:
+    text = splash if splash.endswith("\n") else splash + "\n"
+    literal = json.dumps(text, ensure_ascii=False)
+    inject = f"if(process.stdout.isTTY)process.stdout.write({literal});"
+
+    def repl(m: re.Match[str]) -> str:
+        return m.group(1) + inject + m.group(2)
+
+    return Patch(name="startup-splash", pattern=_SPLASH_RE, replacement=repl)
+
+
 def _provider_brand(
     *,
     name: str,
@@ -481,32 +517,49 @@ def _provider_brand(
     identity_name: str,
     model_map: dict[str, str],
     email_domain: str,
+    splash: str | None = None,
 ) -> PatchSet:
     # Prefix the identity preamble with the flagship model, map the commit
-    # co-author from the runtime model id to a clean display name, and point the
-    # attribution email at the provider's domain. (The "Generated with Claude
-    # Code" footer is the product name and is intentionally left alone.)
+    # co-author from the runtime model id to a clean display name, point the
+    # attribution email at the provider's domain, skip first-run onboarding, and
+    # (when art is supplied) print the splash on interactive startup. (The
+    # "Generated with Claude Code" footer is the product name and is left alone.)
+    patches: tuple[Patch, ...] = (
+        _startup_label_patch(label),
+        *_verb_symbol_patches(verbs, symbols),
+        _attribution_patch(model_map),
+        _identity_patch(identity_name),
+        _email_patch(email_domain),
+        _SKIP_ONBOARDING,
+    )
+    present: tuple[re.Pattern[str], ...] = (
+        re.compile(rf'createElement\([\w$]+,\{{bold:!0\}},"{re.escape(label)}"\)'),
+        re.compile(re.escape(f'"{verbs[0]}","{verbs[1]}"')),
+        re.compile(re.escape(_json_array(symbols))),
+        re.compile(re.escape(f"You are {identity_name} running in Claude Code")),
+        re.compile(re.escape(f"noreply@{email_domain}")),
+        re.compile(r"!1\|\|\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"),
+    )
+    if splash is not None:
+        patches = (*patches, _splash_patch(splash))
+        present = (
+            *present,
+            re.compile(r"\};if\(process\.stdout\.isTTY\)process\.stdout\.write\("),
+        )
     return PatchSet(
         name=f"{name}-brand",
-        patches=(
-            _startup_label_patch(label),
-            *_verb_symbol_patches(verbs, symbols),
-            _attribution_patch(model_map),
-            _identity_patch(identity_name),
-            _email_patch(email_domain),
+        patches=patches,
+        verify_present=present,
+        verify_absent=(
+            re.compile(r'!==null\?[\w$]+\([\w$]+\):"Claude Fable 5"'),
+            re.compile(
+                r"\.hasCompletedOnboarding\|\|\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"
+            ),
         ),
-        verify_present=(
-            re.compile(rf'createElement\([\w$]+,\{{bold:!0\}},"{re.escape(label)}"\)'),
-            re.compile(re.escape(f'"{verbs[0]}","{verbs[1]}"')),
-            re.compile(re.escape(_json_array(symbols))),
-            re.compile(re.escape(f"You are {identity_name} running in Claude Code")),
-            re.compile(re.escape(f"noreply@{email_domain}")),
-        ),
-        verify_absent=(re.compile(r'!==null\?[\w$]+\([\w$]+\):"Claude Fable 5"'),),
     )
 
 
-def kimi_brand() -> PatchSet:
+def kimi_brand(splash: str | None = None) -> PatchSet:
     return _provider_brand(
         name="kimi",
         label="Kimi Code",
@@ -515,10 +568,11 @@ def kimi_brand() -> PatchSet:
         identity_name="Kimi K2.7 Code",
         model_map={"kimi-k2.7-code": "Kimi K2.7 Code"},
         email_domain="kimi.com",
+        splash=splash,
     )
 
 
-def zai_brand() -> PatchSet:
+def zai_brand(splash: str | None = None) -> PatchSet:
     return _provider_brand(
         name="zai",
         label="Zai Cloud",
@@ -532,10 +586,11 @@ def zai_brand() -> PatchSet:
             "glm-4.7": "GLM 4.7",
         },
         email_domain="z.ai",
+        splash=splash,
     )
 
 
-def minimax_brand() -> PatchSet:
+def minimax_brand(splash: str | None = None) -> PatchSet:
     return _provider_brand(
         name="minimax",
         label="MiniMax Cloud",
@@ -544,20 +599,22 @@ def minimax_brand() -> PatchSet:
         identity_name="MiniMax M2.7",
         model_map={"minimax-m2.7": "MiniMax M2.7"},
         email_domain="minimax.io",
+        splash=splash,
     )
 
 
-_BRANDS: dict[str, Callable[[], PatchSet]] = {
+_BRANDS: dict[str, Callable[[str | None], PatchSet]] = {
     "kimi": kimi_brand,
     "minimax": minimax_brand,
     "zai": zai_brand,
 }
 
 
-def brand_patch_sets(brand: str | None) -> list[PatchSet]:
+def brand_patch_sets(brand: str | None, splash: str | None = None) -> list[PatchSet]:
     """Patch sets for ``--brand <name>`` (empty when no brand requested).
 
-    Version gating, if a brand patch needs it, is handled per-PatchSet via
+    ``splash`` is the optional startup-splash art embedded into the interactive
+    entry. Version gating, if a brand patch needs it, is handled per-PatchSet via
     ``min_version``/``applies_to`` like the defaults.
     """
     if brand is None:
@@ -565,7 +622,7 @@ def brand_patch_sets(brand: str | None) -> list[PatchSet]:
     builder = _BRANDS.get(brand)
     if builder is None:
         raise PatchError(f"unknown brand {brand!r}; known: {sorted(_BRANDS)}")
-    return [builder()]
+    return [builder(splash)]
 
 
 def default_patch_sets(version: Version | None) -> list[PatchSet]:
