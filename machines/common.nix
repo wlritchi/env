@@ -10,8 +10,14 @@
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
   claude-code = pkgs.callPackage ./pkgs/claude-code.nix { };
+  claude-code-variant = pkgs.callPackage ./pkgs/claude-code-variant.nix { };
   claude-code-kimi = pkgs.callPackage ./pkgs/claude-code-kimi.nix {
+    inherit claude-code-variant;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix { brand = "kimi"; };
+  };
+  claude-code-zai = pkgs.callPackage ./pkgs/claude-code-zai.nix {
+    inherit claude-code-variant;
+    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix { brand = "zai"; };
   };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
@@ -77,6 +83,7 @@ in
         ccstatusline
         claude-code
         claude-code-kimi
+        claude-code-zai
         delta-realpath
         entire
         tryPkg

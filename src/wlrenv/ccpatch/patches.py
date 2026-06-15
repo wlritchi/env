@@ -405,8 +405,47 @@ def kimi_brand() -> PatchSet:
     )
 
 
+_ZAI_VERBS = [
+    "Calibrating",
+    "Indexing",
+    "Synthesizing",
+    "Optimizing",
+    "Routing",
+    "Vectorizing",
+    "Mapping",
+    "Compiling",
+    "Refining",
+    "Auditing",
+    "Aligning",
+    "Balancing",
+    "Forecasting",
+    "Resolving",
+    "Validating",
+    "Benchmarking",
+    "Assembling",
+    "Delivering",
+]
+_ZAI_SYMBOLS = [".", "o", "O", "0", "O", "o"]
+
+
+def zai_brand() -> PatchSet:
+    return PatchSet(
+        name="zai-brand",
+        patches=(
+            _startup_label_patch("Zai Cloud"),
+            *_verb_symbol_patches(_ZAI_VERBS, _ZAI_SYMBOLS),
+        ),
+        verify_present=(
+            re.compile(r'createElement\([\w$]+,\{bold:!0\},"Zai Cloud"\)'),
+            re.compile(r'"Calibrating","Indexing"'),
+            re.compile(re.escape('[".","o","O","0","O","o"]')),
+        ),
+    )
+
+
 _BRANDS: dict[str, Callable[[], PatchSet]] = {
     "kimi": kimi_brand,
+    "zai": zai_brand,
 }
 
 

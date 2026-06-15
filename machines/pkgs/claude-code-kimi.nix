@@ -1,90 +1,33 @@
-# cc-kimi: Kimi Code variant of Claude Code.
+# cc-kimi: Kimi Code variant of Claude Code. See claude-code-variant.nix for the
+# shared launcher. Pairs a Kimi-branded binary (startup label "Kimi Code", Kimi
+# thinking verbs + spinner glyphs) with the Kimi coding endpoint, the
+# kimi-for-coding model mapping, the Kimi Teal theme, and the Kimi splash.
 #
-# Uses a Kimi-branded build of the patched claude-code binary (startup label
-# "Kimi Code", Kimi thinking verbs + spinner glyphs) pointed at Kimi's coding
-# API with the kimi-for-coding model mapping and an isolated config dir, ships
-# the Kimi Teal theme, and shows the Kimi splash on interactive launch.
-#
-# Auth is out of scope: provide the Kimi token via ANTHROPIC_AUTH_TOKEN in your
-# environment (e.g. from your secret manager). The wrapper clears
-# ANTHROPIC_API_KEY so Claude Code authenticates with the token.
-#
-# Config dir defaults to ~/.cc-kimi (override with CC_KIMI_CONFIG_DIR); kept
-# separate from `claude` so onboarding/history/projects never mix.
+# Auth is out of scope: provide the token via ANTHROPIC_AUTH_TOKEN.
 {
-  writeShellScriptBin,
-  writeText,
+  claude-code-variant,
   claude-code-bin,
 }:
-let
-  kimiSplash = ./cc-kimi-splash.txt;
-  # Kimi Teal UI palette as a Claude Code custom theme ({name,base,overrides}).
-  # This is the supported, version-robust path (overrides whose key is missing
-  # from the base just fall back) -- the same mechanism as the Catppuccin theme,
-  # not a binary patch.
-  kimiTealTheme = ./kimi-teal-theme.json;
-  # Theme selection lives in a managed settings.json, rewritten every launch --
-  # the supported declarative mechanism (same as the Catppuccin theme). It must
-  # NOT live in .claude.json, which is seed-once: an existing one (from an
-  # earlier launch) would never pick the setting up, leaving stock dark.
-  kimiSettings = writeText "cc-kimi-settings.json" (builtins.toJSON { theme = "custom:kimi-teal"; });
-  # Seed onboarding so a fresh config dir doesn't trigger the first-run wizard.
-  seedClaudeJson = writeText "cc-kimi-claude.json" (
-    builtins.toJSON { hasCompletedOnboarding = true; }
-  );
-in
-writeShellScriptBin "cc-kimi" ''
-  set -euo pipefail
-
-  # Isolated config dir so cc-kimi state never mixes with `claude`.
-  export CLAUDE_CONFIG_DIR="''${CC_KIMI_CONFIG_DIR:-$HOME/.cc-kimi}"
-  mkdir -p "$CLAUDE_CONFIG_DIR"
-  [ -e "$CLAUDE_CONFIG_DIR/.claude.json" ] \
-    || install -m600 ${seedClaudeJson} "$CLAUDE_CONFIG_DIR/.claude.json"
-
-  # Ship the Kimi Teal theme and select it via managed settings (both refreshed
-  # every launch, so updates propagate and a stale .claude.json can't shadow it).
-  mkdir -p "$CLAUDE_CONFIG_DIR/themes"
-  install -m644 ${kimiTealTheme} "$CLAUDE_CONFIG_DIR/themes/kimi-teal.json"
-  install -m644 ${kimiSettings} "$CLAUDE_CONFIG_DIR/settings.json"
-
-  # Kimi coding endpoint + model mapping (everything routes to kimi-for-coding).
-  export ANTHROPIC_BASE_URL="https://api.kimi.com/coding"
-  export ANTHROPIC_CUSTOM_HEADERS="User-Agent: KimiCLI/1.5"
-  export ANTHROPIC_MODEL="kimi-for-coding"
-  export ANTHROPIC_DEFAULT_HAIKU_MODEL="kimi-for-coding"
-  export ANTHROPIC_DEFAULT_SONNET_MODEL="kimi-for-coding"
-  export ANTHROPIC_DEFAULT_OPUS_MODEL="kimi-for-coding"
-  export ANTHROPIC_SMALL_FAST_MODEL="kimi-for-coding"
-  export CLAUDE_CODE_SUBAGENT_MODEL="kimi-for-coding"
-  export API_TIMEOUT_MS="3000000"
-  export BASH_DEFAULT_TIMEOUT_MS="3600000"
-  export DISABLE_INSTALLATION_CHECKS=1
-  export DISABLE_AUTOUPDATER=1
-  export DISABLE_AUTO_MIGRATE_TO_NATIVE=1
-
-  # Tag telemetry with the Kimi backend (the rest of the OTEL config -- exporter,
-  # endpoint, enable flag -- is inherited from your environment).
-  export OTEL_RESOURCE_ATTRIBUTES="model.backend=kimi"
-
-  # Kimi authenticates with ANTHROPIC_AUTH_TOKEN (not an API key). Clear the API
-  # key path so Claude Code uses the token; the token itself is yours to provide.
-  unset ANTHROPIC_API_KEY
-  if [ -z "''${ANTHROPIC_AUTH_TOKEN:-}" ]; then
-    echo "cc-kimi: ANTHROPIC_AUTH_TOKEN is unset; Kimi requests will fail until you set it." >&2
-  fi
-
-  # Kimi splash on interactive launch (skip for print / non-interactive modes).
-  __cc_kimi_splash=1
-  for __a in "$@"; do
-    case "$__a" in
-      -p | --print | --output-format) __cc_kimi_splash=0 ;;
-    esac
-  done
-  if [ "$__cc_kimi_splash" = 1 ] && [ -t 1 ]; then
-    cat ${kimiSplash}
-    printf '\n'
-  fi
-
-  exec ${claude-code-bin}/libexec/claude-code/claude "$@"
-''
+claude-code-variant {
+  command = "cc-kimi";
+  binary = claude-code-bin;
+  themeFile = ./kimi-teal-theme.json;
+  themeSlug = "kimi-teal";
+  splash = ./cc-kimi-splash.txt;
+  env = {
+    ANTHROPIC_BASE_URL = "https://api.kimi.com/coding";
+    ANTHROPIC_CUSTOM_HEADERS = "User-Agent: KimiCLI/1.5";
+    ANTHROPIC_MODEL = "kimi-for-coding";
+    ANTHROPIC_DEFAULT_HAIKU_MODEL = "kimi-for-coding";
+    ANTHROPIC_DEFAULT_SONNET_MODEL = "kimi-for-coding";
+    ANTHROPIC_DEFAULT_OPUS_MODEL = "kimi-for-coding";
+    ANTHROPIC_SMALL_FAST_MODEL = "kimi-for-coding";
+    CLAUDE_CODE_SUBAGENT_MODEL = "kimi-for-coding";
+    API_TIMEOUT_MS = "3000000";
+    BASH_DEFAULT_TIMEOUT_MS = "3600000";
+    DISABLE_INSTALLATION_CHECKS = "1";
+    DISABLE_AUTOUPDATER = "1";
+    DISABLE_AUTO_MIGRATE_TO_NATIVE = "1";
+    OTEL_RESOURCE_ATTRIBUTES = "model.backend=kimi";
+  };
+}
