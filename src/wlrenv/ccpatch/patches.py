@@ -387,21 +387,25 @@ _KIMI_VERBS = [
 _KIMI_SYMBOLS = ["·", "•", "◦", "•"]
 
 
-# Commit/PR co-author cites the real runtime model id instead of the
-# "Claude <model>" display name. The author is computed as
+# Commit/PR co-author. Claude Code computes it as
 # `recognizedClaudeModel ? "Claude "+name : "Claude Fable 5"`; our providers'
-# models aren't recognized, so it falls back to "Claude Fable 5". H (= w7()) is
-# the resolved model-id string (kimi-for-coding / glm-5.2 / MiniMax-M2.7), so we
-# replace the whole ternary with `=H`. Brand-only: the plain `claude` build keeps
-# the Claude display name. The other "Claude Fable 5" (the Fable model constant)
-# lacks the `!==null?...` ternary, so it is untouched.
-_ATTRIBUTION_MODEL = Patch(
-    name="attribution-model",
-    pattern=re.compile(
-        r'([\w$]+)=([\w$]+)\(([\w$]+)\)!==null\?([\w$]+)\(\3\):"Claude Fable 5"'
-    ),
-    replacement=r"\1=\3",
+# models aren't recognized, so it falls back to "Claude Fable 5". We replace the
+# whole ternary with the brand's display name (matching the identity preamble,
+# e.g. "GLM 5.2"). Brand-only -- the plain `claude` build keeps the Claude
+# display name. The other "Claude Fable 5" (the Fable model constant) lacks the
+# `!==null?...` ternary, so it is untouched.
+_ATTRIBUTION_RE = re.compile(
+    r'([\w$]+)=([\w$]+)\(([\w$]+)\)!==null\?([\w$]+)\(\3\):"Claude Fable 5"'
 )
+
+
+def _attribution_patch(model_name: str) -> Patch:
+    return Patch(
+        name="attribution-model",
+        pattern=_ATTRIBUTION_RE,
+        replacement=lambda m: f'{m.group(1)}="{model_name}"',
+    )
+
 
 _ZAI_VERBS = [
     "Calibrating",
@@ -480,7 +484,7 @@ def _provider_brand(
         patches=(
             _startup_label_patch(label),
             *_verb_symbol_patches(verbs, symbols),
-            _ATTRIBUTION_MODEL,
+            _attribution_patch(model_name),
             _identity_patch(model_name),
             _email_patch(email_domain),
         ),

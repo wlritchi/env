@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 
 from wlrenv.ccpatch.patches import (
-    _ATTRIBUTION_MODEL,
     _KIMI_SYMBOLS,
     _KIMI_VERBS,
     _SYNTAX_DARK_MAP,
@@ -20,6 +19,7 @@ from wlrenv.ccpatch.patches import (
     FABLE_MODEL,
     PatchError,
     PatchSet,
+    _attribution_patch,
     _email_patch,
     _identity_patch,
     _startup_label_patch,
@@ -95,13 +95,13 @@ def test_kimi_brand_relabels_startup_title() -> None:
     assert out == 'l=w1.createElement(y,{bold:!0},"Kimi Code")'
 
 
-def test_attribution_cites_runtime_model() -> None:
+def test_attribution_uses_brand_model_name() -> None:
     src = (
         'let H=w7(),$=k_H(H)!==null?Tw6(H):"Claude Fable 5",'
         'q={FABLE_ID:"claude-fable-5",FABLE_NAME:"Claude Fable 5"}'
     )
-    out = PatchSet(name="a", patches=(_ATTRIBUTION_MODEL,)).apply(src)
-    assert "H=w7(),$=H," in out  # co-author is now the runtime model id
+    out = PatchSet(name="a", patches=(_attribution_patch("GLM 5.2"),)).apply(src)
+    assert 'H=w7(),$="GLM 5.2",' in out  # co-author is the brand display name
     assert '?Tw6(H):"Claude Fable 5"' not in out  # ternary gone
     assert 'FABLE_NAME:"Claude Fable 5"' in out  # the Fable model constant is untouched
 
