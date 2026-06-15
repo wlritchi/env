@@ -444,35 +444,78 @@ _MINIMAX_VERBS = [
 _MINIMAX_SYMBOLS = ["⟡", "◈", "⬡", "◇", "⬡", "◈"]
 
 
+_IDENTITY_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude"
+
+
+def _identity_patch(model_name: str) -> Patch:
+    # "You are Claude Code, ..." -> "You are <model> running in Claude Code, ..."
+    return Patch(
+        name="identity-model",
+        pattern=re.compile(re.escape(_IDENTITY_PREFIX)),
+        replacement=lambda _m: f"You are {model_name} running in {_IDENTITY_PREFIX[8:]}",
+    )
+
+
+def _email_patch(domain: str) -> Patch:
+    return Patch(
+        name="attribution-email",
+        pattern=re.compile(re.escape("noreply@anthropic.com")),
+        replacement=lambda _m: f"noreply@{domain}",
+    )
+
+
 def _provider_brand(
-    name: str, label: str, verbs: list[str], symbols: list[str]
+    name: str,
+    label: str,
+    verbs: list[str],
+    symbols: list[str],
+    model_name: str,
+    email_domain: str,
 ) -> PatchSet:
+    # Prefix the identity preamble with the running model, and point the
+    # attribution email at the provider's domain. (The "Generated with Claude
+    # Code" footer is the product name and is intentionally left alone.)
     return PatchSet(
         name=f"{name}-brand",
         patches=(
             _startup_label_patch(label),
             *_verb_symbol_patches(verbs, symbols),
             _ATTRIBUTION_MODEL,
+            _identity_patch(model_name),
+            _email_patch(email_domain),
         ),
         verify_present=(
             re.compile(rf'createElement\([\w$]+,\{{bold:!0\}},"{re.escape(label)}"\)'),
             re.compile(re.escape(f'"{verbs[0]}","{verbs[1]}"')),
             re.compile(re.escape(_json_array(symbols))),
+            re.compile(re.escape(f"You are {model_name} running in Claude Code")),
+            re.compile(re.escape(f"noreply@{email_domain}")),
         ),
         verify_absent=(re.compile(r'!==null\?[\w$]+\([\w$]+\):"Claude Fable 5"'),),
     )
 
 
 def kimi_brand() -> PatchSet:
-    return _provider_brand("kimi", "Kimi Code", _KIMI_VERBS, _KIMI_SYMBOLS)
+    return _provider_brand(
+        "kimi", "Kimi Code", _KIMI_VERBS, _KIMI_SYMBOLS, "Kimi K2.5", "kimi.com"
+    )
 
 
 def zai_brand() -> PatchSet:
-    return _provider_brand("zai", "Zai Cloud", _ZAI_VERBS, _ZAI_SYMBOLS)
+    return _provider_brand(
+        "zai", "Zai Cloud", _ZAI_VERBS, _ZAI_SYMBOLS, "GLM 5.2", "z.ai"
+    )
 
 
 def minimax_brand() -> PatchSet:
-    return _provider_brand("minimax", "MiniMax Cloud", _MINIMAX_VERBS, _MINIMAX_SYMBOLS)
+    return _provider_brand(
+        "minimax",
+        "MiniMax Cloud",
+        _MINIMAX_VERBS,
+        _MINIMAX_SYMBOLS,
+        "MiniMax M2.7",
+        "minimax.io",
+    )
 
 
 _BRANDS: dict[str, Callable[[], PatchSet]] = {

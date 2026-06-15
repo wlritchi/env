@@ -20,6 +20,8 @@ from wlrenv.ccpatch.patches import (
     FABLE_MODEL,
     PatchError,
     PatchSet,
+    _email_patch,
+    _identity_patch,
     _startup_label_patch,
     _verb_symbol_patches,
     brand_patch_sets,
@@ -102,6 +104,22 @@ def test_attribution_cites_runtime_model() -> None:
     assert "H=w7(),$=H," in out  # co-author is now the runtime model id
     assert '?Tw6(H):"Claude Fable 5"' not in out  # ternary gone
     assert 'FABLE_NAME:"Claude Fable 5"' in out  # the Fable model constant is untouched
+
+
+def test_identity_and_email_rebrand() -> None:
+    src = (
+        'a="You are Claude Code, Anthropic\'s official CLI for Claude.";'
+        'b="Co-Authored-By: x <noreply@anthropic.com>"'
+    )
+    out = PatchSet(
+        name="ie", patches=(_identity_patch("GLM 5.2"), _email_patch("z.ai"))
+    ).apply(src)
+    assert (
+        "You are GLM 5.2 running in Claude Code, Anthropic's official CLI for Claude"
+        in out
+    )
+    assert "noreply@z.ai" in out
+    assert "noreply@anthropic.com" not in out
 
 
 def test_brand_patch_sets_dispatch() -> None:
