@@ -497,7 +497,7 @@ def _provider_brand(
 
 def kimi_brand() -> PatchSet:
     return _provider_brand(
-        "kimi", "Kimi Code", _KIMI_VERBS, _KIMI_SYMBOLS, "Kimi K2.5", "kimi.com"
+        "kimi", "Kimi Code", _KIMI_VERBS, _KIMI_SYMBOLS, "Kimi K2.7", "kimi.com"
     )
 
 

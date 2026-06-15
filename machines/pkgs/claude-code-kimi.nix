@@ -17,12 +17,15 @@ claude-code-variant {
   env = {
     ANTHROPIC_BASE_URL = "https://api.kimi.com/coding";
     ANTHROPIC_CUSTOM_HEADERS = "User-Agent: KimiCLI/1.5";
-    ANTHROPIC_MODEL = "kimi-for-coding";
-    ANTHROPIC_DEFAULT_HAIKU_MODEL = "kimi-for-coding";
-    ANTHROPIC_DEFAULT_SONNET_MODEL = "kimi-for-coding";
-    ANTHROPIC_DEFAULT_OPUS_MODEL = "kimi-for-coding";
-    ANTHROPIC_SMALL_FAST_MODEL = "kimi-for-coding";
-    CLAUDE_CODE_SUBAGENT_MODEL = "kimi-for-coding";
+    # `kimi-for-coding` selects the (subsidized) Kimi Code plan; the `/k2p7`
+    # suffix pins K2.7 (released 2026-06-12). Drop the suffix to float with the
+    # plan's default, or bump it (k2p8, ...) for newer drops.
+    ANTHROPIC_MODEL = "kimi-for-coding/k2p7";
+    ANTHROPIC_DEFAULT_HAIKU_MODEL = "kimi-for-coding/k2p7";
+    ANTHROPIC_DEFAULT_SONNET_MODEL = "kimi-for-coding/k2p7";
+    ANTHROPIC_DEFAULT_OPUS_MODEL = "kimi-for-coding/k2p7";
+    ANTHROPIC_SMALL_FAST_MODEL = "kimi-for-coding/k2p7";
+    CLAUDE_CODE_SUBAGENT_MODEL = "kimi-for-coding/k2p7";
     API_TIMEOUT_MS = "3000000";
     BASH_DEFAULT_TIMEOUT_MS = "3600000";
     DISABLE_INSTALLATION_CHECKS = "1";
