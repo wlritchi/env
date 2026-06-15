@@ -390,21 +390,25 @@ _KIMI_SYMBOLS = ["·", "•", "◦", "•"]
 # Commit/PR co-author. Claude Code computes it as
 # `recognizedClaudeModel ? "Claude "+name : "Claude Fable 5"`; our providers'
 # models aren't recognized, so it falls back to "Claude Fable 5". We replace the
-# whole ternary with the brand's display name (matching the identity preamble,
-# e.g. "GLM 5.2"). Brand-only -- the plain `claude` build keeps the Claude
-# display name. The other "Claude Fable 5" (the Fable model constant) lacks the
-# `!==null?...` ternary, so it is untouched.
+# whole ternary with a lookup of the *runtime* model id (H = group 3) in a
+# per-brand display-name map, falling back to the raw id (`??H`). So a glm-5-turbo
+# session attributes to "GLM 5 Turbo", not a fixed flagship name. The map is keyed
+# lowercase and H is lowercased at lookup, since Claude Code lowercases the id.
+# Brand-only -- the plain `claude` build keeps the Claude display name. The other
+# "Claude Fable 5" (the Fable model constant) lacks the ternary, so it is untouched.
 _ATTRIBUTION_RE = re.compile(
     r'([\w$]+)=([\w$]+)\(([\w$]+)\)!==null\?([\w$]+)\(\3\):"Claude Fable 5"'
 )
 
 
-def _attribution_patch(model_name: str) -> Patch:
-    return Patch(
-        name="attribution-model",
-        pattern=_ATTRIBUTION_RE,
-        replacement=lambda m: f'{m.group(1)}="{model_name}"',
-    )
+def _attribution_patch(model_map: dict[str, str]) -> Patch:
+    table = json.dumps(model_map, ensure_ascii=False, separators=(",", ":"))
+
+    def repl(m: re.Match[str]) -> str:
+        var, model = m.group(1), m.group(3)
+        return f"{var}=({table})[(''+{model}).toLowerCase()]??{model}"
+
+    return Patch(name="attribution-model", pattern=_ATTRIBUTION_RE, replacement=repl)
 
 
 _ZAI_VERBS = [
@@ -469,14 +473,17 @@ def _email_patch(domain: str) -> Patch:
 
 
 def _provider_brand(
+    *,
     name: str,
     label: str,
     verbs: list[str],
     symbols: list[str],
-    model_name: str,
+    identity_name: str,
+    model_map: dict[str, str],
     email_domain: str,
 ) -> PatchSet:
-    # Prefix the identity preamble with the running model, and point the
+    # Prefix the identity preamble with the flagship model, map the commit
+    # co-author from the runtime model id to a clean display name, and point the
     # attribution email at the provider's domain. (The "Generated with Claude
     # Code" footer is the product name and is intentionally left alone.)
     return PatchSet(
@@ -484,15 +491,15 @@ def _provider_brand(
         patches=(
             _startup_label_patch(label),
             *_verb_symbol_patches(verbs, symbols),
-            _attribution_patch(model_name),
-            _identity_patch(model_name),
+            _attribution_patch(model_map),
+            _identity_patch(identity_name),
             _email_patch(email_domain),
         ),
         verify_present=(
             re.compile(rf'createElement\([\w$]+,\{{bold:!0\}},"{re.escape(label)}"\)'),
             re.compile(re.escape(f'"{verbs[0]}","{verbs[1]}"')),
             re.compile(re.escape(_json_array(symbols))),
-            re.compile(re.escape(f"You are {model_name} running in Claude Code")),
+            re.compile(re.escape(f"You are {identity_name} running in Claude Code")),
             re.compile(re.escape(f"noreply@{email_domain}")),
         ),
         verify_absent=(re.compile(r'!==null\?[\w$]+\([\w$]+\):"Claude Fable 5"'),),
@@ -501,24 +508,47 @@ def _provider_brand(
 
 def kimi_brand() -> PatchSet:
     return _provider_brand(
-        "kimi", "Kimi Code", _KIMI_VERBS, _KIMI_SYMBOLS, "Kimi K2.7", "kimi.com"
+        name="kimi",
+        label="Kimi Code",
+        verbs=_KIMI_VERBS,
+        symbols=_KIMI_SYMBOLS,
+        identity_name="Kimi K2.7",
+        model_map={
+            "kimi-for-coding/k2p7": "Kimi K2.7",
+            "kimi-for-coding/k2p6": "Kimi K2.6",
+            "kimi-for-coding/k2p5": "Kimi K2.5",
+            "kimi-for-coding": "Kimi",
+        },
+        email_domain="kimi.com",
     )
 
 
 def zai_brand() -> PatchSet:
     return _provider_brand(
-        "zai", "Zai Cloud", _ZAI_VERBS, _ZAI_SYMBOLS, "GLM 5.2", "z.ai"
+        name="zai",
+        label="Zai Cloud",
+        verbs=_ZAI_VERBS,
+        symbols=_ZAI_SYMBOLS,
+        identity_name="GLM 5.2",
+        model_map={
+            "glm-5.2": "GLM 5.2",
+            "glm-5-turbo": "GLM 5 Turbo",
+            "glm-4.5-air": "GLM 4.5 Air",
+            "glm-4.7": "GLM 4.7",
+        },
+        email_domain="z.ai",
     )
 
 
 def minimax_brand() -> PatchSet:
     return _provider_brand(
-        "minimax",
-        "MiniMax Cloud",
-        _MINIMAX_VERBS,
-        _MINIMAX_SYMBOLS,
-        "MiniMax M2.7",
-        "minimax.io",
+        name="minimax",
+        label="MiniMax Cloud",
+        verbs=_MINIMAX_VERBS,
+        symbols=_MINIMAX_SYMBOLS,
+        identity_name="MiniMax M2.7",
+        model_map={"minimax-m2.7": "MiniMax M2.7"},
+        email_domain="minimax.io",
     )
 
 

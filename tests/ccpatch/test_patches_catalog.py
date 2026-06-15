@@ -95,13 +95,20 @@ def test_kimi_brand_relabels_startup_title() -> None:
     assert out == 'l=w1.createElement(y,{bold:!0},"Kimi Code")'
 
 
-def test_attribution_uses_brand_model_name() -> None:
+def test_attribution_maps_runtime_model() -> None:
     src = (
         'let H=w7(),$=k_H(H)!==null?Tw6(H):"Claude Fable 5",'
         'q={FABLE_ID:"claude-fable-5",FABLE_NAME:"Claude Fable 5"}'
     )
-    out = PatchSet(name="a", patches=(_attribution_patch("GLM 5.2"),)).apply(src)
-    assert 'H=w7(),$="GLM 5.2",' in out  # co-author is the brand display name
+    out = PatchSet(
+        name="a",
+        patches=(
+            _attribution_patch({"glm-5.2": "GLM 5.2", "glm-5-turbo": "GLM 5 Turbo"}),
+        ),
+    ).apply(src)
+    # co-author looks the runtime model id up in the map, lowercased, with fallback
+    assert '$=({"glm-5.2":"GLM 5.2","glm-5-turbo":"GLM 5 Turbo"})[' in out
+    assert "[(''+H).toLowerCase()]??H," in out
     assert '?Tw6(H):"Claude Fable 5"' not in out  # ternary gone
     assert 'FABLE_NAME:"Claude Fable 5"' in out  # the Fable model constant is untouched
 
