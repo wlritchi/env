@@ -35,7 +35,6 @@ in
         bun
         cargo-audit
         cargo-deny
-        cargo-llvm-cov
         csvq
         eza
         fd

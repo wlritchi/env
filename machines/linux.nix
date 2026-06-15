@@ -28,6 +28,7 @@ in
 
   home.packages =
     (with pkgs; [
+      cargo-llvm-cov # broken on Darwin; only used for niri-spacer coverage (Linux-only)
       mold
       rclone
     ])
