@@ -443,8 +443,43 @@ def zai_brand() -> PatchSet:
     )
 
 
+_MINIMAX_VERBS = [
+    "Warping",
+    "Nebulizing",
+    "Phasing",
+    "Refracting",
+    "Tunneling",
+    "Ionizing",
+    "Polarizing",
+    "Cascading",
+    "Crystallizing",
+    "Entangling",
+    "Diffracting",
+    "Converging",
+    "Pulsing",
+    "Transcoding",
+]
+_MINIMAX_SYMBOLS = ["⟡", "◈", "⬡", "◇", "⬡", "◈"]
+
+
+def minimax_brand() -> PatchSet:
+    return PatchSet(
+        name="minimax-brand",
+        patches=(
+            _startup_label_patch("MiniMax Cloud"),
+            *_verb_symbol_patches(_MINIMAX_VERBS, _MINIMAX_SYMBOLS),
+        ),
+        verify_present=(
+            re.compile(r'createElement\([\w$]+,\{bold:!0\},"MiniMax Cloud"\)'),
+            re.compile(r'"Warping","Nebulizing"'),
+            re.compile(re.escape('["⟡","◈","⬡","◇","⬡","◈"]')),
+        ),
+    )
+
+
 _BRANDS: dict[str, Callable[[], PatchSet]] = {
     "kimi": kimi_brand,
+    "minimax": minimax_brand,
     "zai": zai_brand,
 }
 

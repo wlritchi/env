@@ -25,7 +25,9 @@ claude-code-variant {
   ];
   env = {
     ANTHROPIC_BASE_URL = "https://api.z.ai/api/anthropic";
-    ANTHROPIC_DEFAULT_OPUS_MODEL = "glm-5.1";
+    # opus -> GLM-5.2 (flagship, released 2026-06; was glm-5.1). sonnet/haiku
+    # unchanged -- no glm-5.2-turbo or newer *-air exists yet.
+    ANTHROPIC_DEFAULT_OPUS_MODEL = "glm-5.2";
     ANTHROPIC_DEFAULT_SONNET_MODEL = "glm-5-turbo";
     ANTHROPIC_DEFAULT_HAIKU_MODEL = "glm-4.5-air";
     ANTHROPIC_SMALL_FAST_MODEL = "glm-4.5-air";

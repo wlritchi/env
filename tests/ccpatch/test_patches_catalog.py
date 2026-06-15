@@ -96,6 +96,7 @@ def test_brand_patch_sets_dispatch() -> None:
     assert brand_patch_sets(None) == []
     assert len(brand_patch_sets("kimi")) == 1
     assert len(brand_patch_sets("zai")) == 1
+    assert len(brand_patch_sets("minimax")) == 1
     with pytest.raises(PatchError, match="unknown brand"):
         brand_patch_sets("nope")
 

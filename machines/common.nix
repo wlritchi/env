@@ -19,6 +19,10 @@ let
     inherit claude-code-variant;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix { brand = "zai"; };
   };
+  claude-code-minimax = pkgs.callPackage ./pkgs/claude-code-minimax.nix {
+    inherit claude-code-variant;
+    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix { brand = "minimax"; };
+  };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
@@ -83,6 +87,7 @@ in
         ccstatusline
         claude-code
         claude-code-kimi
+        claude-code-minimax
         claude-code-zai
         delta-realpath
         entire
