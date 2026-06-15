@@ -10,6 +10,7 @@
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
   claude-code = pkgs.callPackage ./pkgs/claude-code.nix { };
+  claude-code-kimi = pkgs.callPackage ./pkgs/claude-code-kimi.nix { inherit claude-code; };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
@@ -73,6 +74,7 @@ in
         ))
         ccstatusline
         claude-code
+        claude-code-kimi
         delta-realpath
         entire
         tryPkg
