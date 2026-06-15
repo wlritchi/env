@@ -387,23 +387,21 @@ _KIMI_VERBS = [
 _KIMI_SYMBOLS = ["·", "•", "◦", "•"]
 
 
-def kimi_brand() -> PatchSet:
-    # Only the startup-title ternary is relabeled (like cc-mirror); other bold
-    # "Claude Code" strings elsewhere in the UI are intentionally left alone, so
-    # we verify the new label appeared rather than the absence of the old one.
-    return PatchSet(
-        name="kimi-brand",
-        patches=(
-            _startup_label_patch("Kimi Code"),
-            *_verb_symbol_patches(_KIMI_VERBS, _KIMI_SYMBOLS),
-        ),
-        verify_present=(
-            re.compile(r'createElement\([\w$]+,\{bold:!0\},"Kimi Code"\)'),
-            re.compile(r'"Sparking","Glinting"'),
-            re.compile(r'\["·","•","◦","•"\]'),
-        ),
-    )
-
+# Commit/PR co-author cites the real runtime model id instead of the
+# "Claude <model>" display name. The author is computed as
+# `recognizedClaudeModel ? "Claude "+name : "Claude Fable 5"`; our providers'
+# models aren't recognized, so it falls back to "Claude Fable 5". H (= w7()) is
+# the resolved model-id string (kimi-for-coding / glm-5.2 / MiniMax-M2.7), so we
+# replace the whole ternary with `=H`. Brand-only: the plain `claude` build keeps
+# the Claude display name. The other "Claude Fable 5" (the Fable model constant)
+# lacks the `!==null?...` ternary, so it is untouched.
+_ATTRIBUTION_MODEL = Patch(
+    name="attribution-model",
+    pattern=re.compile(
+        r'([\w$]+)=([\w$]+)\(([\w$]+)\)!==null\?([\w$]+)\(\3\):"Claude Fable 5"'
+    ),
+    replacement=r"\1=\3",
+)
 
 _ZAI_VERBS = [
     "Calibrating",
@@ -427,22 +425,6 @@ _ZAI_VERBS = [
 ]
 _ZAI_SYMBOLS = [".", "o", "O", "0", "O", "o"]
 
-
-def zai_brand() -> PatchSet:
-    return PatchSet(
-        name="zai-brand",
-        patches=(
-            _startup_label_patch("Zai Cloud"),
-            *_verb_symbol_patches(_ZAI_VERBS, _ZAI_SYMBOLS),
-        ),
-        verify_present=(
-            re.compile(r'createElement\([\w$]+,\{bold:!0\},"Zai Cloud"\)'),
-            re.compile(r'"Calibrating","Indexing"'),
-            re.compile(re.escape('[".","o","O","0","O","o"]')),
-        ),
-    )
-
-
 _MINIMAX_VERBS = [
     "Warping",
     "Nebulizing",
@@ -462,19 +444,35 @@ _MINIMAX_VERBS = [
 _MINIMAX_SYMBOLS = ["⟡", "◈", "⬡", "◇", "⬡", "◈"]
 
 
-def minimax_brand() -> PatchSet:
+def _provider_brand(
+    name: str, label: str, verbs: list[str], symbols: list[str]
+) -> PatchSet:
     return PatchSet(
-        name="minimax-brand",
+        name=f"{name}-brand",
         patches=(
-            _startup_label_patch("MiniMax Cloud"),
-            *_verb_symbol_patches(_MINIMAX_VERBS, _MINIMAX_SYMBOLS),
+            _startup_label_patch(label),
+            *_verb_symbol_patches(verbs, symbols),
+            _ATTRIBUTION_MODEL,
         ),
         verify_present=(
-            re.compile(r'createElement\([\w$]+,\{bold:!0\},"MiniMax Cloud"\)'),
-            re.compile(r'"Warping","Nebulizing"'),
-            re.compile(re.escape('["⟡","◈","⬡","◇","⬡","◈"]')),
+            re.compile(rf'createElement\([\w$]+,\{{bold:!0\}},"{re.escape(label)}"\)'),
+            re.compile(re.escape(f'"{verbs[0]}","{verbs[1]}"')),
+            re.compile(re.escape(_json_array(symbols))),
         ),
+        verify_absent=(re.compile(r'!==null\?[\w$]+\([\w$]+\):"Claude Fable 5"'),),
     )
+
+
+def kimi_brand() -> PatchSet:
+    return _provider_brand("kimi", "Kimi Code", _KIMI_VERBS, _KIMI_SYMBOLS)
+
+
+def zai_brand() -> PatchSet:
+    return _provider_brand("zai", "Zai Cloud", _ZAI_VERBS, _ZAI_SYMBOLS)
+
+
+def minimax_brand() -> PatchSet:
+    return _provider_brand("minimax", "MiniMax Cloud", _MINIMAX_VERBS, _MINIMAX_SYMBOLS)
 
 
 _BRANDS: dict[str, Callable[[], PatchSet]] = {
