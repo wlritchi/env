@@ -512,13 +512,8 @@ def kimi_brand() -> PatchSet:
         label="Kimi Code",
         verbs=_KIMI_VERBS,
         symbols=_KIMI_SYMBOLS,
-        identity_name="Kimi K2.7",
-        model_map={
-            "kimi-for-coding/k2p7": "Kimi K2.7",
-            "kimi-for-coding/k2p6": "Kimi K2.6",
-            "kimi-for-coding/k2p5": "Kimi K2.5",
-            "kimi-for-coding": "Kimi",
-        },
+        identity_name="Kimi K2.7 Code",
+        model_map={"kimi-k2.7-code": "Kimi K2.7 Code"},
         email_domain="kimi.com",
     )
 
