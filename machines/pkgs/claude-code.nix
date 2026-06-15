@@ -25,6 +25,9 @@
   fetchurl,
   python3,
   makeWrapper,
+  # Optional provider brand baked into the binary (e.g. "kimi" -> startup label,
+  # theme). null = the plain personal build used for `claude`.
+  brand ? null,
 }:
 
 let
@@ -63,7 +66,7 @@ let
   };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
-  pname = "claude-code-patched";
+  pname = "claude-code-patched" + lib.optionalString (brand != null) "-${brand}";
   inherit version;
 
   src = fetchurl {
@@ -81,7 +84,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     export PYTHONDONTWRITEBYTECODE=1
     PYTHONPATH=${ccpatchSrc} ${pythonEnv}/bin/python -m wlrenv.ccpatch.cli apply \
-      ./claude -o ./claude-patched --version ${version} --no-smoke
+      ./claude -o ./claude-patched --version ${version} --no-smoke \
+      ${lib.optionalString (brand != null) "--brand ${brand}"}
 
     runHook postBuild
   '';

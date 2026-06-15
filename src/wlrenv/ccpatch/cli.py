@@ -21,7 +21,12 @@ from pathlib import Path
 
 from wlrenv.ccpatch.bunfmt import BunModule, parse_blob, rebuild_blob
 from wlrenv.ccpatch.container import load_container
-from wlrenv.ccpatch.patches import PatchError, default_patch_sets, parse_version
+from wlrenv.ccpatch.patches import (
+    PatchError,
+    brand_patch_sets,
+    default_patch_sets,
+    parse_version,
+)
 
 _CLAUDE_VERSION_RE = re.compile(r"\(Claude Code\)")
 
@@ -47,9 +52,10 @@ def _encode(s: str) -> bytes:
     return s.encode("utf-8", "surrogateescape")
 
 
-def _patch_source(source: str, version: str | None) -> str:
+def _patch_source(source: str, version: str | None, brand: str | None) -> str:
     parsed = parse_version(version) if version else None
-    for patch_set in default_patch_sets(parsed):
+    patch_sets = default_patch_sets(parsed) + brand_patch_sets(brand)
+    for patch_set in patch_sets:
         if patch_set.applies_to(parsed):
             source = patch_set.apply(source)
     return source
@@ -59,6 +65,7 @@ def apply_patches(
     data: bytes,
     *,
     version: str | None,
+    brand: str | None,
     zero_bytecode: bool,
 ) -> bytes:
     """Return new binary bytes with patched ``cli.js`` source repacked in."""
@@ -69,7 +76,7 @@ def apply_patches(
     if entry is None:
         raise ApplyError("no entrypoint (cli.js) module found")
 
-    patched_source = _patch_source(_decode(entry.contents), version)
+    patched_source = _patch_source(_decode(entry.contents), version, brand)
 
     def transform(module: BunModule) -> BunModule | None:
         if not module.is_entrypoint():
@@ -116,12 +123,15 @@ def run_apply(
     out_path: Path,
     *,
     version: str | None,
+    brand: str | None,
     zero_bytecode: bool,
     smoke: bool,
 ) -> ApplyResult:
     data = in_path.read_bytes()
     before = len(_entry_source(data))
-    new_data = apply_patches(data, version=version, zero_bytecode=zero_bytecode)
+    new_data = apply_patches(
+        data, version=version, brand=brand, zero_bytecode=zero_bytecode
+    )
 
     # Structural verify: the rewritten binary must re-extract and contain our edit.
     after_source = _entry_source(new_data)
@@ -150,6 +160,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
                 Path(args.input),
                 staged,
                 version=args.version,
+                brand=args.brand,
                 zero_bytecode=args.zero_bytecode,
                 smoke=not args.no_smoke,
             )
@@ -183,6 +194,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("input", help="path to the Bun standalone binary")
     ap.add_argument("-o", "--out", help="output path (default: overwrite input)")
     ap.add_argument("--version", help="Claude version, e.g. 2.1.170 (gates patches)")
+    ap.add_argument(
+        "--brand",
+        help="apply a provider brand patch set on top of the defaults (e.g. kimi)",
+    )
     ap.add_argument(
         "--zero-bytecode",
         action="store_true",

@@ -315,6 +315,62 @@ CATPPUCCIN_SYNTAX = PatchSet(
 )
 
 
+# --- provider brand patch sets ----------------------------------------------
+#
+# Applied additively on top of the defaults when `ccpatch apply --brand <name>`
+# is given. A brand bakes provider identity into the binary (startup label, and
+# later theme/thinking-verbs/thinker-symbol). Brand patterns are written as raw
+# strings with inline [\w$]+ (no f-string) to keep the regex braces readable.
+
+# Collapse the startup-title ternary so it always renders the brand label
+# instead of "Claude Code" (ports cc-mirror's native-ui-hardening
+# startup-title-brand). The label is baked per brand.
+_LABEL_PATTERN = re.compile(
+    r'([\w$]+)=([\w$]+)\?([\w$]+)\.createElement\(\2\.Title,null\):'
+    r'\3\.createElement\(([\w$]+),\{bold:!0\},"Claude Code"\)'
+)
+
+
+def _startup_label_patch(label: str) -> Patch:
+    return Patch(
+        name="startup-title-brand",
+        pattern=_LABEL_PATTERN,
+        replacement=rf'\g<1>=\g<3>.createElement(\g<4>,{{bold:!0}},"{label}")',
+    )
+
+
+def kimi_brand() -> PatchSet:
+    # Only the startup-title ternary is relabeled (like cc-mirror); other bold
+    # "Claude Code" strings elsewhere in the UI are intentionally left alone, so
+    # we verify the new label appeared rather than the absence of the old one.
+    return PatchSet(
+        name="kimi-brand",
+        patches=(_startup_label_patch("Kimi Code"),),
+        verify_present=(
+            re.compile(r'createElement\([\w$]+,\{bold:!0\},"Kimi Code"\)'),
+        ),
+    )
+
+
+_BRANDS: dict[str, Callable[[], PatchSet]] = {
+    "kimi": kimi_brand,
+}
+
+
+def brand_patch_sets(brand: str | None) -> list[PatchSet]:
+    """Patch sets for ``--brand <name>`` (empty when no brand requested).
+
+    Version gating, if a brand patch needs it, is handled per-PatchSet via
+    ``min_version``/``applies_to`` like the defaults.
+    """
+    if brand is None:
+        return []
+    builder = _BRANDS.get(brand)
+    if builder is None:
+        raise PatchError(f"unknown brand {brand!r}; known: {sorted(_BRANDS)}")
+    return [builder()]
+
+
 def default_patch_sets(version: Version | None) -> list[PatchSet]:
     """The patch sets applied by ``ccpatch apply`` (order matters)."""
     return [

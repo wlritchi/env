@@ -16,6 +16,13 @@ from wlrenv.ccpatch.patches import (
     DEV_CHANNEL_INHERITANCE,
     FABLE_MODEL,
     PatchError,
+    brand_patch_sets,
+    kimi_brand,
+)
+
+# Real 2.1.170 startup-title anchor.
+_LABEL_SRC = (
+    'l=eu8?w1.createElement(eu8.Title,null):w1.createElement(y,{bold:!0},"Claude Code")'
 )
 
 _DEV_CHANNEL_SRC = (
@@ -72,3 +79,15 @@ def test_version_gating_skips_below_2_1_151() -> None:
     assert not FABLE_MODEL.applies_to((2, 1, 150))
     assert FABLE_MODEL.applies_to((2, 1, 151))
     assert CATPPUCCIN_SYNTAX.applies_to((2, 1, 170))
+
+
+def test_kimi_brand_relabels_startup_title() -> None:
+    out = kimi_brand().apply(_LABEL_SRC)
+    assert out == 'l=w1.createElement(y,{bold:!0},"Kimi Code")'
+
+
+def test_brand_patch_sets_dispatch() -> None:
+    assert brand_patch_sets(None) == []
+    assert len(brand_patch_sets("kimi")) == 1
+    with pytest.raises(PatchError, match="unknown brand"):
+        brand_patch_sets("nope")

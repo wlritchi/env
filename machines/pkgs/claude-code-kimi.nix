@@ -1,10 +1,9 @@
-# cc-kimi: Kimi Code variant of Claude Code (tier 1 -- functional, no branding).
+# cc-kimi: Kimi Code variant of Claude Code.
 #
-# Reuses the patched claude-code binary (its patches are UI-only, so they have
-# no effect on the endpoint) and points it at Kimi's coding API with the
-# kimi-for-coding model mapping and an isolated config dir. Kimi-specific
-# branding (theme, startup label, thinking verbs) is intentionally out of scope
-# here -- that would be additional ccpatch patches.
+# Uses a Kimi-branded build of the patched claude-code binary (startup label
+# "Kimi Code"; theme/thinking-verbs are future tier-2 patches) pointed at Kimi's
+# coding API with the kimi-for-coding model mapping and an isolated config dir,
+# and shows the Kimi splash on interactive launch.
 #
 # Auth is out of scope: provide the Kimi token via ANTHROPIC_AUTH_TOKEN in your
 # environment (e.g. from your secret manager). The wrapper clears
@@ -15,9 +14,10 @@
 {
   writeShellScriptBin,
   writeText,
-  claude-code,
+  claude-code-bin,
 }:
 let
+  kimiSplash = ./cc-kimi-splash.txt;
   # Seed onboarding so a fresh config dir doesn't trigger the first-run wizard.
   seedClaudeJson = writeText "cc-kimi-claude.json" (
     builtins.toJSON {
@@ -61,5 +61,17 @@ writeShellScriptBin "cc-kimi" ''
     echo "cc-kimi: ANTHROPIC_AUTH_TOKEN is unset; Kimi requests will fail until you set it." >&2
   fi
 
-  exec ${claude-code}/libexec/claude-code/claude "$@"
+  # Kimi splash on interactive launch (skip for print / non-interactive modes).
+  __cc_kimi_splash=1
+  for __a in "$@"; do
+    case "$__a" in
+      -p | --print | --output-format) __cc_kimi_splash=0 ;;
+    esac
+  done
+  if [ "$__cc_kimi_splash" = 1 ] && [ -t 1 ]; then
+    cat ${kimiSplash}
+    printf '\n'
+  fi
+
+  exec ${claude-code-bin}/libexec/claude-code/claude "$@"
 ''

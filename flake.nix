@@ -140,7 +140,8 @@
             # package in the base config); compose with any predicate an overlay
             # repo extends us with.
             extraUnfreePredicate =
-              pkg: nixpkgs.lib.getName pkg == "claude-code-patched" || extraUnfreePredicate pkg;
+              pkg:
+              nixpkgs.lib.hasPrefix "claude-code-patched" (nixpkgs.lib.getName pkg) || extraUnfreePredicate pkg;
           };
           modules = [ platformModule ] ++ extraModules;
           extraSpecialArgs = {
