@@ -48,6 +48,11 @@ _DEV_CHANNEL_SRC = (
     # respawn-flag allowlists the bg-worker dispatch filters argv through
     'RfH=new Set(["--advisor","--channels","--permission-prompt-tool","--tools"]),'
     'HE6=new Set(["--add-dir","--file","--channels"]);'
+    # the live-dispatch arg serializer ($UH) that builds dispatchExtraArgs
+    "function $UH(H){return [...H.settings?[\"--settings\",H.settings]:[],"
+    '...H.pluginDir.flatMap(($)=>["--plugin-dir",$]),'
+    '...H.mcpConfig.flatMap(($)=>["--mcp-config",$]),'
+    '...H.strictMcpConfig?["--strict-mcp-config"]:[]]}'
     # the parent-side parse block, gated on !isNonInteractiveSession (XH)
     'if(W$&&W$.length>0)r$=c$(W$,"--channels"),n9H(r$);'
     "if(!XH){if(U$&&U$.length>0)"
@@ -78,6 +83,11 @@ def test_dev_channel_inheritance_threads_natively() -> None:
         '"--permission-prompt-tool"' in out
     )
     assert '"--file","--channels","--dangerously-load-development-channels"]' in out
+    # live dispatch: $UH serializer appends dev-channels (scanned from argv)
+    assert 'strictMcpConfig?["--strict-mcp-config"]:[],...(()=>' in out
+    assert (
+        'return _dc.length?["--dangerously-load-development-channels",..._dc]:[]' in out
+    )
     # bg worker registers dev channels from its OWN parsed flag (no env round-trip),
     # reusing the registrar/base/parse identifiers captured from the block
     assert (

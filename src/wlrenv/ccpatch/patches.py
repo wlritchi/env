@@ -178,24 +178,28 @@ CHANNELS_ENABLED = PatchSet(
 
 # --- dev-channel inheritance for background agents (2.1.151+) ----------------
 #
-# Channels passed via --dangerously-load-development-channels never reach the
-# bg-agent workers the agents view spawns: the respawn-flag allowlists forward
-# --channels but not the dev-channels flag (so the dispatch drops it), and even
-# if it arrived the worker skips the parse because dev channels need an
-# interactive confirmation dialog (gated on !isNonInteractiveSession) that a bg
-# worker can't show. We fix both natively -- no env var, no wrapper:
+# --dangerously-load-development-channels never reaches the bg-agent workers the
+# agents view spawns. Three things drop it, all fixed natively here -- no env
+# var, no wrapper:
 #
-#   1. Add the flag to the respawn allowlists (RfH value-flags + HE6 multi-value,
-#      mirroring --channels) so the spawn forwards it to the worker's argv.
-#   2. In the worker, after the parse block, register the worker's OWN parsed
-#      specs for bg sessions -- tagging each {dev:!0} (the allowlist bypass) and
-#      calling the binary's registrar directly, which skips the dialog the parent
-#      already showed. Scoped to bg so other non-interactive sessions (-p, etc.)
-#      still require the dialog.
+#   1. Live dispatch: the worker argv (dispatchExtraArgs) is built by
+#      $UH(HUH(cfg)), and $UH only serializes --settings/--plugin-dir/--add-dir/
+#      --mcp-config/--strict-mcp-config -- it never carries channels. Append the
+#      dev-channels (scanned from the dispatching process's own argv, which is
+#      how the user passed them) so they land in dispatchExtraArgs -> the worker.
+#   2. Persist/resume: those dispatch args double as the job's persisted
+#      respawnFlags, filtered through the RfH (value-flag) + HE6 (multi-value)
+#      allowlists on resume -- add the flag there (next to --channels) to survive.
+#   3. Worker parse: dev channels need an interactive confirmation dialog (gated
+#      on !isNonInteractiveSession) a bg worker can't show, so the worker skips
+#      the parse. After that block, register the worker's OWN parsed specs for bg
+#      sessions -- tagging each {dev:!0} (the allowlist bypass) and calling the
+#      registrar directly (the parent already confirmed). Scoped to bg so other
+#      non-interactive sessions (-p, etc.) still require the dialog.
 #
-# Length-free: (1) extends two Set literals; (2) appends the registration after
-# the channel-parse block (captured verbatim as group 0), telemetry untouched.
-# Every minified identifier is captured, so only stable literals are pinned.
+# All length-free: extend two Set literals, append one array element, and append
+# one statement after the parse block (captured verbatim). Minified identifiers
+# are captured; only stable literals are pinned.
 
 # Forward the flag through the bg-worker respawn allowlists, next to --channels.
 _DEV_CHANNEL_FORWARD = (
@@ -213,6 +217,25 @@ _DEV_CHANNEL_FORWARD = (
         replacement='"--file","--channels","--dangerously-load-development-channels"]',
     ),
 )
+
+# Append dev-channels to the dispatch serializer ($UH) return array, scanned from
+# the dispatching process's own argv (variadic: collect bare tokens after the
+# flag, stop at the next -flag; also accept the --flag=value form).
+_DISPATCH_DEV_CHANNELS = (
+    "(()=>{let _dc=[],_co=!1;for(let _ar of process.argv.slice(2)){"
+    'if(_ar==="--dangerously-load-development-channels")_co=!0;'
+    'else if(_ar.startsWith("--dangerously-load-development-channels="))'
+    '_dc.push(_ar.slice(_ar.indexOf("=")+1));'
+    'else if(_ar.startsWith("-"))_co=!1;'
+    "else if(_co)_dc.push(_ar)}"
+    'return _dc.length?["--dangerously-load-development-channels",..._dc]:[]})()'
+)
+
+
+def _dispatch_forward_replacement(m: re.Match[str]) -> str:
+    # Insert before the closing `]` of the $UH return array, after the
+    # --strict-mcp-config element (captured as group 1).
+    return f"{m.group(1)},...{_DISPATCH_DEV_CHANNELS}]"
 
 
 def _dev_channel_replacement(m: re.Match[str]) -> str:
@@ -239,6 +262,13 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
     patches=(
         *_DEV_CHANNEL_FORWARD,
         Patch(
+            name="dev-channel-dispatch-forward",
+            pattern=re.compile(
+                r'(\.\.\.[\w$]+\.strictMcpConfig\?\["--strict-mcp-config"\]:\[\])\]'
+            ),
+            replacement=_dispatch_forward_replacement,
+        ),
+        Patch(
             name="dev-channel-bg-register",
             pattern=re.compile(
                 rf"if\(({_ID})&&\1\.length>0\)({_ID})=({_ID})\(\1,\"--channels\"\),"
@@ -256,6 +286,7 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
         re.compile(
             r'"--file","--channels","--dangerously-load-development-channels"\]'
         ),
+        re.compile(r'strictMcpConfig\?\["--strict-mcp-config"\]:\[\],\.\.\.\(\(\)=>'),
         re.compile(r'CLAUDE_CODE_SESSION_KIND==="bg"&&[\w$]+&&[\w$]+\.length>0\)'),
     ),
     verify_absent=(re.compile(r"CLAUDE_DEV_CHANNELS"),),
