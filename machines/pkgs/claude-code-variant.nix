@@ -1,12 +1,19 @@
 # Shared launcher for cc-mirror-style provider variants (cc-kimi, cc-zai, ...).
 #
 # Given a brand-patched claude-code binary and provider data, it isolates a
-# config dir, exports the provider env, and execs the binary. Branding that used
-# to live here now lives in the artifacts: the splash and onboarding skip are
-# baked into the binary (see ccpatch brands), and the theme + blocked-tools live
-# in Nix-managed config files exposed via `passthru.homeFiles` (wire them into
-# home.file). The wrapper itself writes nothing. Auth is the user's to provide
-# via ANTHROPIC_AUTH_TOKEN (ANTHROPIC_API_KEY is cleared).
+# config dir, exports the provider env, layers the brand overrides on top of your
+# base settings, and execs the binary. Branding lives in the artifacts: the
+# splash and onboarding skip are baked into the binary (see ccpatch brands); the
+# theme *definition* ships as a `home.file` (passthru.homeFiles); and the brand
+# *overrides* (theme selection + blocked tools) ride the `--settings` flag layer
+# so they override/extend -- never replace -- the inherited base settings.
+#
+# Settings inheritance: the variant's `settings.json` (userSettings layer) is a
+# symlink to your base `~/.claude/settings.json`, wired in common.nix (it needs
+# `config.lib.file.mkOutOfStoreSymlink`, unavailable here). The brand overrides
+# go through `--settings`: flagSettings overrides scalars like `theme` and
+# *concatenates* `permissions.deny`, and is never written back -- so Claude's
+# runtime pref write-backs only ever touch genuinely shareable keys in the base.
 #
 # This is the curried form: callPackage fills the nixpkgs args, leaving a
 # function of the per-provider attrs below.
@@ -22,13 +29,15 @@
   env, # attrset of provider env vars (string values)
   themeFile, # path to a {name,base,overrides} custom-theme JSON
   themeSlug, # theme file is installed as <slug>.json and selected as custom:<slug>
-  deny ? [ ], # tool names to block via settings.json permissions.deny
+  deny ? [ ], # tool names to block via permissions.deny (concatenated onto base)
 }:
 
 let
   configDirVar = lib.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] command) + "_CONFIG_DIR";
 
-  settings = writeText "${command}-settings.json" (
+  # Brand overrides injected via --settings (flagSettings layer): forces the
+  # brand theme and adds the blocked tools, on top of the inherited base.
+  brandSettings = writeText "${command}-brand-settings.json" (
     builtins.toJSON (
       {
         theme = "custom:${themeSlug}";
@@ -43,8 +52,8 @@ let
   wrapper = writeShellScriptBin command ''
     set -euo pipefail
 
-    # Isolated config dir so variant state never mixes with `claude`. The
-    # Nix-managed config files (theme + settings) are installed at the *default*
+    # Isolated config dir so variant runtime state (.claude.json) never mixes with
+    # `claude`. The theme def + the settings->base symlink land at the *default*
     # ~/.${command}; if you override ${configDirVar} you own populating that dir.
     export CLAUDE_CONFIG_DIR="''${${configDirVar}:-$HOME/.${command}}"
 
@@ -58,18 +67,17 @@ let
       echo "${command}: ANTHROPIC_AUTH_TOKEN is unset; requests will fail until you set it." >&2
     fi
 
-    exec ${binary}/libexec/claude-code/claude "$@"
+    # --settings first so a user-supplied --settings later in argv still wins.
+    exec ${binary}/libexec/claude-code/claude --settings ${brandSettings} "$@"
   '';
 in
-# The wrapper derivation, plus the home-manager files the variant needs. Theme
-# and settings (theme selection + blocked tools) are read-only store symlinks
-# refreshed by home-manager, replacing the old per-launch wrapper writes. A
-# `/theme` change at runtime therefore won't persist -- the brand theme is
-# pinned, by design. The config dir hosting them is the wrapper's default.
+# The wrapper derivation, plus the theme-definition home.file. `command` is
+# exposed so common.nix can wire the settings->base symlink (which needs the
+# home-manager `config`, unavailable in this pure builder).
 wrapper
 // {
+  inherit command;
   homeFiles = {
     ".${command}/themes/${themeSlug}.json".source = themeFile;
-    ".${command}/settings.json".source = settings;
   };
 }

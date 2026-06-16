@@ -103,24 +103,42 @@ in
         tryPkg
       ];
 
-    home.file = lib.mkMerge [
-      {
-        # Claude Code's startup "doctor" checks for a native install at
-        # ~/.local/bin/claude and warns if it's missing/broken, even though we run
-        # it from the nix profile. Point that canonical path at the profile binary
-        # (out-of-store so it tracks the live profile, not a pinned store path) to
-        # satisfy the check. mkOutOfStoreSymlink keeps it from dangling on version
-        # bumps + GC, unlike a resolved dotfile symlink.
-        ".local/bin/claude".source =
-          config.lib.file.mkOutOfStoreSymlink "${config.home.profileDirectory}/bin/claude";
-      }
-      # Each provider variant ships its theme + managed settings (theme selection
-      # and blocked tools) as read-only store symlinks under ~/.cc-<name>/,
-      # replacing the old per-launch wrapper writes.
-      claude-code-kimi.homeFiles
-      claude-code-zai.homeFiles
-      claude-code-minimax.homeFiles
-    ];
+    home.file = lib.mkMerge (
+      [
+        {
+          # Claude Code's startup "doctor" checks for a native install at
+          # ~/.local/bin/claude and warns if it's missing/broken, even though we run
+          # it from the nix profile. Point that canonical path at the profile binary
+          # (out-of-store so it tracks the live profile, not a pinned store path) to
+          # satisfy the check. mkOutOfStoreSymlink keeps it from dangling on version
+          # bumps + GC, unlike a resolved dotfile symlink.
+          ".local/bin/claude".source =
+            config.lib.file.mkOutOfStoreSymlink "${config.home.profileDirectory}/bin/claude";
+        }
+        # Each provider variant ships its theme definition as a read-only store
+        # symlink under ~/.cc-<name>/themes/ (the brand theme selection + blocked
+        # tools ride the wrapper's --settings flag, not this file).
+        claude-code-kimi.homeFiles
+        claude-code-zai.homeFiles
+        claude-code-minimax.homeFiles
+      ]
+      # Each variant's userSettings (~/.cc-<name>/settings.json) is an out-of-store
+      # symlink to the base ~/.claude/settings.json, so branded sessions inherit
+      # your base (+ overlay) settings live. Brand-specific overrides come from the
+      # wrapper's --settings flag and are never written back; Claude's runtime
+      # pref write-backs land in the base (shareable) rather than diverging.
+      ++
+        map
+          (v: {
+            ".${v.command}/settings.json".source =
+              config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/.claude/settings.json";
+          })
+          [
+            claude-code-kimi
+            claude-code-zai
+            claude-code-minimax
+          ]
+    );
 
     programs.home-manager.enable = true;
 
