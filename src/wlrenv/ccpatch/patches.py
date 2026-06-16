@@ -386,6 +386,33 @@ CATPPUCCIN_SYNTAX = PatchSet(
     min_version=_V_2_1_151,
 )
 
+# --- thinking summaries in non-interactive sessions (2.1.151+) ---------------
+#
+# `showThinkingSummaries` (settings) drives the request's thinking.display, but
+# the binary only applies it as the default when the session is interactive:
+# `else if(!isInteractive()&&showThinkingSummaries())n8.display="summarized"`.
+# Drop the interactive gate so the setting governs `display` in -p / other
+# non-interactive sessions too -- otherwise `claude -p` requests omitted
+# thinking and the on-disk transcript has no summaries. An explicit
+# --thinking-display still wins (it is checked in the preceding branch).
+THINKING_SUMMARIES_NONINTERACTIVE = PatchSet(
+    name="thinking-summaries-noninteractive",
+    patches=(
+        Patch(
+            name="ungate-thinking-display-default",
+            pattern=re.compile(
+                rf'else if\(!{_ID}\(\)&&({_ID}\(\))\)({_ID})\.display="summarized"'
+            ),
+            replacement=r'else if(\1)\2.display="summarized"',
+        ),
+    ),
+    verify_present=(re.compile(r'else if\([\w$]+\(\)\)[\w$]+\.display="summarized"'),),
+    verify_absent=(
+        re.compile(r'else if\(![\w$]+\(\)&&[\w$]+\(\)\)[\w$]+\.display="summarized"'),
+    ),
+    min_version=_V_2_1_151,
+)
+
 
 # --- provider brand patch sets ----------------------------------------------
 #
@@ -704,4 +731,5 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
         CATPPUCCIN_SYNTAX,
+        THINKING_SUMMARIES_NONINTERACTIVE,
     ]

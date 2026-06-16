@@ -18,6 +18,7 @@ from wlrenv.ccpatch.patches import (
     CHANNELS_ENABLED,
     DEV_CHANNEL_INHERITANCE,
     FABLE_MODEL,
+    THINKING_SUMMARIES_NONINTERACTIVE,
     PatchError,
     PatchSet,
     _attribution_patch,
@@ -103,6 +104,22 @@ def test_dev_channel_inheritance_threads_natively() -> None:
 def test_dev_channel_required_no_op_fails() -> None:
     with pytest.raises(PatchError, match="dev-channel-inheritance"):
         DEV_CHANNEL_INHERITANCE.apply("unrelated source")
+
+
+def test_thinking_summaries_ungated_for_noninteractive() -> None:
+    src = (
+        'n8.type!=="disabled"){if(A.thinkingDisplay==="summarized"||'
+        'A.thinkingDisplay==="omitted")n8.display=A.thinkingDisplay;'
+        'else if(!F6()&&O78())n8.display="summarized"}rest'
+    )
+    out = THINKING_SUMMARIES_NONINTERACTIVE.apply(src)
+    assert 'else if(O78())n8.display="summarized"' in out  # interactive gate gone
+    assert "!F6()&&" not in out
+    # the explicit --thinking-display branch is untouched
+    assert (
+        'A.thinkingDisplay==="summarized"||A.thinkingDisplay==="omitted")'
+        "n8.display=A.thinkingDisplay" in out
+    )
 
 
 def _original_scope_map(var: str = "R9") -> str:
