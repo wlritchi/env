@@ -103,28 +103,16 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     install -Dm755 ./claude-patched "$out/libexec/claude-code/claude"
 
     # Launcher: reproduces the runtime env the claude shim sets, then execs the
-    # patched binary. Kept as a script (not makeWrapper --add-flags) because two
-    # of the tweaks are conditional on argv / the terminal.
+    # patched binary. Kept as a script (not makeWrapper --add-flags) for the
+    # truecolor tweak, which is conditional on the terminal. (Dev-channel
+    # inheritance used to live here as an env hack; it is now done natively in
+    # the binary by the dev-channel-inheritance patch -- nothing to do here.)
     mkdir -p "$out/bin"
     cat > "$out/bin/claude" <<EOF
     #!/usr/bin/env bash
     # Lift Claude's tmux 256-color cap when the terminal advertises truecolor.
     if [ -z "\''${CLAUDE_CODE_TMUX_TRUECOLOR:-}" ] && { [ "\''${COLORTERM:-}" = truecolor ] || [ "\''${COLORTERM:-}" = 24bit ]; }; then
       export CLAUDE_CODE_TMUX_TRUECOLOR=1
-    fi
-    # Let bg agents inherit --dangerously-load-development-channels via the env
-    # (the dev-channel-inheritance patch reads CLAUDE_DEV_CHANNELS on the worker).
-    if [ -z "\''${CLAUDE_DEV_CHANNELS:-}" ]; then
-      specs=""; collecting=0
-      for a in "\$@"; do
-        case "\$a" in
-          --dangerously-load-development-channels) collecting=1 ;;
-          --dangerously-load-development-channels=*) specs="\$specs \''${a#*=}" ;;
-          -*) collecting=0 ;;
-          *) [ "\$collecting" = 1 ] && specs="\$specs \$a" ;;
-        esac
-      done
-      [ -n "\$specs" ] && export CLAUDE_DEV_CHANNELS="\''${specs# }"
     fi
     # Prepend --thinking-display summarized so 4.7+ models return content; a
     # user-supplied value later in argv still wins.

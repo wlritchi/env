@@ -179,25 +179,56 @@ CHANNELS_ENABLED = PatchSet(
 # --- dev-channel inheritance for background agents (2.1.151+) ----------------
 #
 # Channels passed via --dangerously-load-development-channels never reach the
-# bg-agent workers the agents view spawns (the dispatch pipeline drops the flag,
-# and bg sessions skip dev-channel registration). The claude shim exports the
-# specs as CLAUDE_DEV_CHANNELS, which rides along to every worker. This patch
-# teaches the worker to honor it: for bg sessions, parse the env var through the
-# binary's own channel parser, tag each {dev:!0} (the allowlist-bypass marker),
-# and register them via the binary's own registrar onto the existing list.
+# bg-agent workers the agents view spawns: the respawn-flag allowlists forward
+# --channels but not the dev-channels flag (so the dispatch drops it), and even
+# if it arrived the worker skips the parse because dev channels need an
+# interactive confirmation dialog (gated on !isNonInteractiveSession) that a bg
+# worker can't show. We fix both natively -- no env var, no wrapper:
 #
-# Length-free: we append the registration after the existing channel-parse block
-# (captured verbatim as group 0); the telemetry block that follows is untouched.
+#   1. Add the flag to the respawn allowlists (RfH value-flags + HE6 multi-value,
+#      mirroring --channels) so the spawn forwards it to the worker's argv.
+#   2. In the worker, after the parse block, register the worker's OWN parsed
+#      specs for bg sessions -- tagging each {dev:!0} (the allowlist bypass) and
+#      calling the binary's registrar directly, which skips the dialog the parent
+#      already showed. Scoped to bg so other non-interactive sessions (-p, etc.)
+#      still require the dialog.
+#
+# Length-free: (1) extends two Set literals; (2) appends the registration after
+# the channel-parse block (captured verbatim as group 0), telemetry untouched.
 # Every minified identifier is captured, so only stable literals are pinned.
+
+# Forward the flag through the bg-worker respawn allowlists, next to --channels.
+_DEV_CHANNEL_FORWARD = (
+    Patch(
+        name="dev-channel-respawn-value-flag",
+        pattern=re.compile(re.escape('"--channels","--permission-prompt-tool"')),
+        replacement=(
+            '"--channels","--dangerously-load-development-channels",'
+            '"--permission-prompt-tool"'
+        ),
+    ),
+    Patch(
+        name="dev-channel-respawn-multivalue",
+        pattern=re.compile(re.escape('"--file","--channels"]')),
+        replacement='"--file","--channels","--dangerously-load-development-channels"]',
+    ),
+)
 
 
 def _dev_channel_replacement(m: re.Match[str]) -> str:
-    register, base, parse = m.group(4), m.group(2), m.group(3)
+    base, parse, register, dev_arg = (
+        m.group(2),
+        m.group(3),
+        m.group(4),
+        m.group(5),
+    )
+    # Brace-wrap so the appended statement ends in `}` -- the source continues
+    # immediately with `if(...)`, and `n9H(...)if(` (no separator) is a syntax
+    # error that the marker-only structural verify would not catch.
     return m.group(0) + (
-        'if(process.env.CLAUDE_CODE_SESSION_KIND==="bg"){'
-        "let devChannelsEnv=process.env.CLAUDE_DEV_CHANNELS;"
-        f"if(devChannelsEnv){register}([...{base},...{parse}"
-        '(devChannelsEnv.split(" ").filter(Boolean),'
+        'if(process.env.CLAUDE_CODE_SESSION_KIND==="bg"&&'
+        f"{dev_arg}&&{dev_arg}.length>0){{"
+        f"{register}([...{base},...{parse}({dev_arg},"
         '"--dangerously-load-development-channels")'
         ".map((devEntry)=>({...devEntry,dev:!0}))])}"
     )
@@ -206,8 +237,9 @@ def _dev_channel_replacement(m: re.Match[str]) -> str:
 DEV_CHANNEL_INHERITANCE = PatchSet(
     name="dev-channel-inheritance",
     patches=(
+        *_DEV_CHANNEL_FORWARD,
         Patch(
-            name="dev-channel-inheritance",
+            name="dev-channel-bg-register",
             pattern=re.compile(
                 rf"if\(({_ID})&&\1\.length>0\)({_ID})=({_ID})\(\1,\"--channels\"\),"
                 rf"({_ID})\(\2\);if\(!{_ID}\)\{{if\(({_ID})&&\5\.length>0\)"
@@ -217,8 +249,16 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
         ),
     ),
     verify_present=(
-        re.compile(r'CLAUDE_CODE_SESSION_KIND==="bg"\)\{let devChannelsEnv='),
+        re.compile(
+            r'"--channels","--dangerously-load-development-channels",'
+            r'"--permission-prompt-tool"'
+        ),
+        re.compile(
+            r'"--file","--channels","--dangerously-load-development-channels"\]'
+        ),
+        re.compile(r'CLAUDE_CODE_SESSION_KIND==="bg"&&[\w$]+&&[\w$]+\.length>0\)'),
     ),
+    verify_absent=(re.compile(r"CLAUDE_DEV_CHANNELS"),),
     min_version=_V_2_1_151,
 )
 

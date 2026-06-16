@@ -45,6 +45,10 @@ _LABEL_SRC = (
 )
 
 _DEV_CHANNEL_SRC = (
+    # respawn-flag allowlists the bg-worker dispatch filters argv through
+    'RfH=new Set(["--advisor","--channels","--permission-prompt-tool","--tools"]),'
+    'HE6=new Set(["--add-dir","--file","--channels"]);'
+    # the parent-side parse block, gated on !isNonInteractiveSession (XH)
     'if(W$&&W$.length>0)r$=c$(W$,"--channels"),n9H(r$);'
     "if(!XH){if(U$&&U$.length>0)"
     'Y$=c$(U$,"--dangerously-load-development-channels")}'
@@ -66,11 +70,22 @@ def test_channels_enabled() -> None:
     assert "tengu_harbor" not in out
 
 
-def test_dev_channel_inheritance_injects_bg_handler() -> None:
+def test_dev_channel_inheritance_threads_natively() -> None:
     out = DEV_CHANNEL_INHERITANCE.apply(_DEV_CHANNEL_SRC)
-    assert 'CLAUDE_CODE_SESSION_KIND==="bg"){let devChannelsEnv=' in out
-    # registrar / base / parse identifiers reused from the captured block
-    assert "if(devChannelsEnv)n9H([...r$,...c$(devChannelsEnv.split(" in out
+    # flag forwarded through both respawn allowlists (value + multi-value)
+    assert (
+        '"--channels","--dangerously-load-development-channels",'
+        '"--permission-prompt-tool"' in out
+    )
+    assert '"--file","--channels","--dangerously-load-development-channels"]' in out
+    # bg worker registers dev channels from its OWN parsed flag (no env round-trip),
+    # reusing the registrar/base/parse identifiers captured from the block
+    assert (
+        'CLAUDE_CODE_SESSION_KIND==="bg"&&U$&&U$.length>0){'
+        'n9H([...r$,...c$(U$,"--dangerously-load-development-channels")' in out
+    )
+    assert "devEntry,dev:!0}))])}" in out  # brace-terminated (no `)if(` syntax error)
+    assert "CLAUDE_DEV_CHANNELS" not in out  # the env round-trip is gone
     # the original telemetry block is preserved (length-free append)
     assert 'd("tengu_mcp_channel_flags",{})' in out
 
