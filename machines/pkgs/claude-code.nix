@@ -114,9 +114,11 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     if [ -z "\''${CLAUDE_CODE_TMUX_TRUECOLOR:-}" ] && { [ "\''${COLORTERM:-}" = truecolor ] || [ "\''${COLORTERM:-}" = 24bit ]; }; then
       export CLAUDE_CODE_TMUX_TRUECOLOR=1
     fi
-    # Prepend --thinking-display summarized so 4.7+ models return content; a
-    # user-supplied value later in argv still wins.
-    exec "$out/libexec/claude-code/claude" --thinking-display summarized "\$@"
+    # (--thinking-display summarized was prepended here to make 4.7+ models
+    # return thinking content. No longer needed: the showThinkingSummaries
+    # setting drives the request's thinking.display, which the binary now
+    # plumbs through to the server -- the old "property never sent" bug is gone.)
+    exec "$out/libexec/claude-code/claude" "\$@"
     EOF
     chmod +x "$out/bin/claude"
 
