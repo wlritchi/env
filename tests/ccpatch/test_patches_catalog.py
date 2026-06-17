@@ -211,6 +211,7 @@ def test_brand_patch_sets_dispatch() -> None:
     assert len(brand_patch_sets("kimi")) == 1
     assert len(brand_patch_sets("zai")) == 1
     assert len(brand_patch_sets("minimax")) == 1
+    assert len(brand_patch_sets("openai")) == 1
     # label + 3 verb/symbol + attribution + identity + email + onboarding = 8;
     # passing splash adds the startup-splash patch.
     assert len(brand_patch_sets("kimi")[0].patches) == 8

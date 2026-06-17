@@ -9,8 +9,16 @@
 
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
+  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
   claude-code = pkgs.callPackage ./pkgs/claude-code.nix { };
   claude-code-variant = pkgs.callPackage ./pkgs/claude-code-variant.nix { };
+  claude-code-openai = pkgs.callPackage ./pkgs/claude-code-openai.nix {
+    inherit cc-openai-proxy;
+    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      brand = "openai";
+      brandSplash = ./pkgs/cc-openai-splash.txt;
+    };
+  };
   claude-code-kimi = pkgs.callPackage ./pkgs/claude-code-kimi.nix {
     inherit claude-code-variant;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
@@ -95,6 +103,7 @@ in
         ))
         ccstatusline
         claude-code
+        claude-code-openai
         claude-code-kimi
         claude-code-minimax
         claude-code-zai
@@ -118,6 +127,7 @@ in
         # Each provider variant ships its theme definition as a read-only store
         # symlink under ~/.cc-<name>/themes/ (the brand theme selection + blocked
         # tools ride the wrapper's --settings flag, not this file).
+        claude-code-openai.homeFiles
         claude-code-kimi.homeFiles
         claude-code-zai.homeFiles
         claude-code-minimax.homeFiles
@@ -134,6 +144,7 @@ in
               config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/.claude/settings.json";
           })
           [
+            claude-code-openai
             claude-code-kimi
             claude-code-zai
             claude-code-minimax

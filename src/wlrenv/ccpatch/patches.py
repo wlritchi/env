@@ -549,6 +549,24 @@ _MINIMAX_VERBS = [
 ]
 _MINIMAX_SYMBOLS = ["⟡", "◈", "⬡", "◇", "⬡", "◈"]
 
+_OPENAI_VERBS = [
+    "Reasoning",
+    "Planning",
+    "Inspecting",
+    "Synthesizing",
+    "Refining",
+    "Tracing",
+    "Reviewing",
+    "Composing",
+    "Testing",
+    "Patching",
+    "Checking",
+    "Resolving",
+    "Caching",
+    "Streaming",
+]
+_OPENAI_SYMBOLS = [".", "o", "O", "0", "O", "o"]
+
 
 _IDENTITY_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude"
 
@@ -701,9 +719,29 @@ def minimax_brand(splash: str | None = None) -> PatchSet:
     )
 
 
+def openai_brand(splash: str | None = None) -> PatchSet:
+    return _provider_brand(
+        name="openai",
+        label="OpenAI Codex",
+        verbs=_OPENAI_VERBS,
+        symbols=_OPENAI_SYMBOLS,
+        identity_name="GPT-5.5",
+        model_map={
+            "gpt-5.3-codex-spark": "GPT-5.3 Codex Spark",
+            "gpt-5.4": "GPT-5.4",
+            "gpt-5.4-mini": "GPT-5.4 Mini",
+            "gpt-5.5": "GPT-5.5",
+            "gpt-5.5-pro": "GPT-5.5 Pro",
+        },
+        email_domain="openai.com",
+        splash=splash,
+    )
+
+
 _BRANDS: dict[str, Callable[[str | None], PatchSet]] = {
     "kimi": kimi_brand,
     "minimax": minimax_brand,
+    "openai": openai_brand,
     "zai": zai_brand,
 }
 
