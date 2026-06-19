@@ -35,6 +35,15 @@ IMPORTANT: ALWAYS create commits proactively when you've accomplished a task. If
 a summary of work completed and/or mention that all tests are now passing, that's a good sign that
 you should commit your work.
 
+# Finding tools and dependencies
+
+Do NOT use overly broad `find` commands. For tools, if they're not on the PATH, assume they aren't
+available unless runnable using `uvx`, `bunx`, or similar. For dependency git repositories, I put
+them under ~/repo-name, or occasionally ~/org-name/repo-name. If they're not submodules, not
+vendored, and not found at the typical location, offer to clone them. For large models with a
+canonical tool to use them (e.g. `ollama`), check that tool. For models without a canonical tool,
+or without a canonical location for this tool, ask me (e.g. Stable Diffusion models).
+
 # Commit messages
 
 ## Linux kernel patches (in-tree or otherwise)
@@ -62,9 +71,11 @@ available.
 
 # Worktrees (including for Superpowers)
 
-Use in-project git worktrees when working on large multi-step tasks in repos that have non-trivial
-uncommitted changes. In clean repos, worktrees are not necessary unless the user specifically asks
-for you to use them.
+Use in-project git worktrees when working on changes. For repositories that track a remote, always
+pull the latest changes to main/master before creating a new worktree.
+
+For private, single-user repositories, merge the changes back into main when you're done working on
+them, keeping the main checkout up to date.
 
 Do NOT create worktrees adjacent to the repository; instead, place them under `.claude/worktrees/`
 inside the root repository. Some versions of the harness may offer a native tool for worktrees; you
@@ -74,22 +85,10 @@ Legacy worktrees will have been created in a `.worktrees/` folder inside the roo
 you need to work with an existing legacy worktree and `.worktrees/` isn't gitignored, add it to the
 root gitignore.
 
-# Using plans (for Superpowers)
+# Using plans
 
-Use `docs/specs/` for design specs and `docs/plans/` for implementation plans, not
-`docs/superpowers/specs/` or `docs/superpowers/plans/`.
-
-Don't ask the user whether to use subagent-driven plan execution or inline execution, just use
-subagent-driven.
-
-The skill may direct you to read a plan fully before implementing. DO NOT reread plans that you
-just wrote, unless your context window has been compacted and you only have a summary of the plan.
-
-If you're continuing implementation after a compaction, DO read the design plan and implementation
-plan in full.
-
-After a compaction, if you're in the middle of implementing but the implementing plans skill was
-not automatically loaded, DO (re)run it to review the instructions.
+Use `docs/specs/` for design specs and `docs/plans/` for implementation plans. If you're continuing
+implementation after a compaction, reread design plans relevant to your current project.
 
 # Tools
 
