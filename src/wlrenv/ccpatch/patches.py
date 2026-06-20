@@ -724,6 +724,17 @@ def _provider_brand(
     )
 
 
+_KIMI_MODEL_COSTS: ModelCostsByModel = {
+    "kimi-k2.7-code": {
+        "inputTokens": 0.95,
+        "outputTokens": 4,
+        "promptCacheWriteTokens": 0.95,
+        "promptCacheReadTokens": 0.19,
+        "webSearchRequests": 0,
+    },
+}
+
+
 def kimi_brand(splash: str | None = None) -> PatchSet:
     return _provider_brand(
         name="kimi",
@@ -733,8 +744,34 @@ def kimi_brand(splash: str | None = None) -> PatchSet:
         identity_name="Kimi K2.7 Code",
         model_map={"kimi-k2.7-code": "Kimi K2.7 Code"},
         email_domain="kimi.com",
+        model_costs=_KIMI_MODEL_COSTS,
         splash=splash,
     )
+
+
+_ZAI_MODEL_COSTS: ModelCostsByModel = {
+    "glm-5.2": {
+        "inputTokens": 1.4,
+        "outputTokens": 4.4,
+        "promptCacheWriteTokens": 1.4,
+        "promptCacheReadTokens": 0.26,
+        "webSearchRequests": 0,
+    },
+    "glm-5-turbo": {
+        "inputTokens": 1.2,
+        "outputTokens": 4.0,
+        "promptCacheWriteTokens": 1.2,
+        "promptCacheReadTokens": 0.2,
+        "webSearchRequests": 0,
+    },
+    "glm-4.5-air": {
+        "inputTokens": 0.2,
+        "outputTokens": 1.1,
+        "promptCacheWriteTokens": 0.2,
+        "promptCacheReadTokens": 0.03,
+        "webSearchRequests": 0,
+    },
+}
 
 
 def zai_brand(splash: str | None = None) -> PatchSet:
@@ -751,8 +788,27 @@ def zai_brand(splash: str | None = None) -> PatchSet:
             "glm-4.7": "GLM 4.7",
         },
         email_domain="z.ai",
+        model_costs=_ZAI_MODEL_COSTS,
         splash=splash,
     )
+
+
+_MINIMAX_MODEL_COSTS: ModelCostsByModel = {
+    "minimax-m2.7": {
+        "inputTokens": 0.3,
+        "outputTokens": 1.2,
+        "promptCacheWriteTokens": 0.375,
+        "promptCacheReadTokens": 0.06,
+        "webSearchRequests": 0,
+    },
+    "MiniMax-M2.7": {
+        "inputTokens": 0.3,
+        "outputTokens": 1.2,
+        "promptCacheWriteTokens": 0.375,
+        "promptCacheReadTokens": 0.06,
+        "webSearchRequests": 0,
+    },
+}
 
 
 def minimax_brand(splash: str | None = None) -> PatchSet:
@@ -764,6 +820,7 @@ def minimax_brand(splash: str | None = None) -> PatchSet:
         identity_name="MiniMax M2.7",
         model_map={"minimax-m2.7": "MiniMax M2.7"},
         email_domain="minimax.io",
+        model_costs=_MINIMAX_MODEL_COSTS,
         splash=splash,
     )
 

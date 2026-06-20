@@ -236,10 +236,10 @@ def test_brand_patch_sets_dispatch() -> None:
     assert len(brand_patch_sets("zai")) == 1
     assert len(brand_patch_sets("minimax")) == 1
     assert len(brand_patch_sets("openai")) == 1
-    # label + 3 verb/symbol + attribution + identity + email + onboarding = 8;
-    # passing splash adds the startup-splash patch.
-    assert len(brand_patch_sets("kimi")[0].patches) == 8
-    assert len(brand_patch_sets("kimi", "ART")[0].patches) == 9
+    # label + 3 verb/symbol + attribution + identity + email + model-costs
+    # + onboarding = 9; passing splash adds the startup-splash patch.
+    assert len(brand_patch_sets("kimi")[0].patches) == 9
+    assert len(brand_patch_sets("kimi", "ART")[0].patches) == 10
     with pytest.raises(PatchError, match="unknown brand"):
         brand_patch_sets("nope")
 
