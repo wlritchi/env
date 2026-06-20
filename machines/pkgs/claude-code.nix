@@ -8,7 +8,7 @@
 # The patch step needs no network and -- on Linux -- no dependencies beyond
 # python3 (stdlib). On Darwin the Mach-O repack path needs python3Packages.lief.
 #
-# Version bump: update `version` and the three `hash`es. Each hash is npm's own
+# Version bump: update `version` and the four `hash`es. Each hash is npm's own
 # SRI integrity string:
 #   curl -s https://registry.npmjs.org/@anthropic-ai/claude-code-<plat>/<ver> \
 #     | jq -r .dist.integrity
@@ -43,6 +43,10 @@ let
     "x86_64-linux" = {
       platform = "linux-x64";
       hash = "sha512-SSQ6TsGbZJSC1s6R5pxlTZPq1bilSpoTR8JANOq8ALUkbRVhgVSl0PiSSNSnc3zNdDCA1iA3ywLmAuISuhlvKA==";
+    };
+    "aarch64-linux" = {
+      platform = "linux-arm64";
+      hash = "sha512-J2682NcqJbDouDcmR8VeVDAB4UxWryDMUZfPYdvbwiG3sM6SyupBHPuXgwIEcaT1M1jlpBiWRdJ4ActHF5Drng==";
     };
     "aarch64-darwin" = {
       platform = "darwin-arm64";
