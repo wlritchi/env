@@ -17,8 +17,20 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypedDict
 
 Version = tuple[int, ...]
+
+
+class ModelCosts(TypedDict):
+    inputTokens: float
+    outputTokens: float
+    promptCacheWriteTokens: float
+    promptCacheReadTokens: float
+    webSearchRequests: float
+
+
+ModelCostsByModel = dict[str, ModelCosts]
 
 
 class PatchError(RuntimeError):
@@ -588,6 +600,31 @@ def _email_patch(domain: str) -> Patch:
     )
 
 
+_MODEL_COSTS_RE = re.compile(
+    r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
+)
+
+
+def _model_costs_patch(model_costs: ModelCostsByModel) -> Patch:
+    # Claude Code computes statusline/session cost from its own per-model table.
+    # Provider-branded builds can add provider model IDs to that table so unknown
+    # models don't fall back to the default Claude rate.
+    table = ",".join(
+        f"{json.dumps(model, separators=(',', ':'))}:"
+        f"{{inputTokens:{costs['inputTokens']},"
+        f"outputTokens:{costs['outputTokens']},"
+        f"promptCacheWriteTokens:{costs['promptCacheWriteTokens']},"
+        f"promptCacheReadTokens:{costs['promptCacheReadTokens']},"
+        f"webSearchRequests:{costs['webSearchRequests']}}}"
+        for model, costs in model_costs.items()
+    )
+
+    def repl(m: re.Match[str]) -> str:
+        return f"{m.group(1)}{table},{m.group(2)}"
+
+    return Patch(name="model-costs", pattern=_MODEL_COSTS_RE, replacement=repl)
+
+
 # Skip the first-run onboarding flow (theme picker / login walkthrough). The
 # wrapper used to seed .claude.json with hasCompletedOnboarding:true; baking the
 # skip into the binary lets the variant ship no seeded config. Only the first-run
@@ -633,6 +670,7 @@ def _provider_brand(
     identity_name: str,
     model_map: dict[str, str],
     email_domain: str,
+    model_costs: ModelCostsByModel | None = None,
     splash: str | None = None,
 ) -> PatchSet:
     # Prefix the identity preamble with the flagship model, map the commit
@@ -646,8 +684,11 @@ def _provider_brand(
         _attribution_patch(model_map),
         _identity_patch(identity_name),
         _email_patch(email_domain),
-        _SKIP_ONBOARDING,
     )
+    if model_costs is not None:
+        patches = (*patches, _model_costs_patch(model_costs))
+    patches = (*patches, _SKIP_ONBOARDING)
+
     present: tuple[re.Pattern[str], ...] = (
         re.compile(rf'createElement\([\w$]+,\{{bold:!0\}},"{re.escape(label)}"\)'),
         re.compile(re.escape(f'"{verbs[0]}","{verbs[1]}"')),
@@ -656,6 +697,14 @@ def _provider_brand(
         re.compile(re.escape(f"noreply@{email_domain}")),
         re.compile(r"!1\|\|\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"),
     )
+    if model_costs is not None:
+        present = (
+            *present,
+            *(
+                re.compile(re.escape(f'"{model}":{{inputTokens:'))
+                for model in model_costs
+            ),
+        )
     if splash is not None:
         patches = (*patches, _splash_patch(splash))
         present = (
@@ -719,6 +768,31 @@ def minimax_brand(splash: str | None = None) -> PatchSet:
     )
 
 
+_OPENAI_MODEL_COSTS: ModelCostsByModel = {
+    "gpt-5.4": {
+        "inputTokens": 2.5,
+        "outputTokens": 15,
+        "promptCacheWriteTokens": 0,
+        "promptCacheReadTokens": 0.25,
+        "webSearchRequests": 0.01,
+    },
+    "gpt-5.5": {
+        "inputTokens": 5,
+        "outputTokens": 30,
+        "promptCacheWriteTokens": 0,
+        "promptCacheReadTokens": 0.5,
+        "webSearchRequests": 0.01,
+    },
+    "gpt-5.4-mini": {
+        "inputTokens": 0.75,
+        "outputTokens": 4.5,
+        "promptCacheWriteTokens": 0,
+        "promptCacheReadTokens": 0.075,
+        "webSearchRequests": 0.01,
+    },
+}
+
+
 def openai_brand(splash: str | None = None) -> PatchSet:
     return _provider_brand(
         name="openai",
@@ -734,6 +808,7 @@ def openai_brand(splash: str | None = None) -> PatchSet:
             "gpt-5.5-pro": "GPT-5.5 Pro",
         },
         email_domain="openai.com",
+        model_costs=_OPENAI_MODEL_COSTS,
         splash=splash,
     )
 

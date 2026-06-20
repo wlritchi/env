@@ -24,6 +24,7 @@ from wlrenv.ccpatch.patches import (
     _attribution_patch,
     _email_patch,
     _identity_patch,
+    _model_costs_patch,
     _splash_patch,
     _startup_label_patch,
     _verb_symbol_patches,
@@ -188,6 +189,29 @@ def test_skip_onboarding_neutralizes_first_run() -> None:
     assert "!1||(process.env.CLAUDE_CODE_TEAM_ONBOARDING" in out
     assert "hasCompletedOnboarding||(process.env" not in out  # first-run gate gone
     assert 'CLAUDE_CODE_TEAM_ONBOARDING==="step"' in out  # env override preserved
+
+
+def test_model_costs_prepends_provider_models() -> None:
+    src = "},Xz_=v8H;ej$={[sJ(FY6.firstParty)]:Xw6,[sJ(UY6.firstParty)]:V_H}"
+    out = PatchSet(
+        name="c",
+        patches=(
+            _model_costs_patch(
+                {
+                    "gpt-5.5": {
+                        "inputTokens": 5,
+                        "outputTokens": 30,
+                        "promptCacheWriteTokens": 0,
+                        "promptCacheReadTokens": 0.5,
+                        "webSearchRequests": 0.01,
+                    },
+                }
+            ),
+        ),
+    ).apply(src)
+    assert 'ej$={"gpt-5.5":{inputTokens:5,outputTokens:30,' in out
+    assert "promptCacheWriteTokens:0,promptCacheReadTokens:0.5" in out
+    assert ',[sJ(FY6.firstParty)]:Xw6' in out
 
 
 def test_splash_injects_on_interactive_tty() -> None:
