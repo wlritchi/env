@@ -13,11 +13,14 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import FrameType
 
 USAGE = """\
 secwrap - wrap commands with secrets from pass/passage
@@ -262,27 +265,61 @@ class ShellOutError(RuntimeError):
     """Raised when a subprocess invoked by a subcommand exits non-zero."""
 
 
+def _gpg_temp_home_root() -> str | None:
+    """Pick the best root for a temp GNUPGHOME: XDG_RUNTIME_DIR, TMPDIR, /tmp.
+
+    Prefer `$XDG_RUNTIME_DIR` (tmpfs, per-user, mode 0700 on Linux/systemd),
+    then `$TMPDIR` (macOS per-user `/var/folders/...`), then `/tmp`. Returns the
+    first writable directory, or None if none is usable.
+    """
+    candidates = [
+        os.environ.get("XDG_RUNTIME_DIR"),
+        os.environ.get("TMPDIR"),
+        "/tmp",  # noqa: S108 - last-resort fallback; homedir is chmod 700
+    ]
+    for root in candidates:
+        if root and os.path.isdir(root) and os.access(root, os.W_OK):
+            return root
+    return None
+
+
 @dataclass(frozen=True)
 class MetaKey:
-    """Holds the age private key in process memory for in-process decryption.
+    """Holds the meta private key in process memory for in-process decryption.
 
     The `key` field is `bytes` (not `str`) so we can `del` the reference and
     overwrite without re-encoding. Python doesn't guarantee zeroing, but we
     avoid leaving live references through `os.execvpe` to children.
+
+    Backends:
+      - age (passage): `key` is the age identity, piped to `age -d` per entry;
+        stateless, `passphrase` unused, `cleanup()` a no-op.
+      - gpg (pass): `key` is an armored, passphrase-protected secret key and
+        `passphrase` its passphrase. On first `decrypt()` the key is imported
+        into a throwaway `$GNUPGHOME` (tmpfs, mode 0700) that is reused for the
+        remaining entries and torn down by `cleanup()`. `_gpg` caches the
+        homedir path; mutating this dict is allowed on a frozen instance
+        (frozen blocks attribute rebinding, not object mutation).
     """
 
     backend: str
     key: bytes
+    passphrase: bytes | None = None
+    _gpg: dict[str, Path] = field(
+        default_factory=dict, compare=False, repr=False, hash=False
+    )
 
     def decrypt(self, store_dir: Path, entry: str, extension: str) -> str:
-        """Decrypt `config/env/{entry}.{extension}` using this meta key.
-
-        For age: `age -d --identity /dev/stdin <path>`. The key is piped on
-        stdin so it never hits disk.
-        """
-        if self.backend != "age":
-            raise MetaKeyError(f"MetaKey.decrypt: unsupported backend {self.backend!r}")
+        """Decrypt `config/env/{entry}.{extension}` using this meta key."""
         path = store_dir / "config" / "env" / f"{entry}.{extension}"
+        if self.backend == "age":
+            return self._decrypt_age(path, entry)
+        if self.backend == "gpg":
+            return self._decrypt_gpg(path, entry)
+        raise MetaKeyError(f"MetaKey.decrypt: unsupported backend {self.backend!r}")
+
+    def _decrypt_age(self, path: Path, entry: str) -> str:
+        """`age -d --identity /dev/stdin <path>`; key piped on stdin, never on disk."""
         result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
             ["age", "-d", "--identity", "/dev/stdin", str(path)],  # noqa: S607
             input=self.key,
@@ -296,12 +333,93 @@ class MetaKey:
             )
         return result.stdout.decode("utf-8")
 
+    def _ensure_gpg_home(self) -> Path:
+        """Lazily create a temp `$GNUPGHOME` and import the meta secret key.
+
+        Importing a passphrase-protected secret key needs no passphrase (the
+        passphrase is only required to *use* the key), so the import runs
+        without one. The homedir is cached and reused for later entries.
+        """
+        cached = self._gpg.get("home")
+        if cached is not None:
+            return cached
+        root = _gpg_temp_home_root()
+        if root is None:
+            raise MetaKeyError(
+                "cannot create temp GNUPGHOME (no writable runtime/temp dir found)"
+            )
+        home = Path(tempfile.mkdtemp(prefix="secwrap-gpg-", dir=root))
+        home.chmod(0o700)
+        self._gpg["home"] = home
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            ["gpg", "--homedir", str(home), "--batch", "--quiet", "--import"],  # noqa: S607
+            input=self.key,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise MetaKeyError(
+                "gpg meta key import failed: "
+                f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+            )
+        return home
+
+    def _decrypt_gpg(self, path: Path, entry: str) -> str:
+        """Decrypt via gpg in the temp homedir, passphrase piped on stdin (fd 0).
+
+        `--passphrase-fd 0` keeps the passphrase off argv; the ciphertext is
+        supplied as a file argument so stdin is free for the passphrase.
+        """
+        home = self._ensure_gpg_home()
+        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            [  # noqa: S607 - gpg resolved from PATH
+                "gpg",
+                "--homedir",
+                str(home),
+                "--batch",
+                "--quiet",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase-fd",
+                "0",
+                "--decrypt",
+                str(path),
+            ],
+            input=self.passphrase,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise MetaKeyError(
+                f"gpg decryption failed for {entry}: "
+                f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+            )
+        return result.stdout.decode("utf-8")
+
+    def cleanup(self) -> None:
+        """Tear down the gpg temp homedir (kill its agent, then remove it).
+
+        Idempotent and safe for the age backend (a no-op when no homedir was
+        created). A temp `$GNUPGHOME` spawns its own gpg-agent that would keep
+        the tmpfs dir open, so kill it first (best-effort).
+        """
+        home = self._gpg.pop("home", None)
+        if home is None:
+            return
+        subprocess.run(  # noqa: S603 - trusted binary, controlled args
+            ["gpgconf", "--homedir", str(home), "--kill", "gpg-agent"],  # noqa: S607
+            capture_output=True,
+            check=False,
+        )
+        shutil.rmtree(home, ignore_errors=True)
+
 
 def load_meta_key(backend: Backend) -> MetaKey | None:
     """Load and parse `config/env-meta`. Returns None if the entry is absent.
 
     Raises MetaKeyError on JSON parse failure, schema mismatch, or
-    backend-mismatch with the runtime-detected backend.
+    backend-mismatch with the runtime-detected backend. The gpg schema also
+    requires a `passphrase` field alongside `key`.
     """
     blob = backend.show("config/env-meta")
     if blob is None:
@@ -322,7 +440,14 @@ def load_meta_key(backend: Backend) -> MetaKey | None:
     if "key" not in data:
         raise MetaKeyError("config/env-meta missing required field 'key'")
     assert isinstance(declared, str)  # narrowed by the != expected check above
-    return MetaKey(backend=declared, key=data["key"].encode("utf-8"))
+    passphrase: bytes | None = None
+    if declared == "gpg":
+        if "passphrase" not in data:
+            raise MetaKeyError("config/env-meta missing required field 'passphrase'")
+        passphrase = data["passphrase"].encode("utf-8")
+    return MetaKey(
+        backend=declared, key=data["key"].encode("utf-8"), passphrase=passphrase
+    )
 
 
 class IncludeError(RuntimeError):
@@ -1106,6 +1231,24 @@ def main(argv: list[str] | None = None) -> int:
 
     meta_was_absent = meta_key is None
 
+    # The gpg meta key materializes a temp GNUPGHOME that must not survive the
+    # process. The try/finally covers the normal and exception paths; install
+    # SIGINT/SIGTERM handlers so an interrupt mid-decrypt cleans up too (the age
+    # and no-meta paths need none of this, so only arm it for gpg).
+    needs_signal_cleanup = meta_key is not None and meta_key.backend == "gpg"
+    prev_int = None
+    prev_term = None
+    if needs_signal_cleanup:
+
+        def _handle_signal(signum: int, _frame: FrameType | None) -> None:
+            if meta_key is not None:
+                meta_key.cleanup()
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+
+        prev_int = signal.signal(signal.SIGINT, _handle_signal)
+        prev_term = signal.signal(signal.SIGTERM, _handle_signal)
+
     try:
         resolved = resolve_includes(
             backend, secret_key, marker_loaded, meta_key=meta_key
@@ -1114,6 +1257,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"secwrap: {exc}", file=sys.stderr)
         return 1
     finally:
+        if meta_key is not None:
+            meta_key.cleanup()
+        if needs_signal_cleanup:
+            signal.signal(signal.SIGINT, prev_int)
+            signal.signal(signal.SIGTERM, prev_term)
         meta_key = None  # release reference
 
     decrypt_count = sum(1 for _name, blob in resolved if blob is not None)

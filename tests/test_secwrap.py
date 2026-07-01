@@ -1228,6 +1228,158 @@ def test_meta_key_decrypt_failure_raises(mocker: MockerFixture, tmp_path: Path) 
         mk.decrypt(tmp_path, "claude", "age")
 
 
+def test_load_meta_key_valid_json_gpg(mocker: MockerFixture, tmp_path: Path) -> None:
+    backend = _make_pass_backend(tmp_path)
+    blob = '{"backend": "gpg", "passphrase": "cGFzcw==", "key": "PGP-ARMOR"}\n'
+    mocker.patch.object(Backend, "show", return_value=blob)
+    mk = load_meta_key(backend)
+    assert mk is not None
+    assert mk.backend == "gpg"
+    assert mk.key == b"PGP-ARMOR"
+    assert mk.passphrase == b"cGFzcw=="
+
+
+def test_load_meta_key_gpg_missing_passphrase_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    blob = '{"backend": "gpg", "key": "PGP-ARMOR"}'  # no passphrase
+    mocker.patch.object(Backend, "show", return_value=blob)
+    with pytest.raises(MetaKeyError, match=r"missing required field 'passphrase'"):
+        load_meta_key(backend)
+
+
+def test_meta_key_gpg_decrypt_imports_once_and_decrypts(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    home = tmp_path / "gpghome"
+    home.mkdir()
+    mocker.patch("tempfile.mkdtemp", return_value=str(home))
+    mk = MetaKey(
+        backend="gpg",
+        key=b"-----BEGIN PGP PRIVATE KEY BLOCK-----\n",
+        passphrase=b"secretpw",
+    )
+    calls: list[tuple[list[str], object]] = []
+
+    def fake_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        calls.append((cmd, kwargs.get("input")))
+        stdout = b"FOO=bar\n" if "--decrypt" in cmd else b""
+        return subprocess.CompletedProcess(cmd, 0, stdout, b"")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    r1 = mk.decrypt(tmp_path, "claude", "gpg")
+    r2 = mk.decrypt(tmp_path, "docker", "gpg")
+
+    assert r1 == "FOO=bar\n"
+    assert r2 == "FOO=bar\n"
+    imports = [(c, i) for c, i in calls if "--import" in c]
+    decrypts = [(c, i) for c, i in calls if "--decrypt" in c]
+    # Key imported into the temp homedir exactly once, reused for both entries.
+    assert len(imports) == 1
+    assert imports[0][1] == b"-----BEGIN PGP PRIVATE KEY BLOCK-----\n"
+    assert "--homedir" in imports[0][0]
+    assert str(home) in imports[0][0]
+    assert len(decrypts) == 2
+    dcmd, dinput = decrypts[0]
+    assert "--pinentry-mode" in dcmd
+    assert "loopback" in dcmd
+    assert dinput == b"secretpw"  # passphrase piped on stdin, never on argv
+    assert "secretpw" not in " ".join(dcmd)
+    assert dcmd[-1] == str(tmp_path / "config/env/claude.gpg")
+
+
+def test_meta_key_gpg_cleanup_kills_agent_and_removes_home(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    home = tmp_path / "gpghome"
+    home.mkdir()
+    mocker.patch("tempfile.mkdtemp", return_value=str(home))
+    killed: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        if cmd and cmd[0] == "gpgconf":
+            killed.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, b"FOO=bar\n", b"")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    mk = MetaKey(backend="gpg", key=b"KEY", passphrase=b"pw")
+    mk.decrypt(tmp_path, "claude", "gpg")
+    assert home.exists()
+
+    mk.cleanup()
+
+    assert any("gpg-agent" in c for c in killed)
+    assert not home.exists()
+    # cleanup is idempotent
+    mk.cleanup()
+
+
+def test_meta_key_gpg_decrypt_failure_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    home = tmp_path / "gpghome"
+    home.mkdir()
+    mocker.patch("tempfile.mkdtemp", return_value=str(home))
+    mk = MetaKey(backend="gpg", key=b"KEY", passphrase=b"pw")
+
+    def fake_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        rc = 1 if "--decrypt" in cmd else 0
+        return subprocess.CompletedProcess(cmd, rc, b"", b"gpg: decryption failed\n")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    with pytest.raises(MetaKeyError, match=r"gpg decryption failed"):
+        mk.decrypt(tmp_path, "claude", "gpg")
+
+
+def test_main_pass_uses_gpg_meta_key(mocker: MockerFixture, tmp_path: Path) -> None:
+    blobs = {
+        "config/env-meta": '{"backend": "gpg", "passphrase": "cHc=", "key": "ARMOR"}',
+    }
+    decrypt_blobs = {
+        "claude": "# secwrap-include: docker\nKEY=claude\n",
+        "docker": "DOCKER=yes\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "pass",
+            "PASSWORD_STORE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    mocker.patch.object(
+        MetaKey, "decrypt", side_effect=lambda _store, name, _ext: decrypt_blobs[name]
+    )
+    cleanup = mocker.patch.object(MetaKey, "cleanup")
+    execvpe = mocker.patch("os.execvpe")
+
+    main(["claude"])
+
+    execvpe.assert_called_once()
+    _file, _argv, env_arg = execvpe.call_args.args
+    assert env_arg["KEY"] == "claude"
+    assert env_arg["DOCKER"] == "yes"
+    assert env_arg["_SECWRAP_LOADED"] == "claude:docker"
+    # The gpg temp GNUPGHOME is torn down before exec.
+    cleanup.assert_called()
+
+
 def test_resolve_includes_uses_meta_key_when_provided(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
