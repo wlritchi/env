@@ -1610,15 +1610,9 @@ def main(argv: list[str] | None = None) -> int:
 
     assert args.command is not None  # narrowed above
 
-    # Subcommand dispatch (skipped if `--` was used).
+    # Subcommand dispatch (skipped if `--` was used). Both backends are
+    # supported; each handler branches on backend.name internally.
     if not args.force_wrap and args.command in _SUBCOMMANDS:
-        if backend.name != "passage":
-            print(
-                f"secwrap: {args.command} is not yet supported for the "
-                f"pass backend (will arrive in Phase 3)",
-                file=sys.stderr,
-            )
-            return 1
         if args.command == "bootstrap":
             return do_bootstrap(backend, args.forwarded)
         if args.command == "rotate-meta":

@@ -1632,9 +1632,10 @@ def test_main_doctor_dispatches(mocker: MockerFixture, tmp_path: Path) -> None:
     do_doctor.assert_called_once()
 
 
-def test_main_subcommand_pass_backend_exits_one(
-    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+def test_main_subcommand_pass_backend_dispatches(
+    mocker: MockerFixture, tmp_path: Path
 ) -> None:
+    # Phase 3: subcommands are supported on pass; main dispatches to the handler.
     mocker.patch.dict(
         "os.environ",
         {
@@ -1650,15 +1651,14 @@ def test_main_subcommand_pass_backend_exits_one(
         if name in {"pass", "passage"}
         else None,
     )
-    do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap")
+    do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap", return_value=0)
 
     rc = main(["bootstrap"])
 
-    assert rc == 1
-    do_bootstrap.assert_not_called()
-    err = capsys.readouterr().err
-    assert "not yet supported for the pass backend" in err
-    assert "Phase 3" in err
+    assert rc == 0
+    do_bootstrap.assert_called_once()
+    # The pass backend object is handed to the handler.
+    assert do_bootstrap.call_args.args[0].name == "pass"
 
 
 def test_main_force_wrap_skips_subcommand(

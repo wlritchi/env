@@ -229,9 +229,11 @@ The rewrite is *not* a refactor opportunity — Phase 1 is functional parity wit
 
 1. **Phase 1: Python rewrite.** Functional parity with the current bash `secwrap`: argument parsing (`--from`, `--list`, `--help`), `config/env/<tool>` lookup, KEY=VALUE parsing, `os.execvp`. No new behavior. Old bash version is removed in the same change. This phase exists to give Phases 2–3 a sane substrate.
 2. **Phase 2: passage backend includes + marker + meta key.** Includes (comment scanning, transitive resolution, cycle detection, conflict resolution), `_SECWRAP_LOADED` marker, optional age meta key. The pass code path emits a stderr warning when an include comment is encountered: `secwrap: include comments are not yet implemented for the pass backend; ignoring`. The marker is backend-independent and works for pass too in this phase.
-3. **Phase 3: pass backend gpg meta key.** Temp `$GNUPGHOME`, random passphrase, generate-with-passphrase bootstrap. Removes the Phase 2 warning.
+3. **Phase 3: pass backend gpg meta key.** *(Delivered — see `docs/plans/2026-05-07-secwrap-includes-phase-3-impl.md`.)* Temp `$GNUPGHOME`, random passphrase, generate-with-passphrase bootstrap. The pass backend now walks the include graph like passage; the Phase 2 warning is removed. Two deltas from the sketch above, discovered against real gpg/`pass`:
+   - **Ownertrust, not `--trust-model always`:** `pass` invokes `gpg -e` without a trust override, so after importing the meta *public* key into the real keyring, bootstrap/rotate/doctor set its ownertrust to ultimate (`gpg --import-ownertrust` fed `<FINGERPRINT>:6:`) so `pass init`/`insert` will encrypt to it non-interactively.
+   - **Import needs no passphrase; decrypt does:** the runtime `--import` of the passphrase-protected secret key runs without a passphrase (gpg imports the S2K-protected form as-is); the passphrase is supplied only at decrypt time via `--passphrase-fd` (never argv). A temp `$GNUPGHOME` spawns its own gpg-agent, killed via `gpgconf --kill gpg-agent` before the homedir is removed.
 
-`secwrap bootstrap`, `secwrap rotate-meta`, and `secwrap doctor` arrive in Phase 2 (passage variants) and gain pass-backend implementations in Phase 3.
+`secwrap bootstrap`, `secwrap rotate-meta`, and `secwrap doctor` arrive in Phase 2 (passage variants) and gained pass-backend implementations in Phase 3.
 
 The data model (this document) is finalized for Phases 2–3 from the start; Phase 1 doesn't touch it.
 
