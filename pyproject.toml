@@ -118,7 +118,7 @@ select = [
 "src/wlrenv/ccpatch/cli.py" = ["T201"]  # CLI entry point uses print for output
 
 [tool.codespell]
-ignore-words-list = "lief"  # LIEF: binary-parsing library used by ccpatch.macho
+ignore-words-list = "lief,fpr"  # LIEF: binary-parsing library used by ccpatch.macho; fpr: gpg --with-colons fingerprint record type (secwrap)
 
 [dependency-groups]
 dev = [
