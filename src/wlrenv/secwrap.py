@@ -9,6 +9,7 @@ See docs/specs/2026-05-07-secwrap-includes-design.md.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -718,7 +719,195 @@ def _run_or_fail(
     return result
 
 
+def _resolve_pass_gpg_ids(store_dir: Path) -> list[str]:
+    """Return the gpg-id(s) `pass` currently uses to encrypt `config/env/`.
+
+    Mirrors `pass`'s recipient resolution: use the nearest `.gpg-id` walking up
+    from `config/env/` (deepest wins) — `config/env/.gpg-id`, then
+    `config/.gpg-id`, then `<store>/.gpg-id`. Returns [] if none exists.
+    """
+    for rel in (Path("config") / "env", Path("config"), Path(".")):
+        candidate = store_dir / rel / ".gpg-id"
+        if candidate.is_file():
+            return [
+                line.strip()
+                for line in candidate.read_text().splitlines()
+                if line.strip()
+            ]
+    return []
+
+
+def _parse_gpg_fingerprint(colons: str) -> str:
+    """Extract the primary-key fingerprint from `gpg --with-colons` output."""
+    for line in colons.splitlines():
+        if line.startswith("fpr:"):
+            fields = line.split(":")
+            if len(fields) > 9 and fields[9]:
+                return fields[9]
+    raise ShellOutError("could not parse gpg fingerprint from --with-colons output")
+
+
+def _kill_gpg_agent(home: Path) -> None:
+    """Kill the gpg-agent bound to a temp `$GNUPGHOME` (best-effort)."""
+    subprocess.run(  # noqa: S603 - trusted binary, controlled args
+        ["gpgconf", "--homedir", str(home), "--kill", "gpg-agent"],  # noqa: S607
+        capture_output=True,
+        check=False,
+    )
+
+
+def _gpg_generate_meta_key() -> tuple[str, str, str, str]:
+    """Generate a passphrase-protected gpg meta key in a throwaway homedir.
+
+    Returns `(fingerprint, armored_secret_key, armored_public_key, passphrase)`.
+    The temp homedir (and its agent) are torn down before returning, so the key
+    survives only in the returned strings. The passphrase is a fresh 32-byte
+    urandom value, base64-encoded; it is supplied to gpg via `--passphrase-fd`
+    (never argv). `--quick-generate-key … default default 0` yields a
+    non-expiring key with an encryption subkey.
+    """
+    root = _gpg_temp_home_root()
+    if root is None:
+        raise ShellOutError(
+            "cannot create temp GNUPGHOME (no writable runtime/temp dir found)"
+        )
+    home = Path(tempfile.mkdtemp(prefix="secwrap-gen-", dir=root))
+    home.chmod(0o700)
+    passphrase = base64.b64encode(os.urandom(32)).decode("ascii")
+    try:
+        _run_or_fail(
+            [
+                "gpg",
+                "--homedir",
+                str(home),
+                "--batch",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase-fd",
+                "0",
+                "--quick-generate-key",
+                "secwrap-meta",
+                "default",
+                "default",
+                "0",
+            ],
+            "gpg --quick-generate-key",
+            input=passphrase,
+        )
+        colons = _run_or_fail(
+            ["gpg", "--homedir", str(home), "--list-secret-keys", "--with-colons"],
+            "gpg --list-secret-keys",
+        ).stdout
+        fingerprint = _parse_gpg_fingerprint(colons)
+        secret = _run_or_fail(
+            [
+                "gpg",
+                "--homedir",
+                str(home),
+                "--batch",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase-fd",
+                "0",
+                "--export-secret-keys",
+                "--armor",
+                fingerprint,
+            ],
+            "gpg --export-secret-keys",
+            input=passphrase,
+        ).stdout
+        public = _run_or_fail(
+            ["gpg", "--homedir", str(home), "--export", "--armor", fingerprint],
+            "gpg --export",
+        ).stdout
+        return fingerprint, secret, public, passphrase
+    finally:
+        _kill_gpg_agent(home)
+        shutil.rmtree(home, ignore_errors=True)
+
+
+def _import_meta_pubkey(fingerprint: str, public_key: str) -> None:
+    """Import the meta public key into the real keyring and trust it ultimately.
+
+    `pass` invokes `gpg -e` without `--trust-model always`, so a freshly
+    imported (untrusted) recipient would abort encryption. Setting ultimate
+    ownertrust (the meta key is our own) lets `pass init`/`insert` encrypt to it
+    non-interactively.
+    """
+    _run_or_fail(
+        ["gpg", "--batch", "--quiet", "--import"],
+        "gpg --import meta pubkey",
+        input=public_key,
+    )
+    _run_or_fail(
+        ["gpg", "--batch", "--quiet", "--import-ownertrust"],
+        "gpg --import-ownertrust",
+        input=f"{fingerprint}:6:\n",
+    )
+
+
+def _do_bootstrap_pass(backend: Backend) -> int:
+    # Pre-flight: binaries present, and no meta entry yet.
+    if shutil.which("gpg") is None:
+        print("secwrap: gpg not found on PATH", file=sys.stderr)
+        return 1
+    if shutil.which("pass") is None:
+        print("secwrap: pass not found on PATH", file=sys.stderr)
+        return 1
+    if backend.show("config/env-meta") is not None:
+        print(
+            "secwrap: config/env-meta already exists; "
+            "use `secwrap rotate-meta --yes` to replace it",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Recipients `pass` currently uses for config/env/, so `pass init` keeps the
+    # user's own key(s) alongside the new meta key.
+    base_ids = _resolve_pass_gpg_ids(backend.store_dir)
+    if not base_ids:
+        print(
+            "secwrap: cannot determine existing gpg-id(s) for config/env/ "
+            "(no .gpg-id found in ancestors). Initialize your password store "
+            "(`pass init <your-key>`) before bootstrapping.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        fingerprint, secret, public, passphrase = _gpg_generate_meta_key()
+        _import_meta_pubkey(fingerprint, public)
+
+        # Re-encrypt config/env/ to the user key(s) + meta key. `pass init -p`
+        # writes config/env/.gpg-id and reencrypts the subtree.
+        _run_or_fail(
+            ["pass", "init", "-p", "config/env", *base_ids, fingerprint],
+            "pass init config/env",
+        )
+
+        # Insert the meta entry. It lives at config/env-meta (outside
+        # config/env/), so pass resolves its recipients from the store-root
+        # .gpg-id — encrypting it to the user identity only, never the meta key.
+        payload = json.dumps(
+            {"backend": "gpg", "passphrase": passphrase, "key": secret}
+        )
+        _run_or_fail(
+            ["pass", "insert", "-m", "config/env-meta"],
+            "pass insert config/env-meta",
+            input=payload + "\n",
+        )
+
+        print("secwrap: bootstrap complete", file=sys.stderr)
+        return 0
+    except ShellOutError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        return 1
+
+
 def do_bootstrap(backend: Backend, args: list[str]) -> int:
+    if backend.name == "pass":
+        return _do_bootstrap_pass(backend)
+
     # Pre-flight checks. Check binaries before shelling out for meta-existence.
     if shutil.which("age-keygen") is None:
         print("secwrap: age-keygen not found on PATH", file=sys.stderr)

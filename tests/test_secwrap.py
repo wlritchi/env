@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -1742,6 +1744,162 @@ def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
     assert isinstance(payload, dict)
     assert payload["backend"] == "age"
     assert payload["key"] == "AGE-SECRET-KEY-1FAKE"
+
+
+def _fake_gpg_gen_run(
+    captured: dict[str, Any],
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Build a subprocess.run fake covering the pass-bootstrap gpg/pass shell-outs."""
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "gpg" and "--quick-generate-key" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "gpg" and "--list-secret-keys" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "fpr:::::::::METAFPR123:\n", "")
+        if cmd[0] == "gpg" and "--export-secret-keys" in cmd:
+            return subprocess.CompletedProcess(
+                cmd, 0, "-----BEGIN PGP PRIVATE KEY BLOCK-----\nZ\n", ""
+            )
+        if cmd[0] == "gpg" and "--export" in cmd:
+            return subprocess.CompletedProcess(
+                cmd, 0, "-----BEGIN PGP PUBLIC KEY BLOCK-----\nZ\n", ""
+            )
+        if cmd[0] == "gpg" and "--import-ownertrust" in cmd:
+            captured["ownertrust_input"] = kwargs.get("input")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "gpg" and "--import" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "gpgconf":
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "pass" and cmd[1] == "init":
+            captured["init_cmd"] = list(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "pass" and cmd[1] == "insert":
+            captured.setdefault("insert_inputs", []).append(kwargs.get("input"))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    return fake_run
+
+
+def test_do_bootstrap_pass_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
+    backend = _make_pass_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    # store-root .gpg-id: the user's key, inherited by config/env/.
+    (tmp_path / ".gpg-id").write_text("USERKEYID\n")
+    gen_home = tmp_path / "gen"
+    gen_home.mkdir()
+    mocker.patch("tempfile.mkdtemp", return_value=str(gen_home))
+    mocker.patch.object(Backend, "show", return_value=None)  # no existing meta
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"gpg", "pass"}
+        else None,
+    )
+    captured: dict[str, Any] = {}
+    mocker.patch("subprocess.run", side_effect=_fake_gpg_gen_run(captured))
+
+    rc = do_bootstrap(backend, [])
+
+    assert rc == 0
+    # pass init re-encrypts config/env to user key + meta fingerprint.
+    init_cmd = captured["init_cmd"]
+    assert isinstance(init_cmd, list)
+    assert init_cmd[:4] == ["pass", "init", "-p", "config/env"]
+    assert "USERKEYID" in init_cmd
+    assert "METAFPR123" in init_cmd
+    # Meta key marked ultimately trusted so pass can encrypt to it.
+    assert captured["ownertrust_input"] == "METAFPR123:6:\n"
+    # Meta payload is valid gpg-schema JSON.
+    insert_inputs = captured["insert_inputs"]
+    assert isinstance(insert_inputs, list)
+    payload = json.loads(insert_inputs[0])
+    assert payload["backend"] == "gpg"
+    assert payload["key"].startswith("-----BEGIN PGP PRIVATE KEY BLOCK-----")
+    assert payload["passphrase"]  # non-empty base64 passphrase
+    # The throwaway generation homedir is removed.
+    assert not gen_home.exists()
+
+
+def test_do_bootstrap_pass_meta_already_exists(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "gpg", "passphrase": "p", "key": "k"}',
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"gpg", "pass"}
+        else None,
+    )
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "config/env-meta already exists" in err
+    assert "rotate-meta" in err
+
+
+def test_do_bootstrap_pass_gpg_missing(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    mocker.patch("shutil.which", return_value=None)
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    assert "gpg not found" in capsys.readouterr().err
+
+
+def test_do_bootstrap_pass_no_gpg_id(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"gpg", "pass"}
+        else None,
+    )
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    assert "cannot determine existing gpg-id" in capsys.readouterr().err
+
+
+def test_do_bootstrap_pass_init_failure_aborts_and_cleans_up(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    (tmp_path / ".gpg-id").write_text("USERKEYID\n")
+    gen_home = tmp_path / "gen"
+    gen_home.mkdir()
+    mocker.patch("tempfile.mkdtemp", return_value=str(gen_home))
+    mocker.patch.object(Backend, "show", return_value=None)
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"gpg", "pass"}
+        else None,
+    )
+    captured: dict[str, Any] = {}
+    base = _fake_gpg_gen_run(captured)
+
+    def fail_init(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "pass" and cmd[1] == "init":
+            return subprocess.CompletedProcess(cmd, 1, "", "pass: init error\n")
+        return base(cmd, **kwargs)
+
+    mocker.patch("subprocess.run", side_effect=fail_init)
+
+    rc = do_bootstrap(backend, [])
+    assert rc == 1
+    assert "pass init config/env failed" in capsys.readouterr().err
+    # Generation homedir still cleaned up despite the failure.
+    assert not gen_home.exists()
 
 
 def test_do_bootstrap_meta_already_exists(
