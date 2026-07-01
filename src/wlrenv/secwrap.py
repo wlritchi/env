@@ -329,11 +329,6 @@ class IncludeError(RuntimeError):
     """Raised when include resolution fails (cycle, missing dep, etc.)."""
 
 
-_PASS_INCLUDES_WARNING = (
-    "secwrap: include comments are not yet implemented for the pass backend; ignoring"  # noqa: S105 - not a password; name refers to `pass` backend
-)
-
-
 def resolve_includes(
     backend: Backend,
     root: str,
@@ -348,28 +343,15 @@ def resolve_includes(
       - blob is None when the entry was already in `marker_loaded` and skipped.
 
     When `meta_key` is provided, decryption goes through `meta_key.decrypt()`
-    (in-process via age) instead of `backend.show()` (subprocess that prompts
-    for credentials). The meta key path is only taken on the passage backend;
-    the pass backend short-circuits as in Phase 2a.
-
-    The pass backend does NOT walk includes in Phase 2b; it loads only the
-    root and emits a one-time stderr warning if the blob contains include
-    comments. The pass backend has no meta key in Phase 2b.
+    (in-process via age or a temp-GNUPGHOME gpg) instead of `backend.show()`
+    (subprocess that prompts for credentials). The walk itself is
+    backend-agnostic: both passage and pass share this graph traversal, and
+    without a meta key each entry is decrypted by `backend.show()`
+    (passage/pass show), which the local agent caches.
 
     A missing root returns []. A missing non-root include raises IncludeError.
     A cycle raises IncludeError.
     """
-    if backend.name == "pass":
-        if root in marker_loaded:
-            return [(root, None)]
-        blob = backend.show(f"config/env/{root}")
-        if blob is None:
-            return []
-        if parse_includes(blob):
-            print(_PASS_INCLUDES_WARNING, file=sys.stderr)
-        return [(root, blob)]
-
-    # passage: full graph walk.
     result: list[tuple[str, str | None]] = []
     visited: set[str] = set()
     path: list[str] = []

@@ -773,17 +773,48 @@ def test_resolve_includes_marker_skips_root(
     show_mock.assert_not_called()
 
 
-def test_resolve_includes_pass_backend_warns_and_ignores(
+def test_resolve_includes_pass_walks_chain(
     mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
+    # Phase 3: the pass backend now walks the include graph like passage,
+    # decrypting each entry via backend.show (pass show). No warning.
     backend = _make_pass_backend(tmp_path)
-    mocker.patch.object(
-        Backend, "show", return_value="# secwrap-include: docker\nFOO=claude\n"
-    )
+    blobs = {
+        "config/env/claude": "# secwrap-include: docker\nFOO=claude\n",
+        "config/env/docker": "BAR=docker\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     result = resolve_includes(backend, "claude", marker_loaded=set())
-    assert result == [("claude", "# secwrap-include: docker\nFOO=claude\n")]
-    err = capsys.readouterr().err
-    assert "include comments are not yet implemented for the pass backend" in err
+    assert result == [
+        ("docker", "BAR=docker\n"),
+        ("claude", "# secwrap-include: docker\nFOO=claude\n"),
+    ]
+    assert capsys.readouterr().err == ""
+
+
+def test_resolve_includes_pass_cycle_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    blobs = {
+        "config/env/claude": "# secwrap-include: docker\n",
+        "config/env/docker": "# secwrap-include: claude\n",
+    }
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    with pytest.raises(IncludeError, match=r"cycle detected"):
+        resolve_includes(backend, "claude", marker_loaded=set())
+
+
+def test_resolve_includes_pass_missing_dep_raises(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    blobs = {"config/env/claude": "# secwrap-include: ghost\n"}
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    with pytest.raises(
+        IncludeError, match=r"claude includes 'ghost' but config/env/ghost not found"
+    ):
+        resolve_includes(backend, "claude", marker_loaded=set())
 
 
 def test_resolve_includes_pass_backend_no_includes_no_warning(
@@ -794,6 +825,44 @@ def test_resolve_includes_pass_backend_no_includes_no_warning(
     result = resolve_includes(backend, "claude", marker_loaded=set())
     assert result == [("claude", "FOO=bar\n")]
     assert capsys.readouterr().err == ""
+
+
+def test_main_pass_includes_no_warning(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # End-to-end on the pass backend with no meta key: includes are walked and
+    # merged, and no "not yet implemented" warning is emitted.
+    blobs = {
+        "config/env-meta": None,
+        "config/env/claude": "# secwrap-include: docker\nKEY=claude\n",
+        "config/env/docker": "DOCKER=yes\n",
+    }
+    mocker.patch.dict(
+        "os.environ",
+        {
+            "SECWRAP_BACKEND": "pass",
+            "PASSWORD_STORE_DIR": str(tmp_path),
+            "PATH": "/usr/bin",
+        },
+        clear=True,
+    )
+    mocker.patch(
+        "shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}"
+        if name in {"pass", "passage"}
+        else None,
+    )
+    mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
+    execvpe = mocker.patch("os.execvpe")
+
+    main(["claude"])
+
+    execvpe.assert_called_once()
+    _file, _argv, env_arg = execvpe.call_args.args
+    assert env_arg["KEY"] == "claude"
+    assert env_arg["DOCKER"] == "yes"
+    assert env_arg["_SECWRAP_LOADED"] == "claude:docker"
+    assert "not yet implemented" not in capsys.readouterr().err
 
 
 def test_main_wrap_short_circuits_when_target_in_marker(
