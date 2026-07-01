@@ -846,6 +846,138 @@ def _import_meta_pubkey(fingerprint: str, public_key: str) -> None:
     )
 
 
+def _gpg_meta_identity(armored_secret: str) -> tuple[str, str]:
+    """Return `(fingerprint, armored_public_key)` for a gpg meta secret key.
+
+    Imports the (passphrase-protected) secret into a throwaway homedir — no
+    passphrase needed to import — reads its fingerprint, and exports the public
+    half. Used by rotate-meta/doctor to identify and re-trust the meta key
+    without touching the real keyring's secret store.
+    """
+    root = _gpg_temp_home_root()
+    if root is None:
+        raise ShellOutError(
+            "cannot create temp GNUPGHOME (no writable runtime/temp dir found)"
+        )
+    home = Path(tempfile.mkdtemp(prefix="secwrap-id-", dir=root))
+    home.chmod(0o700)
+    try:
+        _run_or_fail(
+            ["gpg", "--homedir", str(home), "--batch", "--quiet", "--import"],
+            "gpg --import meta key",
+            input=armored_secret,
+        )
+        colons = _run_or_fail(
+            ["gpg", "--homedir", str(home), "--list-secret-keys", "--with-colons"],
+            "gpg --list-secret-keys",
+        ).stdout
+        fingerprint = _parse_gpg_fingerprint(colons)
+        public = _run_or_fail(
+            ["gpg", "--homedir", str(home), "--export", "--armor", fingerprint],
+            "gpg --export",
+        ).stdout
+        return fingerprint, public
+    finally:
+        _kill_gpg_agent(home)
+        shutil.rmtree(home, ignore_errors=True)
+
+
+def _resolve_pass_inherited_gpg_ids(store_dir: Path) -> list[str]:
+    """gpg-id(s) `pass` would use for config/env/ if config/env/.gpg-id were absent.
+
+    Walk-up excluding the local file: `config/.gpg-id`, then `<store>/.gpg-id`.
+    Mirrors `_resolve_inherited_recipients` for the gpg backend.
+    """
+    for rel in (Path("config"), Path(".")):
+        candidate = store_dir / rel / ".gpg-id"
+        if candidate.is_file():
+            return [
+                line.strip()
+                for line in candidate.read_text().splitlines()
+                if line.strip()
+            ]
+    return []
+
+
+def _do_rotate_meta_pass(backend: Backend, args: list[str]) -> int:
+    if "--yes" not in args:
+        print(
+            "rotate-meta will:\n"
+            "  1. Generate a new gpg meta key.\n"
+            "  2. Replace the old meta fingerprint in config/env/.gpg-id "
+            "with the new one.\n"
+            "  3. Run `pass init -p config/env` to re-encrypt.\n"
+            "  4. Replace config/env-meta with the new key + passphrase.\n"
+            "\n"
+            "Re-run with --yes to proceed.",
+        )
+        return 0
+
+    if shutil.which("gpg") is None:
+        print("secwrap: gpg not found on PATH", file=sys.stderr)
+        return 1
+    if shutil.which("pass") is None:
+        print("secwrap: pass not found on PATH", file=sys.stderr)
+        return 1
+
+    existing_blob = backend.show("config/env-meta")
+    if existing_blob is None:
+        print(
+            "secwrap: no config/env-meta found; run `secwrap bootstrap` first",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        existing = json.loads(existing_blob)
+        if not isinstance(existing, dict):
+            raise ValueError("expected JSON object")
+        old_key = existing["key"]
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        print(f"secwrap: existing config/env-meta is malformed: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        # Identify the outgoing meta key so we can drop it from the recipients.
+        old_fingerprint, _old_public = _gpg_meta_identity(old_key)
+        current_ids = _resolve_pass_gpg_ids(backend.store_dir)
+        residue = [i for i in current_ids if i != old_fingerprint]
+        if not residue:
+            print(
+                "secwrap: config/env/.gpg-id has no non-meta recipients to keep; "
+                "add your own gpg-id before rotating (otherwise the new meta key "
+                "would lock you out).",
+                file=sys.stderr,
+            )
+            return 1
+
+        new_fingerprint, new_secret, new_public, new_passphrase = (
+            _gpg_generate_meta_key()
+        )
+        _import_meta_pubkey(new_fingerprint, new_public)
+
+        # Re-encrypt config/env/ to the surviving recipients + the new meta key.
+        _run_or_fail(
+            ["pass", "init", "-p", "config/env", *residue, new_fingerprint],
+            "pass init config/env",
+        )
+
+        # Replace the meta entry.
+        payload = json.dumps(
+            {"backend": "gpg", "passphrase": new_passphrase, "key": new_secret}
+        )
+        _run_or_fail(
+            ["pass", "insert", "--force", "-m", "config/env-meta"],
+            "pass insert config/env-meta",
+            input=payload + "\n",
+        )
+
+        print("secwrap: rotate-meta complete", file=sys.stderr)
+        return 0
+    except ShellOutError as exc:
+        print(f"secwrap: {exc}", file=sys.stderr)
+        return 1
+
+
 def _do_bootstrap_pass(backend: Backend) -> int:
     # Pre-flight: binaries present, and no meta entry yet.
     if shutil.which("gpg") is None:
@@ -1015,6 +1147,9 @@ def _swap_age_recipient(store_dir: Path, old_pubkey: str, new_pubkey: str) -> No
 
 
 def do_rotate_meta(backend: Backend, args: list[str]) -> int:
+    if backend.name == "pass":
+        return _do_rotate_meta_pass(backend, args)
+
     if "--yes" not in args:
         print(
             "rotate-meta will:\n"
@@ -1187,6 +1322,136 @@ def _repair_with_meta_rotation(
     return len(plaintexts), new_pubkey
 
 
+def _doctor_load_meta(backend: Backend, failures: list[str]) -> MetaKey | None:
+    """Check 1: `config/env-meta` exists and parses.
+
+    Prints status to stdout and appends any problem to `failures`. Returns the
+    loaded key, or None if missing/malformed. Backend-agnostic.
+    """
+    print("Checking config/env-meta ...", file=sys.stdout)
+    try:
+        meta_key = load_meta_key(backend)
+    except MetaKeyError as exc:
+        failures.append(f"meta entry: {exc}")
+        meta_key = None
+    if meta_key is None and not failures:
+        failures.append("config/env-meta missing (run `secwrap bootstrap` first)")
+    if not failures:
+        print("  OK", file=sys.stdout)
+    if meta_key is None:
+        print("  Skipping recipient/decrypt/include checks (no meta key).")
+    return meta_key
+
+
+def _doctor_check_entries_and_includes(
+    backend: Backend, meta_key: MetaKey, failures: list[str]
+) -> None:
+    """Checks 3 & 4: every entry decrypts under the meta key, and the include
+    graph is well-formed. Backend-agnostic (uses `meta_key.decrypt`)."""
+    print("Checking entry decryption ...", file=sys.stdout)
+    decrypted: dict[str, str] = {}
+    for tool in backend.list_tools():
+        try:
+            decrypted[tool] = meta_key.decrypt(
+                backend.store_dir, tool, backend.extension
+            )
+        except MetaKeyError as exc:
+            failures.append(f"entry {tool} failed to decrypt: {exc}")
+    if all(t in decrypted for t in backend.list_tools()):
+        print(f"  OK ({len(decrypted)} entries)", file=sys.stdout)
+
+    print("Checking include graph ...", file=sys.stdout)
+    include_failures: list[str] = []
+    for tool in backend.list_tools():
+        try:
+            resolve_includes(backend, tool, marker_loaded=set(), meta_key=meta_key)
+        except IncludeError as exc:
+            include_failures.append(f"include graph for {tool}: {exc}")
+    if include_failures:
+        failures.extend(include_failures)
+    else:
+        print("  OK", file=sys.stdout)
+
+
+def _doctor_report(failures: list[str], repairs: list[str]) -> int:
+    """Print repairs/failures; return the doctor exit code (0 clean, 1 issues)."""
+    if repairs:
+        print("\nRepairs applied:", file=sys.stdout)
+        for r in repairs:
+            print(f"  - {r}", file=sys.stdout)
+    if failures:
+        print("\nDoctor found issues:", file=sys.stderr)
+        for f in failures:
+            print(f"  - {f}", file=sys.stderr)
+        return 1
+    print("\nAll checks passed.", file=sys.stdout)
+    return 0
+
+
+def _doctor_check_pass_gpg_id(
+    backend: Backend,
+    meta_key: MetaKey,
+    fix_mode: bool,
+    failures: list[str],
+    repairs: list[str],
+) -> None:
+    """Check 2 (pass): `config/env/.gpg-id` lists the meta fingerprint AND the
+    inherited user gpg-id(s).
+
+    `--fix` re-imports + ultimately-trusts the meta pubkey (so pass can encrypt
+    to it), rewrites the recipient set, and re-encrypts via `pass init`.
+    """
+    print("Checking config/env/.gpg-id ...", file=sys.stdout)
+    try:
+        meta_fingerprint, meta_public = _gpg_meta_identity(meta_key.key.decode("utf-8"))
+    except ShellOutError as exc:
+        failures.append(f"deriving meta fingerprint: {exc}")
+        return
+    gpg_id_path = backend.store_dir / "config" / "env" / ".gpg-id"
+    if not gpg_id_path.exists():
+        failures.append("config/env/.gpg-id missing")
+        return
+    local_ids = [
+        line.strip() for line in gpg_id_path.read_text().splitlines() if line.strip()
+    ]
+    issues: list[str] = []
+    if meta_fingerprint not in local_ids:
+        issues.append(f"meta fingerprint {meta_fingerprint} not in config/env/.gpg-id")
+    inherited = _resolve_pass_inherited_gpg_ids(backend.store_dir)
+    missing_inherited = [i for i in inherited if i not in local_ids]
+    if missing_inherited:
+        msg = (
+            f"config/env/.gpg-id missing inherited gpg-id(s) "
+            f"{', '.join(missing_inherited)}"
+        )
+        if not fix_mode:
+            msg += " (run `secwrap doctor --fix` to repair)"
+        issues.append(msg)
+
+    if fix_mode and issues:
+        try:
+            _import_meta_pubkey(meta_fingerprint, meta_public)
+            new_ids = sorted(
+                set(local_ids) | set(missing_inherited) | {meta_fingerprint}
+            )
+            _run_or_fail(
+                ["pass", "init", "-p", "config/env", *new_ids],
+                "pass init config/env",
+            )
+            repairs.append(
+                f"rewrote config/env/.gpg-id to {', '.join(new_ids)} and re-encrypted"
+            )
+        except ShellOutError as exc:
+            failures.append(f"repair: {exc}")
+        else:
+            issues = []
+
+    if issues:
+        failures.extend(issues)
+    else:
+        print("  OK", file=sys.stdout)
+
+
 def do_doctor(backend: Backend, args: list[str]) -> int:
     """Verify the meta-key invariants and the include graph.
 
@@ -1201,24 +1466,17 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
     failures: list[str] = []
     repairs: list[str] = []
 
-    # Check 1: meta entry exists and parses.
-    print("Checking config/env-meta ...", file=sys.stdout)
-    try:
-        meta_key = load_meta_key(backend)
-    except MetaKeyError as exc:
-        failures.append(f"meta entry: {exc}")
-        meta_key = None
-    if meta_key is None and not failures:
-        failures.append("config/env-meta missing (run `secwrap bootstrap` first)")
-    if not failures:
-        print("  OK", file=sys.stdout)
+    meta_key = _doctor_load_meta(backend, failures)
 
-    if meta_key is None:
-        print("  Skipping recipient/decrypt/include checks (no meta key).")
+    if backend.name == "pass":
+        if meta_key is not None:
+            _doctor_check_pass_gpg_id(backend, meta_key, fix_mode, failures, repairs)
+            _doctor_check_entries_and_includes(backend, meta_key, failures)
+        return _doctor_report(failures, repairs)
 
-    # Check 2: recipients contain meta pubkey AND any inherited recipients
-    # (e.g. user identity) that passage would have used pre-bootstrap. A
-    # bootstrap before this check was added wrote the local file with only the
+    # Check 2 (passage): recipients contain the meta pubkey AND any inherited
+    # recipients (e.g. the user identity) passage would have used pre-bootstrap.
+    # A bootstrap before this check was added wrote the local file with only the
     # meta pubkey, locking the user's main identity out of config/env/*.
     if meta_key is not None and shutil.which("age-keygen") is not None:
         print("Checking .age-recipients ...", file=sys.stdout)
@@ -1315,45 +1573,10 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
                 else:
                     print("  OK", file=sys.stdout)
 
-    # Check 3: every entry decrypts.
     if meta_key is not None:
-        print("Checking entry decryption ...", file=sys.stdout)
-        decrypted: dict[str, str] = {}
-        for tool in backend.list_tools():
-            try:
-                blob = meta_key.decrypt(backend.store_dir, tool, backend.extension)
-                decrypted[tool] = blob
-            except MetaKeyError as exc:
-                failures.append(f"entry {tool} failed to decrypt: {exc}")
-        if all(t in decrypted for t in backend.list_tools()):
-            print(f"  OK ({len(decrypted)} entries)", file=sys.stdout)
+        _doctor_check_entries_and_includes(backend, meta_key, failures)
 
-        # Check 4: include graph well-formed.
-        print("Checking include graph ...", file=sys.stdout)
-        include_failures: list[str] = []
-        for tool in backend.list_tools():
-            try:
-                resolve_includes(backend, tool, marker_loaded=set(), meta_key=meta_key)
-            except IncludeError as exc:
-                include_failures.append(f"include graph for {tool}: {exc}")
-        if include_failures:
-            failures.extend(include_failures)
-        else:
-            print("  OK", file=sys.stdout)
-
-    if repairs:
-        print("\nRepairs applied:", file=sys.stdout)
-        for r in repairs:
-            print(f"  - {r}", file=sys.stdout)
-
-    if failures:
-        print("\nDoctor found issues:", file=sys.stderr)
-        for f in failures:
-            print(f"  - {f}", file=sys.stderr)
-        return 1
-
-    print("\nAll checks passed.", file=sys.stdout)
-    return 0
+    return _doctor_report(failures, repairs)
 
 
 def main(argv: list[str] | None = None) -> int:

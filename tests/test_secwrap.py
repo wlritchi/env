@@ -2833,3 +2833,219 @@ def test_do_doctor_fix_rotates_meta_when_types_incompatible(
     assert "Repairs applied" in out
     assert "rotated meta key" in out
     assert "pq" in out and "classic" in out
+
+
+# --- pass backend: rotate-meta ---------------------------------------------
+
+
+def _which_gpg_pass(name: str) -> str | None:
+    return f"/usr/bin/{name}" if name in {"gpg", "pass"} else None
+
+
+def test_do_rotate_meta_pass_without_yes_describes(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    rc = do_rotate_meta(backend, [])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "rotate-meta will" in out.lower()
+    assert "--yes" in out
+    assert "gpg meta key" in out
+
+
+def test_do_rotate_meta_pass_no_existing_meta(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    mocker.patch("shutil.which", side_effect=_which_gpg_pass)
+    mocker.patch.object(Backend, "show", return_value=None)
+    rc = do_rotate_meta(backend, ["--yes"])
+    assert rc == 1
+    assert "no config/env-meta found" in capsys.readouterr().err
+
+
+def test_do_rotate_meta_pass_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
+    backend = _make_pass_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / "config" / "env" / ".gpg-id").write_text("USERKEY\nOLDFPR\n")
+    mocker.patch("shutil.which", side_effect=_which_gpg_pass)
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "gpg", "passphrase": "p", "key": "OLDSECRET"}',
+    )
+    mocker.patch("wlrenv.secwrap._gpg_meta_identity", return_value=("OLDFPR", "OLDPUB"))
+    mocker.patch(
+        "wlrenv.secwrap._gpg_generate_meta_key",
+        return_value=("NEWFPR", "NEWSECRET", "NEWPUB", "NEWPASS"),
+    )
+    import_mock = mocker.patch("wlrenv.secwrap._import_meta_pubkey")
+    captured: dict[str, Any] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "pass" and cmd[1] == "init":
+            captured["init"] = list(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if cmd[0] == "pass" and cmd[1] == "insert":
+            captured["insert_input"] = kwargs.get("input")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_rotate_meta(backend, ["--yes"])
+    assert rc == 0
+    # New meta pubkey imported + trusted.
+    import_mock.assert_called_once_with("NEWFPR", "NEWPUB")
+    # Old meta fingerprint dropped, user key kept, new meta added.
+    assert captured["init"] == [
+        "pass",
+        "init",
+        "-p",
+        "config/env",
+        "USERKEY",
+        "NEWFPR",
+    ]
+    payload = json.loads(captured["insert_input"])
+    assert payload["backend"] == "gpg"
+    assert payload["key"] == "NEWSECRET"
+    assert payload["passphrase"] == "NEWPASS"  # noqa: S105 - test literal, not a secret
+
+
+def test_do_rotate_meta_pass_empty_residue_aborts(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    # config/env/.gpg-id lists ONLY the meta key -> rotating would lock the user out.
+    (tmp_path / "config" / "env" / ".gpg-id").write_text("OLDFPR\n")
+    mocker.patch("shutil.which", side_effect=_which_gpg_pass)
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "gpg", "passphrase": "p", "key": "OLDSECRET"}',
+    )
+    mocker.patch("wlrenv.secwrap._gpg_meta_identity", return_value=("OLDFPR", "OLDPUB"))
+    rc = do_rotate_meta(backend, ["--yes"])
+    assert rc == 1
+    assert "no non-meta recipients" in capsys.readouterr().err
+
+
+# --- pass backend: doctor --------------------------------------------------
+
+
+def _seed_pass_store(tmp_path: Path, *, local_gpg_id: str, root_gpg_id: str) -> None:
+    (tmp_path / "config" / "env").mkdir(parents=True)
+    (tmp_path / ".gpg-id").write_text(root_gpg_id)
+    (tmp_path / "config" / "env" / ".gpg-id").write_text(local_gpg_id)
+    (tmp_path / "config" / "env" / "claude.gpg").write_text("ciphertext")
+
+
+def test_do_doctor_pass_clean(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    _seed_pass_store(
+        tmp_path, local_gpg_id="USERKEY\nMETAFPR\n", root_gpg_id="USERKEY\n"
+    )
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "gpg", "passphrase": "p", "key": "SECRET"}',
+    )
+    mocker.patch(
+        "wlrenv.secwrap._gpg_meta_identity", return_value=("METAFPR", "METAPUB")
+    )
+    mocker.patch.object(MetaKey, "decrypt", return_value="FOO=bar\n")
+    rc = do_doctor(backend, [])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Checking config/env/.gpg-id" in out
+    assert "All checks passed." in out
+
+
+def test_do_doctor_pass_missing_meta_fingerprint(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    _seed_pass_store(tmp_path, local_gpg_id="USERKEY\n", root_gpg_id="USERKEY\n")
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "gpg", "passphrase": "p", "key": "SECRET"}',
+    )
+    mocker.patch(
+        "wlrenv.secwrap._gpg_meta_identity", return_value=("METAFPR", "METAPUB")
+    )
+    mocker.patch.object(MetaKey, "decrypt", return_value="FOO=bar\n")
+    rc = do_doctor(backend, [])
+    assert rc == 1
+    assert (
+        "meta fingerprint METAFPR not in config/env/.gpg-id" in capsys.readouterr().err
+    )
+
+
+def test_do_doctor_pass_fix_repairs_missing_inherited(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    # Local .gpg-id has the meta key but is missing the inherited user key.
+    _seed_pass_store(tmp_path, local_gpg_id="METAFPR\n", root_gpg_id="USERKEY\n")
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "gpg", "passphrase": "p", "key": "SECRET"}',
+    )
+    mocker.patch(
+        "wlrenv.secwrap._gpg_meta_identity", return_value=("METAFPR", "METAPUB")
+    )
+    mocker.patch.object(MetaKey, "decrypt", return_value="FOO=bar\n")
+    import_mock = mocker.patch("wlrenv.secwrap._import_meta_pubkey")
+    captured: dict[str, Any] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == "pass" and cmd[1] == "init":
+            captured["init"] = list(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    rc = do_doctor(backend, ["--fix"])
+    assert rc == 0
+    import_mock.assert_called_once_with("METAFPR", "METAPUB")
+    # Repair re-inits config/env to the union (sorted), restoring the user key.
+    assert captured["init"] == [
+        "pass",
+        "init",
+        "-p",
+        "config/env",
+        "METAFPR",
+        "USERKEY",
+    ]
+    out = capsys.readouterr().out
+    assert "Repairs applied" in out
+
+
+def test_do_doctor_pass_undecryptable_entry(
+    mocker: MockerFixture, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    backend = _make_pass_backend(tmp_path)
+    _seed_pass_store(
+        tmp_path, local_gpg_id="USERKEY\nMETAFPR\n", root_gpg_id="USERKEY\n"
+    )
+    mocker.patch.object(
+        Backend,
+        "show",
+        return_value='{"backend": "gpg", "passphrase": "p", "key": "SECRET"}',
+    )
+    mocker.patch(
+        "wlrenv.secwrap._gpg_meta_identity", return_value=("METAFPR", "METAPUB")
+    )
+    mocker.patch.object(
+        MetaKey, "decrypt", side_effect=MetaKeyError("gpg decryption failed for claude")
+    )
+    rc = do_doctor(backend, [])
+    assert rc == 1
+    assert "entry claude failed to decrypt" in capsys.readouterr().err
