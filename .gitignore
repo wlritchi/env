@@ -2,6 +2,7 @@
 rendered
 build
 .worktrees/
+.claude/worktrees/
 .entire/
 
 **/.claude/settings.local.json
