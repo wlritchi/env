@@ -37,10 +37,21 @@ let
 
   # Brand overrides injected via --settings (flagSettings layer): forces the
   # brand theme and adds the blocked tools, on top of the inherited base.
+  #
+  # apiKeyHelper = "" pins the helper OFF for the variant, independent of the
+  # inherited base. The variants authenticate purely via ANTHROPIC_AUTH_TOKEN
+  # (bearer); a configured apiKeyHelper would UNCONDITIONALLY shadow that path,
+  # and if it ever produced no output it caches a single-space key that breaks
+  # auth. Since flagSettings is folded over userSettings (later-wins) and the
+  # empty string is a defined value that overrides in the lodash mergeWith, this
+  # neutralizes any apiKeyHelper someone later adds to ~/.claude/settings.json --
+  # xN() gates on truthiness, so "" reads as "no helper". Must be "" not null:
+  # the setting is a zod .string().optional(), so null fails invalid_type.
   brandSettings = writeText "${command}-brand-settings.json" (
     builtins.toJSON (
       {
         theme = "custom:${themeSlug}";
+        apiKeyHelper = "";
       }
       // lib.optionalAttrs (deny != [ ]) { permissions = { inherit deny; }; }
     )

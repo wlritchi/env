@@ -17,9 +17,13 @@
 let
   command = "cc-openai";
   themeSlug = "openai-slate";
+  # apiKeyHelper = "" pins the helper OFF, independent of the inherited base
+  # settings, so a helper later added to ~/.claude/settings.json can't shadow the
+  # ANTHROPIC_AUTH_TOKEN bearer path (see claude-code-variant.nix for the trace).
   brandSettings = writeText "${command}-brand-settings.json" (
     builtins.toJSON {
       theme = "custom:${themeSlug}";
+      apiKeyHelper = "";
     }
   );
   wrapper = writeShellScriptBin command ''
