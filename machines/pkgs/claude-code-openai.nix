@@ -38,6 +38,12 @@ let
     autostart="''${CC_OPENAI_PROXY_AUTOSTART:-1}"
     health_url="$base_url/health"
 
+    # The autostarted proxy binds loopback only and starts without a bearer, so
+    # opt it into anonymous access -- otherwise the proxy's fail-secure default
+    # (reject when CC_OPENAI_PROXY_BEARER is unset) would 401 every local
+    # request. Network-exposed deployments set CC_OPENAI_PROXY_BEARER instead.
+    export CC_OPENAI_PROXY_ALLOW_ANON="''${CC_OPENAI_PROXY_ALLOW_ANON:-1}"
+
     is_healthy() {
       ${curl}/bin/curl -fsS --max-time 1 "$health_url" >/dev/null 2>&1
     }

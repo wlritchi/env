@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { readFile, rename, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -93,9 +93,7 @@ async function writeAuthFile(path, data) {
 
 async function resolveOpenAICodexApiKey() {
   const explicit =
-    process.env.CC_OPENAI_CODEX_TOKEN ||
-    process.env.OPENAI_CODEX_TOKEN ||
-    process.env.OPENAI_CODEX_API_KEY;
+    process.env.CC_OPENAI_CODEX_TOKEN || process.env.OPENAI_CODEX_TOKEN || process.env.OPENAI_CODEX_API_KEY;
   if (explicit) return explicit;
 
   if (cachedApiKey && Date.now() < cachedApiKeyExpires - 60_000) {
@@ -428,12 +426,18 @@ function sendJson(res, status, body) {
   res.end(`${JSON.stringify(body)}\n`);
 }
 
+function errorType(status) {
+  if (status >= 500) return "api_error";
+  if (status === 401 || status === 403) return "authentication_error";
+  return "invalid_request_error";
+}
+
 function sendError(res, error) {
   const status = error?.status || 500;
   sendJson(res, status, {
     type: "error",
     error: {
-      type: status >= 500 ? "api_error" : "invalid_request_error",
+      type: errorType(status),
       message: error instanceof Error ? error.message : String(error),
     },
   });
@@ -602,13 +606,41 @@ function buildOptions(request, req, signal) {
       req.headers["x-claude-session-id"] ||
       req.headers["x-client-request-id"] ||
       processSessionId,
-    timeoutMs: process.env.CC_OPENAI_TIMEOUT_MS
-      ? Number.parseInt(process.env.CC_OPENAI_TIMEOUT_MS, 10)
-      : undefined,
+    timeoutMs: process.env.CC_OPENAI_TIMEOUT_MS ? Number.parseInt(process.env.CC_OPENAI_TIMEOUT_MS, 10) : undefined,
   };
 }
 
+function extractInboundBearer(req) {
+  const auth = req.headers["authorization"];
+  if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7).trim();
+  const apiKey = req.headers["x-api-key"];
+  if (typeof apiKey === "string") return apiKey.trim();
+  return "";
+}
+
+// Fail-secure inbound auth. If CC_OPENAI_PROXY_BEARER is set, the caller must
+// present a matching bearer (constant-time compare). If it is unset, requests
+// are rejected unless CC_OPENAI_PROXY_ALLOW_ANON=1 -- the escape hatch for the
+// loopback-only local `cc-openai` autostart. /health stays ungated (it is a
+// separate GET branch that never reaches this).
+function assertInboundAuth(req) {
+  const expected = process.env.CC_OPENAI_PROXY_BEARER;
+  if (!expected) {
+    if (process.env.CC_OPENAI_PROXY_ALLOW_ANON === "1") return;
+    throw httpError(
+      401,
+      "proxy auth not configured: set CC_OPENAI_PROXY_BEARER, or CC_OPENAI_PROXY_ALLOW_ANON=1 to allow anonymous",
+    );
+  }
+  const got = Buffer.from(extractInboundBearer(req));
+  const want = Buffer.from(expected);
+  if (got.length !== want.length || !timingSafeEqual(got, want)) {
+    throw httpError(401, "unauthorized");
+  }
+}
+
 async function handleMessages(req, res) {
+  assertInboundAuth(req);
   const body = await readJsonBody(req);
   const { getModel, streamSimple, completeSimple } = await loadPiAi();
   const modelId = resolveModelId(body.model);
@@ -684,6 +716,9 @@ function stringifyUnknown(value) {
 export {
   anthropicToContext,
   anthropicToolsToPi,
+  assertInboundAuth,
+  errorType,
+  extractInboundBearer,
   piContentToAnthropic,
   piMessageToAnthropic,
   resolveModelId,
