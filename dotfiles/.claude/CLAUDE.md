@@ -92,7 +92,16 @@ implementation after a compaction, reread design plans relevant to your current 
 
 # Tools
 
-Use ripgrep (`rg`) instead of `grep` for searching.
+Use ripgrep (`rg`) instead of `grep` for searching. Do NOT carry grep's flags over: rg is
+recursive by default, and in rg `-r` means `--replace` and consumes the next characters as its
+value. So `rg -rn pattern` is NOT a recursive line-numbered search — it replaces every match with
+the literal text `n` in the output. If search results show a stray `n` (or another short string)
+where your identifier should be, you've hit this; never copy such output into code. Recipes:
+
+- Recursive search: `rg 'pattern'` (optionally add a path; no `-r` needed)
+- With line numbers: `rg -n 'pattern'` (rg omits line numbers when output is piped, e.g. when you
+  run it as a tool call)
+- Restrict by file type: `rg -t py 'pattern'`
 
 If a specialized agent is available to handle tasks in some area, USE IT! Even if you've got access
 to the tools yourself, it's better to let appropriate agents deal with the task-specific context.
