@@ -12,7 +12,7 @@ const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_HAIKU_MODEL = "gpt-5.4-mini";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 
-let piAiPromise;
+let modelsPromise;
 let piOauthPromise;
 let cachedApiKey;
 let cachedApiKeyExpires = 0;
@@ -59,15 +59,24 @@ function parseArgs(argv) {
   return config;
 }
 
-async function loadPiAi() {
-  // getModel/streamSimple/completeSimple live under the /compat subpath as of
-  // pi-ai 0.80.x (they moved off the package root). It is a deprecated shim over
-  // the newer getBuiltinModel/Models API -- fine for now; migrating off it is a
-  // separate follow-up. The bump to 0.80.x is what gives us the gpt-5.6 models
-  // (sol/terra/luna) natively, with upstream cost data, instead of synthesizing
-  // descriptors ourselves.
-  piAiPromise ??= import("@earendil-works/pi-ai/compat");
-  return piAiPromise;
+async function loadModels() {
+  // pi-ai 0.80.x's public API is the Models collection (createModels + provider
+  // factories); the old getModel/streamSimple/completeSimple globals now live
+  // only under the deprecated /compat shim. We register just the openai-codex
+  // provider -- it is static, and its generated catalog is what gives us the
+  // gpt-5.6 sol/terra/luna models natively, with upstream cost data. The proxy
+  // still resolves the ChatGPT bearer itself and passes it as options.apiKey;
+  // the codex provider declares only oauth (no apiKey auth) and we wire no
+  // credential store, so pi-ai's auth layer resolves to nothing and passes our
+  // apiKey through unchanged.
+  modelsPromise ??= (async () => {
+    const { createModels } = await import("@earendil-works/pi-ai");
+    const { openaiCodexProvider } = await import("@earendil-works/pi-ai/providers/openai-codex");
+    const models = createModels();
+    models.setProvider(openaiCodexProvider());
+    return models;
+  })();
+  return modelsPromise;
 }
 
 async function loadPiOauth() {
@@ -661,12 +670,36 @@ function assertInboundAuth(req) {
   }
 }
 
+// Anthropic-shaped model discovery so Claude Code can list the codex catalog by
+// real ids. Gated like /v1/messages (never spends: it only reads the static
+// provider catalog, no backend call).
+async function handleModels(req, res) {
+  assertInboundAuth(req);
+  const models = await loadModels();
+  const data = models.getModels(DEFAULT_PROVIDER).map((model) => ({
+    type: "model",
+    id: model.id,
+    display_name: model.name,
+  }));
+  sendJson(res, 200, {
+    data,
+    has_more: false,
+    first_id: data[0]?.id ?? null,
+    last_id: data[data.length - 1]?.id ?? null,
+  });
+}
+
 async function handleMessages(req, res) {
   assertInboundAuth(req);
   const body = await readJsonBody(req);
-  const { getModel, streamSimple, completeSimple } = await loadPiAi();
+  const models = await loadModels();
   const modelId = resolveModelId(body.model);
-  const model = getModel(DEFAULT_PROVIDER, modelId);
+  const model = models.getModel(DEFAULT_PROVIDER, modelId);
+  // Unknown ids 400 here. Future option (P3): synthesize an
+  // openai-codex-responses descriptor on this miss and optimistically route it,
+  // so a model works before the next pi-ai bump ships its descriptor -- at the
+  // cost of placeholder pricing/metadata and a 502 (not 400) for ids the
+  // backend rejects.
   if (!model) throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
 
   const controller = new AbortController();
@@ -681,12 +714,12 @@ async function handleMessages(req, res) {
   const context = anthropicToContext(body);
 
   if (body.stream !== false) {
-    await streamAnthropicResponse(res, streamSimple(model, context, options), modelId);
+    await streamAnthropicResponse(res, models.streamSimple(model, context, options), modelId);
     complete = true;
     return;
   }
 
-  const message = await completeSimple(model, context, options);
+  const message = await models.completeSimple(model, context, options);
   complete = true;
   if (message.stopReason === "error") {
     throw httpError(502, message.errorMessage || "upstream error");
@@ -703,6 +736,11 @@ async function route(req, res) {
         provider: DEFAULT_PROVIDER,
         defaultModel: process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL,
       });
+    } else if (
+      req.method === "GET" &&
+      (url.pathname === "/v1/models" || url.pathname === "/models")
+    ) {
+      await handleModels(req, res);
     } else if (
       req.method === "POST" &&
       (url.pathname === "/v1/messages" || url.pathname === "/messages")
