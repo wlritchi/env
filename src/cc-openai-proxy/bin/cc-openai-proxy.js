@@ -76,7 +76,11 @@ async function loadPiOauth() {
 }
 
 function authPath() {
-  return process.env.CC_OPENAI_AUTH_FILE || process.env.PI_AUTH_FILE || join(homedir(), ".pi", "agent", "auth.json");
+  return (
+    process.env.CC_OPENAI_AUTH_FILE ||
+    process.env.PI_AUTH_FILE ||
+    join(homedir(), ".pi", "agent", "auth.json")
+  );
 }
 
 async function readAuthFile() {
@@ -87,7 +91,9 @@ async function readAuthFile() {
     if (error?.code === "ENOENT") {
       throw new Error(`missing pi auth file: ${path}. Run pi /login for ChatGPT Plus/Pro first.`);
     }
-    throw new Error(`failed to read pi auth file ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `failed to read pi auth file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -99,7 +105,9 @@ async function writeAuthFile(path, data) {
 
 async function resolveOpenAICodexApiKey() {
   const explicit =
-    process.env.CC_OPENAI_CODEX_TOKEN || process.env.OPENAI_CODEX_TOKEN || process.env.OPENAI_CODEX_API_KEY;
+    process.env.CC_OPENAI_CODEX_TOKEN ||
+    process.env.OPENAI_CODEX_TOKEN ||
+    process.env.OPENAI_CODEX_API_KEY;
   if (explicit) return explicit;
 
   if (cachedApiKey && Date.now() < cachedApiKeyExpires - 60_000) {
@@ -109,7 +117,9 @@ async function resolveOpenAICodexApiKey() {
   const { path, data } = await readAuthFile();
   const entry = data[DEFAULT_PROVIDER];
   if (!entry) {
-    throw new Error(`missing ${DEFAULT_PROVIDER} credentials in ${path}. Run pi /login for ChatGPT Plus/Pro first.`);
+    throw new Error(
+      `missing ${DEFAULT_PROVIDER} credentials in ${path}. Run pi /login for ChatGPT Plus/Pro first.`,
+    );
   }
 
   if (entry.type === "api_key" && typeof entry.key === "string" && entry.key) {
@@ -152,7 +162,9 @@ function resolveModelId(requestedModel) {
     return process.env.CC_OPENAI_OPUS_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL;
   }
   if (model.includes("sonnet")) {
-    return process.env.CC_OPENAI_SONNET_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL;
+    return (
+      process.env.CC_OPENAI_SONNET_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL
+    );
   }
   return process.env.CC_OPENAI_DEFAULT_MODEL || requestedModel || DEFAULT_MODEL;
 }
@@ -284,7 +296,9 @@ function anthropicToolResultContentToPi(content) {
 function anthropicAssistantToPi(message, requestModel, toolNames, timestamp) {
   const content = [];
   const blocks =
-    typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content || [];
+    typeof message.content === "string"
+      ? [{ type: "text", text: message.content }]
+      : message.content || [];
 
   for (const block of blocks) {
     if (block?.type === "text") {
@@ -612,7 +626,9 @@ function buildOptions(request, req, signal) {
       req.headers["x-claude-session-id"] ||
       req.headers["x-client-request-id"] ||
       processSessionId,
-    timeoutMs: process.env.CC_OPENAI_TIMEOUT_MS ? Number.parseInt(process.env.CC_OPENAI_TIMEOUT_MS, 10) : undefined,
+    timeoutMs: process.env.CC_OPENAI_TIMEOUT_MS
+      ? Number.parseInt(process.env.CC_OPENAI_TIMEOUT_MS, 10)
+      : undefined,
   };
 }
 
@@ -687,7 +703,10 @@ async function route(req, res) {
         provider: DEFAULT_PROVIDER,
         defaultModel: process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL,
       });
-    } else if (req.method === "POST" && (url.pathname === "/v1/messages" || url.pathname === "/messages")) {
+    } else if (
+      req.method === "POST" &&
+      (url.pathname === "/v1/messages" || url.pathname === "/messages")
+    ) {
       await handleMessages(req, res);
     } else {
       throw httpError(404, `not found: ${req.method} ${url.pathname}`);
@@ -698,7 +717,10 @@ async function route(req, res) {
     } else {
       writeSse(res, "error", {
         type: "error",
-        error: { type: "api_error", message: error instanceof Error ? error.message : String(error) },
+        error: {
+          type: "api_error",
+          message: error instanceof Error ? error.message : String(error),
+        },
       });
       res.end();
     }
@@ -738,7 +760,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       void route(req, res);
     });
     server.on("error", (error) => {
-      process.stderr.write(`cc-openai-proxy: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(
+        `cc-openai-proxy: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
       process.exit(1);
     });
     server.listen(config.port, config.host, () => {
