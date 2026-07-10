@@ -60,7 +60,13 @@ function parseArgs(argv) {
 }
 
 async function loadPiAi() {
-  piAiPromise ??= import("@earendil-works/pi-ai");
+  // getModel/streamSimple/completeSimple live under the /compat subpath as of
+  // pi-ai 0.80.x (they moved off the package root). It is a deprecated shim over
+  // the newer getBuiltinModel/Models API -- fine for now; migrating off it is a
+  // separate follow-up. The bump to 0.80.x is what gives us the gpt-5.6 models
+  // (sol/terra/luna) natively, with upstream cost data, instead of synthesizing
+  // descriptors ourselves.
+  piAiPromise ??= import("@earendil-works/pi-ai/compat");
   return piAiPromise;
 }
 
