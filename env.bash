@@ -194,12 +194,35 @@ wlr_suspect_tty() {
 }
 
 
+# wrapper around exec for the shell/multiplexer handoffs below. On macOS, tmux
+# (and friends) drop out of the per-user bootstrap namespace, which severs
+# access to the pasteboard, TouchID-inside-tmux, and other per-user Mach
+# services. reattach-to-user-namespace re-enters that namespace, so we route
+# every handoff through it to keep the reattachment alive into the final
+# interactive shell. The namespace is lost again when crossing into tmux, so we
+# reattach once in the outer shell and once more inside tmux; WLR_REATTACHED
+# records which context we've already handled so the re-exec doesn't loop. On
+# systems without the shim (i.e. not macOS) this is a transparent exec.
+wlr_exec() {
+    if command -v reattach-to-user-namespace >/dev/null 2>&1; then
+        local ctx=host
+        [ -n "$TMUX" ] && ctx=tmux
+        if [ "$WLR_REATTACHED" != "$ctx" ]; then
+            export WLR_REATTACHED="$ctx"
+            exec reattach-to-user-namespace "$@"
+        fi
+    fi
+    exec "$@"
+}
+
+
 # invoke zellij/tmux, if applicable
 
 if [ -n "$wlr_interactive" ]; then
     if [ -z "$WLR_NAMED_TERM" ] && term="$(wlr_detect_named_term)"; then
         print_status
-        WLR_NAMED_TERM="$term" exec tmux new-session -A -s "$term" -c "$(pwd)"
+        export WLR_NAMED_TERM="$term"
+        wlr_exec tmux new-session -A -s "$term" -c "$(pwd)"
     elif [ -n "$ZELLIJ" ] || [ -n "$TMUX" ]; then
         true
     elif [ "$WLR_TMUX" == 'n' ]; then
@@ -208,10 +231,10 @@ if [ -n "$wlr_interactive" ]; then
         warnings+=('tmux - skipping (suspect tty)')
     elif command -v zellij >/dev/null 2>&1 && false; then # TODO re-enable
         print_status
-        exec zellij options --disable-mouse-mode
+        wlr_exec zellij options --disable-mouse-mode
     elif command -v tmux >/dev/null 2>&1; then
         print_status
-        exec tmux new-session
+        wlr_exec tmux new-session
     else
         err_steps+=('tmux/zellij')
     fi
@@ -339,13 +362,13 @@ if [ -n "$wlr_interactive" ]; then
         wlr-install-self
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
         export XONSHRC="$WLR_ENV_PATH/xonshrc.py"
-        exec xonsh
+        wlr_exec xonsh
     elif command -v xonsh >/dev/null 2>&1; then
         print_status
         wlr-working 'xonsh'
         export WLR_XONSH='n'  # avoid reentrancy on further executions of bash
         export XONSHRC="$WLR_ENV_PATH/xonshrc.py"
-        exec xonsh
+        wlr_exec xonsh
     else
         err_steps+=('xonsh')
     fi
@@ -465,6 +488,7 @@ unset err_steps
 unset print_status
 unset try_source
 unset ensurepath
+unset wlr_exec
 unset wlr_detect_ssh
 unset wlr_detect_named_term
 unset wlr_suspect_tty

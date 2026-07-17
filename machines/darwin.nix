@@ -44,6 +44,7 @@ in
     karabiner-elements
     passage
     procps # for the watch command
+    reattach-to-user-namespace # re-enter the user bootstrap namespace inside tmux (pasteboard etc.); used by env.bash
     secretive
   ];
 
