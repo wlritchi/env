@@ -473,6 +473,11 @@ def _compact_tool_object(schema_ns: str) -> str:
         f'async description(){{return"{_COMPACT_DESC}"}},'
         f'async prompt(){{return"{_COMPACT_DESC}"}},'
         f"get inputSchema(){{return {schema_ns}.object({{}})}},"
+        # the generic tool-use renderer calls H.tool.renderToolUseMessage(...)
+        # UNCONDITIONALLY (no ?.), and it is not an aK/base default -- omitting it
+        # throws `undefined(...)` on any transcript render of the tool. null == no
+        # custom render line, matching TodoWrite's renderToolUseMessage(){return null}.
+        "renderToolUseMessage(){return null},"
         "isReadOnly(){return!0},isConcurrencySafe(){return!0},"
         "async call(H,$){let W=Date.now(),Z=globalThis.__ccLastSelfCompact||0;"
         "if(W-Z<3e5){let Q=Math.round((W-Z)/1e3);"

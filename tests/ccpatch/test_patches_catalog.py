@@ -343,6 +343,9 @@ def test_compact_session_applies(f: _CompactFlavor) -> None:
     # i.e. H.message -- not H.data.message (that double-dip threw at call time)
     assert 'content:H.message}' in out
     assert "content:H.data.message" not in out
+    # the generic tool-use renderer calls renderToolUseMessage() unconditionally on
+    # render; it is not an aK/base default, so omitting it throws `undefined(...)`
+    assert "renderToolUseMessage(){return null}" in out
     # registered at the head of the registry array, before its original first tools
     assert (
         f"function {f.registry_fn}(){{return"
@@ -361,6 +364,35 @@ def test_compact_session_applies(f: _CompactFlavor) -> None:
     assert f'{f.verdict}.level==="compact"||{f.verdict}.level==="blocked"' in out
     # the TodoWrite build is preserved immediately after the injected tool
     assert f",{f.todo_tool}={f.builder}({{name:wk" in out
+
+
+# Members the 2.1.170 harness reads/calls UNCONDITIONALLY on a tool object and that
+# the aK/base defaults do NOT provide -- so the injected tool must define each or it
+# TypeErrors at invoke/render time (which apply()+verify, a static string transform,
+# cannot see). Derived from cli.js: gtf reads prompt()/searchHint per request; the
+# generic tool-use renderer calls renderToolUseMessage(); plus call, result mapping,
+# and the input schema. Each earlier gap here was a shipped runtime bug
+# (be69994 prompt, 3300266 mapping, this one renderToolUseMessage).
+_COMPACT_TOOL_REQUIRED_MEMBERS = (
+    "searchHint:",
+    "async description(",
+    "async prompt(",
+    "get inputSchema(",
+    "renderToolUseMessage(",
+    "async call(",
+    "mapToolResultToToolResultBlockParam(",
+)
+
+
+@pytest.mark.parametrize(
+    "f", _COMPACT_FLAVORS, ids=[fl.label for fl in _COMPACT_FLAVORS]
+)
+def test_compact_session_tool_shape_complete(f: _CompactFlavor) -> None:
+    out = COMPACT_SESSION.apply(_compact_src(f))
+    start = out.index(f"globalThis.__ccCompactTool={f.builder}(")
+    tool = out[start : out.index(f",{f.todo_tool}={f.builder}(", start)]
+    for member in _COMPACT_TOOL_REQUIRED_MEMBERS:
+        assert member in tool, f"injected compact_session tool missing {member!r}"
 
 
 @pytest.mark.parametrize(
