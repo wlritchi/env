@@ -190,6 +190,27 @@ CHANNELS_ENABLED = PatchSet(
 
 # --- dev-channel inheritance for background agents (2.1.151+) ----------------
 #
+# >>> ACTIVATION CONTRACT -- read before changing dev-channel activation <<<
+#
+# ccpatch activates development channels by SCANNING THE DISPATCHING PROCESS'S
+# OWN ARGV for --dangerously-load-development-channels (see _DISPATCH_DEV_CHANNELS
+# below: it reads process.argv.slice(2) and reads NO environment variable). That
+# "no env" property is load-bearing and enforced -- this PatchSet's verify_absent
+# pins CLAUDE_DEV_CHANNELS to *absent*, so any change that re-introduces ambient
+# env reading fails the patch by construction.
+#
+# Consequence for callers: a non-interactive launcher (bg-agent worker, daemon
+# respawn, headless -p dispatch) MUST put --dangerously-load-development-channels
+# on the LAUNCH ARGV. Exporting an env var alone does NOT activate channels --
+# nothing here reads one, by design. A consumer that only has the value in an env
+# var must translate env -> argv flag at the launch site.
+#
+# History/trap: an earlier shim read the channel list from the environment; that
+# ambient-env path was dropped in favor of the native argv threading below. If
+# activation ever breaks, fix it in the CONSUMER (make it pass the flag on argv)
+# -- do NOT re-add env reading here; that reintroduces the exact regression class
+# this verify_absent guard exists to stop.
+#
 # --dangerously-load-development-channels never reaches the bg-agent workers the
 # agents view spawns. Three things drop it, all fixed natively here -- no env
 # var, no wrapper:
