@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def get_detached_tmux_sessions() -> list[str]:
     """Get list of detached tmux session names."""
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [  # noqa: S607
                 "tmux",
                 "list-sessions",

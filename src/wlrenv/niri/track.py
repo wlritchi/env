@@ -19,7 +19,7 @@ def get_tmux_client_sessions() -> dict[str, str]:
     This queries tmux once for all attached clients.
     """
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             ["tmux", "list-clients"],  # noqa: S607
             capture_output=True,
             text=True,

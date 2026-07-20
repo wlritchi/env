@@ -591,7 +591,7 @@ def _derive_recipients_from_identities(identities_path: Path) -> list[str]:
         if line.strip().startswith("AGE-SECRET-KEY")
     )
     if plain_keys and shutil.which("age-keygen") is not None:
-        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+        result = subprocess.run(
             ["age-keygen", "-y", "/dev/stdin"],  # noqa: S607
             input=plain_keys,
             capture_output=True,
@@ -1480,7 +1480,7 @@ def do_doctor(backend: Backend, args: list[str]) -> int:
     # meta pubkey, locking the user's main identity out of config/env/*.
     if meta_key is not None and shutil.which("age-keygen") is not None:
         print("Checking .age-recipients ...", file=sys.stdout)
-        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+        result = subprocess.run(
             ["age-keygen", "-y", "/dev/stdin"],  # noqa: S607
             capture_output=True,
             text=True,

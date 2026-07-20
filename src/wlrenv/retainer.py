@@ -13,15 +13,13 @@ from argparse import ArgumentParser
 from collections.abc import Callable, Generator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import NamedTuple, TypeVar
+from typing import NamedTuple
 
 # Default retention parameters
 DEFAULT_PRESERVE_DAYS = 7
 DEFAULT_FIRST_BUCKET_DAYS = 1
 DEFAULT_MAX_BUCKET_DAYS = 32
 DEFAULT_EXPONENTIAL_FACTOR = 2
-
-_T = TypeVar('_T')
 
 
 # =============================================================================
@@ -46,14 +44,14 @@ def _gen_buckets(
             bucket_size = max_bucket_size
 
 
-def _group_deletable_by_buckets(
+def _group_deletable_by_buckets[T](
     start_of_preserved_window: datetime,
-    deletable_elements: set[_T],
-    get_element_timestamp: Callable[[_T], datetime],
+    deletable_elements: set[T],
+    get_element_timestamp: Callable[[T], datetime],
     first_bucket_size: timedelta,
     max_bucket_size: timedelta,
     exponential_factor: int,
-) -> Generator[set[_T], None, None]:
+) -> Generator[set[T], None, None]:
     """Group elements older than the preserved window into time buckets."""
     deletable_elements = {
         el
@@ -76,15 +74,15 @@ def _group_deletable_by_buckets(
             break
 
 
-def _get_elements_to_delete(
+def _get_elements_to_delete[T](
     effective_date: datetime,
-    elements: set[_T],
-    get_element_timestamp: Callable[[_T], datetime],
+    elements: set[T],
+    get_element_timestamp: Callable[[T], datetime],
     preserve_window: timedelta,
     first_bucket_size: timedelta,
     max_bucket_size: timedelta,
     exponential_factor: int,
-) -> set[_T]:
+) -> set[T]:
     """
     Determine which elements should be deleted.
 
@@ -100,7 +98,7 @@ def _get_elements_to_delete(
         max_bucket_size,
         exponential_factor,
     )
-    elements_to_delete: set[_T] = set()
+    elements_to_delete: set[T] = set()
     for bucket in deletable_by_buckets:
         sorted_bucket = sorted(bucket, key=get_element_timestamp)
         # keep earliest element in bucket

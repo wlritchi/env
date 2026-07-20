@@ -691,7 +691,9 @@ def _identity_patch(model_name: str) -> Patch:
     return Patch(
         name="identity-model",
         pattern=re.compile(re.escape(_IDENTITY_PREFIX)),
-        replacement=lambda _m: f"You are {model_name} running in {_IDENTITY_PREFIX[8:]}",
+        replacement=lambda _m: (
+            f"You are {model_name} running in {_IDENTITY_PREFIX[8:]}"
+        ),
     )
 
 

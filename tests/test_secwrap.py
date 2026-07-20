@@ -162,9 +162,9 @@ def test_backend_detect_env_passage(mocker: MockerFixture, tmp_path: Path) -> No
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     b = Backend.detect()
     assert b.name == "passage"
@@ -182,9 +182,9 @@ def test_backend_detect_env_pass(mocker: MockerFixture, tmp_path: Path) -> None:
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     b = Backend.detect()
     assert b.name == "pass"
@@ -212,9 +212,9 @@ def test_backend_resolve_store_empty_env_falls_back_to_default(
     mocker.patch("pathlib.Path.home", return_value=home)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     b = Backend.detect()
     assert b.store_dir == home / ".passage" / "store"
@@ -267,9 +267,9 @@ def test_backend_detect_autodetect_passage_wins(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     b = Backend.detect()
     assert b.name == "passage"
@@ -314,9 +314,9 @@ def test_backend_detect_autodetect_binary_present_store_missing(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     b = Backend.detect()
     assert b.name == "pass"
@@ -334,7 +334,7 @@ def test_backend_show_returns_content(mocker: MockerFixture, tmp_path: Path) -> 
     result = backend.show("config/env/aws")
     assert result == "FOO=bar\n"
     run_mock.assert_called_once()
-    args, kwargs = run_mock.call_args
+    args, _kwargs = run_mock.call_args
     assert args[0][:2] == ["pass", "show"]
     assert args[0][2] == "config/env/aws"
 
@@ -398,9 +398,9 @@ def test_main_list_prints_tools(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     rc = main(["--list"])
     assert rc == 0
@@ -446,9 +446,9 @@ def test_main_wrap_with_entry_execs_with_merged_env(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -478,9 +478,9 @@ def test_main_wrap_no_entry_execs_with_unmodified_env(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     completed = MagicMock(spec=["returncode", "stdout", "stderr"])
     completed.returncode = 1
@@ -513,9 +513,9 @@ def test_main_wrap_uses_from_for_lookup_not_command(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -850,9 +850,9 @@ def test_main_pass_includes_no_warning(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -886,9 +886,9 @@ def test_main_wrap_short_circuits_when_target_in_marker(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     show_mock = mocker.patch.object(Backend, "show")
     execvpe = mocker.patch("os.execvpe")
@@ -921,9 +921,9 @@ def test_main_wrap_short_circuits_with_from(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     show_mock = mocker.patch.object(Backend, "show")
     execvpe = mocker.patch("os.execvpe")
@@ -955,9 +955,9 @@ def test_main_wrap_with_includes_merges_in_topological_order(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -991,9 +991,9 @@ def test_main_wrap_marker_union_with_existing(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -1020,9 +1020,9 @@ def test_main_wrap_no_entry_does_not_set_marker(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", return_value=None)
     execvpe = mocker.patch("os.execvpe")
@@ -1046,9 +1046,9 @@ def test_main_wrap_missing_include_exits_one(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -1074,9 +1074,9 @@ def test_main_wrap_cycle_exits_one(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
 
@@ -1107,9 +1107,9 @@ def test_main_wrap_marker_skip_does_not_re_decrypt(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     show_mock = mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -1360,9 +1360,9 @@ def test_main_pass_uses_gpg_meta_key(mocker: MockerFixture, tmp_path: Path) -> N
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     mocker.patch.object(
@@ -1438,9 +1438,9 @@ def test_main_loads_meta_key_and_uses_it(mocker: MockerFixture, tmp_path: Path) 
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     mocker.patch.object(
@@ -1477,9 +1477,9 @@ def test_main_warns_when_meta_absent_and_includes_present(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     mocker.patch("os.execvpe")
@@ -1511,9 +1511,9 @@ def test_main_no_warn_for_single_entry_no_meta(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     mocker.patch("os.execvpe")
@@ -1541,9 +1541,9 @@ def test_main_meta_key_error_exits_one(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", side_effect=lambda p: blobs.get(p))
     execvpe = mocker.patch("os.execvpe")
@@ -1568,9 +1568,9 @@ def test_main_bootstrap_dispatches(mocker: MockerFixture, tmp_path: Path) -> Non
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap", return_value=0)
 
@@ -1592,9 +1592,9 @@ def test_main_rotate_meta_dispatches(mocker: MockerFixture, tmp_path: Path) -> N
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     do_rotate = mocker.patch("wlrenv.secwrap.do_rotate_meta", return_value=0)
 
@@ -1620,9 +1620,9 @@ def test_main_doctor_dispatches(mocker: MockerFixture, tmp_path: Path) -> None:
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     do_doctor = mocker.patch("wlrenv.secwrap.do_doctor", return_value=0)
 
@@ -1647,9 +1647,9 @@ def test_main_subcommand_pass_backend_dispatches(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap", return_value=0)
 
@@ -1676,9 +1676,9 @@ def test_main_force_wrap_skips_subcommand(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"pass", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"pass", "passage"} else None
+        ),
     )
     mocker.patch.object(Backend, "show", return_value=None)  # no meta, no entry
     do_bootstrap = mocker.patch("wlrenv.secwrap.do_bootstrap")
@@ -1703,9 +1703,9 @@ def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.object(Backend, "show", return_value=None)  # no existing meta
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     # Mock subprocess.run for each shell-out.
@@ -1724,7 +1724,7 @@ def test_do_bootstrap_happy_path(mocker: MockerFixture, tmp_path: Path) -> None:
         if cmd[0] == "passage" and cmd[1] == "reencrypt":
             return subprocess.CompletedProcess(cmd, 0, "", "")
         if cmd[0] == "passage" and cmd[1] == "insert":
-            insert_inputs.append(kwargs.get("input"))  # type: ignore[arg-type]
+            insert_inputs.append(kwargs.get("input"))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             return subprocess.CompletedProcess(cmd, 0, "", "")
         raise AssertionError(f"unexpected command: {cmd}")
 
@@ -1793,9 +1793,9 @@ def test_do_bootstrap_pass_happy_path(mocker: MockerFixture, tmp_path: Path) -> 
     mocker.patch.object(Backend, "show", return_value=None)  # no existing meta
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"gpg", "pass"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"gpg", "pass"} else None
+        ),
     )
     captured: dict[str, Any] = {}
     mocker.patch("subprocess.run", side_effect=_fake_gpg_gen_run(captured))
@@ -1833,9 +1833,9 @@ def test_do_bootstrap_pass_meta_already_exists(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"gpg", "pass"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"gpg", "pass"} else None
+        ),
     )
     rc = do_bootstrap(backend, [])
     assert rc == 1
@@ -1861,9 +1861,9 @@ def test_do_bootstrap_pass_no_gpg_id(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"gpg", "pass"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"gpg", "pass"} else None
+        ),
     )
     rc = do_bootstrap(backend, [])
     assert rc == 1
@@ -1881,9 +1881,9 @@ def test_do_bootstrap_pass_init_failure_aborts_and_cleans_up(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"gpg", "pass"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"gpg", "pass"} else None
+        ),
     )
     captured: dict[str, Any] = {}
     base = _fake_gpg_gen_run(captured)
@@ -1911,9 +1911,9 @@ def test_do_bootstrap_meta_already_exists(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
     rc = do_bootstrap(backend, [])
     assert rc == 1
@@ -1947,9 +1947,9 @@ def test_do_bootstrap_errors_when_pq_needed_but_unsupported(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -1982,9 +1982,9 @@ def test_do_bootstrap_reencrypt_failure_aborts(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -2038,9 +2038,9 @@ def test_do_rotate_meta_with_yes_happy_path(
     mocker.patch.object(Backend, "show", return_value=old_blob)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     insert_calls: list[tuple[list[str], str | None]] = []
@@ -2061,7 +2061,7 @@ def test_do_rotate_meta_with_yes_happy_path(
             # Classic new key on stdout.
             return subprocess.CompletedProcess(cmd, 0, "AGE-SECRET-KEY-1NEW\n", "")
         if cmd[0] == "passage" and cmd[1] == "insert":
-            insert_calls.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            insert_calls.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             return subprocess.CompletedProcess(cmd, 0, "", "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -2380,9 +2380,9 @@ def test_do_bootstrap_derives_from_identities_when_no_recipients_file(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -2432,9 +2432,9 @@ def test_do_bootstrap_aborts_when_no_recipient_source(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     rc = do_bootstrap(backend, [])
@@ -2512,7 +2512,7 @@ def test_do_doctor_fix_repairs_missing_recipients(
                 return subprocess.CompletedProcess(cmd, 0, "age1userpub\n", "")
             return subprocess.CompletedProcess(cmd, 0, "age1meta\n", "")
         if cmd[0] == "age" and "-e" in cmd:
-            age_invocations.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            age_invocations.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             # Honor the -o argument so .replace() finds the tmp file.
             for i, arg in enumerate(cmd):
                 if arg == "-o" and i + 1 < len(cmd):
@@ -2610,9 +2610,9 @@ def test_do_bootstrap_generates_pq_meta_when_recipients_are_pq(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -2649,9 +2649,9 @@ def test_do_bootstrap_aborts_on_mixed_recipients(
     mocker.patch.object(Backend, "show", return_value=None)
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
     mocker.patch(
         "subprocess.run",
@@ -2679,9 +2679,9 @@ def test_do_rotate_meta_matches_pq_residue(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -2726,9 +2726,9 @@ def test_do_rotate_meta_aborts_when_residue_empty(
     )
     mocker.patch(
         "shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}"
-        if name in {"age-keygen", "passage"}
-        else None,
+        side_effect=lambda name: (
+            f"/usr/bin/{name}" if name in {"age-keygen", "passage"} else None
+        ),
     )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -2792,14 +2792,14 @@ def test_do_doctor_fix_rotates_meta_when_types_incompatible(
                 cmd, 0, "AGE-SECRET-KEY-1NEWCLASSIC\n", ""
             )
         if cmd[0] == "age" and "-e" in cmd:
-            age_invocations.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            age_invocations.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             for i, arg in enumerate(cmd):
                 if arg == "-o" and i + 1 < len(cmd):
                     Path(cmd[i + 1]).write_bytes(b"re-encrypted-ciphertext")
                     break
             return subprocess.CompletedProcess(cmd, 0, "", "")
         if cmd[0] == "passage" and cmd[1] == "insert":
-            insert_calls.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]
+            insert_calls.append((cmd, kwargs.get("input")))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             return subprocess.CompletedProcess(cmd, 0, "", "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 

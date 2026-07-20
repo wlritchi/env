@@ -24,7 +24,7 @@ def temp_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pa
 def test_get_boot_id_creates_new_uuid(temp_dirs: tuple[Path, Path]) -> None:
     from wlrenv.niri.positions import get_boot_id
 
-    state_dir, run_dir = temp_dirs
+    _state_dir, run_dir = temp_dirs
     boot_file = run_dir / "niri-tracker-boot"
 
     assert not boot_file.exists()
@@ -39,7 +39,7 @@ def test_get_boot_id_creates_new_uuid(temp_dirs: tuple[Path, Path]) -> None:
 def test_get_boot_id_returns_existing(temp_dirs: tuple[Path, Path]) -> None:
     from wlrenv.niri.positions import get_boot_id
 
-    state_dir, run_dir = temp_dirs
+    _state_dir, run_dir = temp_dirs
     boot_file = run_dir / "niri-tracker-boot"
     boot_file.write_text("existing-boot-uuid")
 

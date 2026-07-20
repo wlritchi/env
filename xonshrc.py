@@ -225,8 +225,8 @@ def _setup() -> None:
 
         rtn_str = ''
         try:
-            if _.rtn != 0:  # type: ignore[name-defined]  # xonsh magic variable
-                rtn_str = f'{_.rtn}'  # type: ignore[name-defined]
+            if _.rtn != 0:  # type: ignore[name-defined]  # ty: ignore[unresolved-reference]  # xonsh magic variable
+                rtn_str = f'{_.rtn}'  # type: ignore[name-defined]  # ty: ignore[unresolved-reference]
         except AttributeError:
             # previous command has no return code (e.g. because it's a xonsh function)
             pass
@@ -288,7 +288,7 @@ def _setup() -> None:
         # Wrap every config/env/* entry unconditionally so aliases work for
         # binaries that appear after shell start (e.g. fnm-managed pnpm).
         if which('secwrap'):
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 ['secwrap', '--list'],  # noqa: S607
                 capture_output=True,
                 text=True,
@@ -318,7 +318,7 @@ def _setup() -> None:
                 raise RuntimeError('xonsh is not loaded')
 
             if _has_fnm and 'FNM_MULTISHELL_PATH' in XSH.env:
-                subprocess.run(['fnm', 'use', '--silent-if-unchanged'])  # noqa: S603, S607
+                subprocess.run(['fnm', 'use', '--silent-if-unchanged'])  # noqa: S607
 
         def _cd(args: list[str]) -> None:
             if not XSH.env:
