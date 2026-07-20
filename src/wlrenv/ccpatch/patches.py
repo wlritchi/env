@@ -447,34 +447,44 @@ THINKING_SUMMARIES_NONINTERACTIVE = PatchSet(
 )
 
 
-# The injected compact_session tool object, split around the two build-specific
-# identifiers that _define_compact_tool splices in: the tool constructor (`<builder>`,
-# e.g. `aK` on linux-x64, `a9` on darwin-arm64) and the zod-like schema namespace
-# (`<ns>`, e.g. `N` vs `k`). Both are captured from the adjacent TodoWrite definition
-# so the injected tool references whatever symbols the current build's minifier chose
-# -- the IDs differ per platform, so hardcoding them breaks the non-linux binaries.
-_COMPACT_TOOL_HEAD = (
-    '{name:"compact_session",'
-    'async description(){return"Schedule compaction of this session: summarize the '
-    "conversation so far to free up context. Runs at the end of the current turn if "
-    "compaction is enabled and healthy; any in-flight work in this turn completes first. "
-    'Use proactively when context is filling up instead of waiting for the automatic threshold."},'
-    "get inputSchema(){return "
+# Model-facing description of the injected compact_session tool. The build serializes
+# every tool for each API request by reading its `prompt()` method (see gtf/hI8 in the
+# bundle); a tool that omits `prompt()` throws `H.prompt is not a function` on *every*
+# message, so -- like every real tool -- we supply prompt() (model-facing text),
+# description(), and a searchHint. The tool constructor copies own-properties only
+# (it does not synthesize prompt() from description()), so all three must be explicit.
+_COMPACT_DESC = (
+    "Schedule compaction of this session: summarize the conversation so far to free "
+    "up context. Runs at the end of the current turn if compaction is enabled and "
+    "healthy; any in-flight work in this turn completes first. Use proactively when "
+    "context is filling up instead of waiting for the automatic threshold."
 )
-_COMPACT_TOOL_TAIL = (
-    ".object({})},"
-    "isReadOnly(){return!0},isConcurrencySafe(){return!0},"
-    "async call(H,$){let W=Date.now(),Z=globalThis.__ccLastSelfCompact||0;"
-    "if(W-Z<3e5){let Q=Math.round((W-Z)/1e3);"
-    "return{data:{message:`compact_session was called ${Q}s ago; "
-    "not rescheduling within the 300s cooldown.`}}}"
-    "return globalThis.__ccPendingCompact=!0,globalThis.__ccLastSelfCompact=W,"
-    '{data:{message:"Compaction scheduled: runs at the end of this turn if compaction '
-    "is enabled and healthy. Context will be summarized; in-flight work in this turn "
-    'completes first."}}},'
-    "mapToolResultToToolResultBlockParam(H,$){"
-    'return{tool_use_id:$,type:"tool_result",content:H.data.message}}}'
-)
+# Short hint shown in CLAUDE_CODE_SIMPLE mode (gtf() returns searchHint when set).
+_COMPACT_HINT = "schedule end-of-turn compaction to free up context"
+
+
+def _compact_tool_object(schema_ns: str) -> str:
+    # The tool object literal handed to the build's tool constructor. `schema_ns` is
+    # the captured zod-like namespace so the empty input schema (`<ns>.object({})`)
+    # resolves on every platform.
+    return (
+        '{name:"compact_session",'
+        f'searchHint:"{_COMPACT_HINT}",'
+        f'async description(){{return"{_COMPACT_DESC}"}},'
+        f'async prompt(){{return"{_COMPACT_DESC}"}},'
+        f"get inputSchema(){{return {schema_ns}.object({{}})}},"
+        "isReadOnly(){return!0},isConcurrencySafe(){return!0},"
+        "async call(H,$){let W=Date.now(),Z=globalThis.__ccLastSelfCompact||0;"
+        "if(W-Z<3e5){let Q=Math.round((W-Z)/1e3);"
+        "return{data:{message:`compact_session was called ${Q}s ago; "
+        "not rescheduling within the 300s cooldown.`}}}"
+        "return globalThis.__ccPendingCompact=!0,globalThis.__ccLastSelfCompact=W,"
+        '{data:{message:"Compaction scheduled: runs at the end of this turn if compaction '
+        "is enabled and healthy. Context will be summarized; in-flight work in this turn "
+        'completes first."}}},'
+        "mapToolResultToToolResultBlockParam(H,$){"
+        'return{tool_use_id:$,type:"tool_result",content:H.data.message}}}'
+    )
 
 
 def _define_compact_tool(m: re.Match[str]) -> str:
@@ -482,10 +492,7 @@ def _define_compact_tool(m: re.Match[str]) -> str:
     # schema namespace; m.3 = the tool constructor. Splice both into the injected tool
     # so it uses the same symbols the real tools in this build do.
     schema_ns, builder = m.group(2), m.group(3)
-    tool = (
-        f"globalThis.__ccCompactTool={builder}("
-        f"{_COMPACT_TOOL_HEAD}{schema_ns}{_COMPACT_TOOL_TAIL})"
-    )
+    tool = f"globalThis.__ccCompactTool={builder}({_compact_tool_object(schema_ns)})"
     return f"{m.group(1)}{tool},"
 
 
@@ -533,6 +540,9 @@ COMPACT_SESSION = PatchSet(
     ),
     verify_present=(
         re.compile(r'globalThis\.__ccCompactTool=[\w$]+\(\{name:"compact_session"'),
+        # the tool must expose prompt() -- API tool serialization (gtf) reads it, and
+        # a tool without it throws `H.prompt is not a function` on every request
+        re.compile(r'name:"compact_session".{0,600}async prompt\(\)\{return'),
         re.compile(
             r'\.\.\.\(globalThis\.__ccCompactTool\?\[globalThis\.__ccCompactTool\]:\[\]\),[\w$]+,'
         ),

@@ -330,6 +330,10 @@ def test_compact_session_applies(f: _CompactFlavor) -> None:
     # tool defined with THIS build's constructor and schema namespace, not a literal
     assert f'globalThis.__ccCompactTool={f.builder}({{name:"compact_session"' in out
     assert f"get inputSchema(){{return {f.schema_ns}.object({{}})}}" in out
+    # exposes prompt()/searchHint like every real tool, so API tool serialization
+    # (gtf -> H.prompt) doesn't throw `H.prompt is not a function` on every request
+    assert '"compact_session",searchHint:"' in out
+    assert 'async prompt(){return"Schedule compaction' in out
     # registered at the head of the registry array, before its original first tools
     assert (
         f"function {f.registry_fn}(){{return"
