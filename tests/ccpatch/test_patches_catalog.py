@@ -334,6 +334,10 @@ def test_compact_session_applies(f: _CompactFlavor) -> None:
     # (gtf -> H.prompt) doesn't throw `H.prompt is not a function` on every request
     assert '"compact_session",searchHint:"' in out
     assert 'async prompt(){return"Schedule compaction' in out
+    # result mapping reads the .data payload the framework passes (map(t.data,id)),
+    # i.e. H.message -- not H.data.message (that double-dip threw at call time)
+    assert 'content:H.message}' in out
+    assert "content:H.data.message" not in out
     # registered at the head of the registry array, before its original first tools
     assert (
         f"function {f.registry_fn}(){{return"

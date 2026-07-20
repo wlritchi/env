@@ -482,8 +482,10 @@ def _compact_tool_object(schema_ns: str) -> str:
         '{data:{message:"Compaction scheduled: runs at the end of this turn if compaction '
         "is enabled and healthy. Context will be summarized; in-flight work in this turn "
         'completes first."}}},'
+        # the framework passes the result's `.data` payload here (map(t.data,id)), so
+        # read H.message directly -- not H.data.message (that double-dip was the bug)
         "mapToolResultToToolResultBlockParam(H,$){"
-        'return{tool_use_id:$,type:"tool_result",content:H.data.message}}}'
+        'return{tool_use_id:$,type:"tool_result",content:H.message}}}'
     )
 
 
