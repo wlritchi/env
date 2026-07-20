@@ -509,9 +509,17 @@ def _register_compact(m: re.Match[str]) -> str:
 
 
 def _force_compact(m: re.Match[str]) -> str:
+    # xXf is the *proactive* autocompact decision. It skips itself via this guard
+    # (m.group(0)) whenever the threshold source is "auto" -- which is every model
+    # except the two in SXf ({sonnet-4-6, opus-4-6}) at <1M context. Opus 4.8 (1M
+    # window) and Haiku 4.5 (absent from SXf) both resolve to "auto", so the guard
+    # returns before the verdict line where the flag was previously read, leaving
+    # compact_session a silent no-op. Consume the pending-compact flag BEFORE the
+    # guard so an explicit compact_session forces compaction on every model, then
+    # fall through to the untouched guard for the normal token-threshold path.
     return (
-        "(globalThis.__ccPendingCompact?(globalThis.__ccPendingCompact=!1,!0):!1)||"
-        + m.group(0)
+        "if(globalThis.__ccPendingCompact)"
+        "return globalThis.__ccPendingCompact=!1,!0;" + m.group(0)
     )
 
 
@@ -534,8 +542,12 @@ COMPACT_SESSION = PatchSet(
         ),
         Patch(
             "force-compaction-on-flag",
+            # The source=="auto" skip guard in xXf: if(Ue()&&!ni()&&!X4$($,q))return!1
+            # -- three predicate calls, the last taking (model, window). Consume the
+            # pending-compact flag just before it (lookbehind blocks a second apply).
             re.compile(
-                r'(?<!:!1\)\|\|)([\w$]+)\.level==="compact"\|\|\1\.level==="blocked"'
+                r"(?<!=!1,!0;)if\([\w$]+\(\)&&![\w$]+\(\)&&!"
+                r"[\w$]+\([\w$]+,[\w$]+\)\)return!1"
             ),
             _force_compact,
         ),
@@ -548,16 +560,20 @@ COMPACT_SESSION = PatchSet(
         re.compile(
             r'\.\.\.\(globalThis\.__ccCompactTool\?\[globalThis\.__ccCompactTool\]:\[\]\),[\w$]+,'
         ),
+        # the flag is consumed *before* the source=="auto" skip guard in xXf, so an
+        # explicit compact_session reaches the compactor even on models that skip
+        # proactive autocompact (opus-4-8 1M window, haiku absent from SXf)
         re.compile(
-            r'globalThis\.__ccPendingCompact=!1,!0\):!1\)\|\|[\w$]+\.level==="compact"'
+            r"if\(globalThis\.__ccPendingCompact\)return "
+            r"globalThis\.__ccPendingCompact=!1,!0;if\([\w$]+\(\)&&!"
         ),
     ),
     verify_absent=(
         re.compile(r'The todo list after the update"\)\}\)\),[\w$]+=[\w$]+\(\{name:'),
         re.compile(r'function [\w$]+\(\)\{return\[[\w$]+,'),
-        re.compile(
-            r':!1\)\|\|\(globalThis\.__ccPendingCompact\?\(globalThis\.__ccPendingCompact=!1,!0\):!1\)'
-        ),
+        # not double-applied: the injected early-return is never immediately followed
+        # by a second copy of itself
+        re.compile(r"=!1,!0;if\(globalThis\.__ccPendingCompact\)return globalThis"),
     ),
     min_version=(2, 1, 170),
 )

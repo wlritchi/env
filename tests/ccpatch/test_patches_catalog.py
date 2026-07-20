@@ -312,7 +312,12 @@ def _compact_src(f: _CompactFlavor) -> str:
         + ",vD,RB,eb,"
         + tool
         + ",...cS4?[cS4]:[]]}"
-        "function xXf(H,$,q,K,_=0){if(!aT())return!1;let g=PX(H)-_,"
+        # Real xXf guard chain: the querySource + autocompact-enabled guards, then the
+        # source=="auto" skip guard (Ue()&&!ni()&&!X4$($,q)) that returns BEFORE the
+        # verdict line -- so the flag must be consumed ahead of it, not at the verdict.
+        "function xXf(H,$,q,K,_=0){"
+        'if(K==="compact")return!1;if(!aT())return!1;'
+        "if(Ue()&&!ni()&&!X4$($,q))return!1;let g=PX(H)-_,"
         + f.verdict
         + "=FuH(g,$,q);return k(`autocompact`),"
         + f.verdict
@@ -344,11 +349,16 @@ def test_compact_session_applies(f: _CompactFlavor) -> None:
         "[...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
         f"{f.tool0},{f.tool1}," in out
     )
-    # forces compaction at the auto-compact verdict (flag-first consume-on-read)
+    # consumes the pending-compact flag BEFORE the source=="auto" skip guard, so an
+    # explicit compact_session forces compaction even on models that skip proactive
+    # autocompact (opus-4-8 1M window, haiku absent from SXf); the untouched guard
+    # (and verdict line) still drive the normal token-threshold path afterwards
     assert (
-        "(globalThis.__ccPendingCompact?(globalThis.__ccPendingCompact=!1,!0):!1)||"
-        f'{f.verdict}.level==="compact"' in out
+        "if(globalThis.__ccPendingCompact)"
+        "return globalThis.__ccPendingCompact=!1,!0;"
+        "if(Ue()&&!ni()&&!X4$($,q))return!1" in out
     )
+    assert f'{f.verdict}.level==="compact"||{f.verdict}.level==="blocked"' in out
     # the TodoWrite build is preserved immediately after the injected tool
     assert f",{f.todo_tool}={f.builder}({{name:wk" in out
 

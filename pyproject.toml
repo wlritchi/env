@@ -118,7 +118,7 @@ select = [
 "src/wlrenv/ccpatch/cli.py" = ["T201"]  # CLI entry point uses print for output
 
 [tool.codespell]
-ignore-words-list = "lief,fpr"  # LIEF: binary-parsing library used by ccpatch.macho; fpr: gpg --with-colons fingerprint record type (secwrap)
+ignore-words-list = "lief,fpr,ue"  # LIEF: binary-parsing library used by ccpatch.macho; fpr: gpg --with-colons fingerprint record type (secwrap); ue: minified Claude Code fn name Ue() in ccpatch xXf guard patterns
 
 [dependency-groups]
 dev = [
