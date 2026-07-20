@@ -426,6 +426,88 @@ THINKING_SUMMARIES_NONINTERACTIVE = PatchSet(
 )
 
 
+_COMPACT_SESSION_TOOL = (
+    'globalThis.__ccCompactTool=aK({name:"compact_session",'
+    'async description(){return"Schedule compaction of this session: summarize the '
+    "conversation so far to free up context. Runs at the end of the current turn if "
+    "compaction is enabled and healthy; any in-flight work in this turn completes first. "
+    'Use proactively when context is filling up instead of waiting for the automatic threshold."},'
+    "get inputSchema(){return N.object({})},"
+    "isReadOnly(){return!0},isConcurrencySafe(){return!0},"
+    "async call(H,$){let W=Date.now(),Z=globalThis.__ccLastSelfCompact||0;"
+    "if(W-Z<3e5){let Q=Math.round((W-Z)/1e3);"
+    "return{data:{message:`compact_session was called ${Q}s ago; "
+    "not rescheduling within the 300s cooldown.`}}}"
+    "return globalThis.__ccPendingCompact=!0,globalThis.__ccLastSelfCompact=W,"
+    '{data:{message:"Compaction scheduled: runs at the end of this turn if compaction '
+    "is enabled and healthy. Context will be summarized; in-flight work in this turn "
+    'completes first."}}},'
+    "mapToolResultToToolResultBlockParam(H,$){"
+    'return{tool_use_id:$,type:"tool_result",content:H.data.message}}})'
+)
+
+
+def _define_compact_tool(m: re.Match[str]) -> str:
+    return m.group(1) + _COMPACT_SESSION_TOOL + ","
+
+
+def _register_compact(m: re.Match[str]) -> str:
+    return (
+        f"function {m.group(1)}()"
+        "{return[...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),yh8,KS8,"
+    )
+
+
+def _force_compact(m: re.Match[str]) -> str:
+    return (
+        "(globalThis.__ccPendingCompact?(globalThis.__ccPendingCompact=!1,!0):!1)||"
+        + m.group(0)
+    )
+
+
+COMPACT_SESSION = PatchSet(
+    name="compact-session-tool",
+    patches=(
+        Patch(
+            "define-compact-session-tool",
+            re.compile(
+                r'(The todo list after the update"\)\}\)\),)(?=[\w$]+=aK\(\{name:)'
+            ),
+            _define_compact_tool,
+        ),
+        Patch(
+            "register-compact-session-in-toollist",
+            re.compile(r"function ([\w$]+)\(\)\{return\[yh8,KS8,"),
+            _register_compact,
+        ),
+        Patch(
+            "force-compaction-on-flag",
+            re.compile(
+                r'(?<!:!1\)\|\|)([\w$]+)\.level==="compact"\|\|\1\.level==="blocked"'
+            ),
+            _force_compact,
+        ),
+    ),
+    verify_present=(
+        re.compile(r'globalThis\.__ccCompactTool=aK\(\{name:"compact_session"'),
+        re.compile(
+            r'\.\.\.\(globalThis\.__ccCompactTool\?\[globalThis\.__ccCompactTool\]:\[\]\),yh8,KS8'
+        ),
+        re.compile(
+            r'globalThis\.__ccPendingCompact=!1,!0\):!1\)\|\|[\w$]+\.level==="compact"'
+        ),
+    ),
+    verify_absent=(
+        re.compile(r'The todo list after the update"\)\}\)\),[\w$]+=aK\(\{name:'),
+        re.compile(r'function [\w$]+\(\)\{return\[yh8,KS8'),
+        re.compile(
+            r':!1\)\|\|\(globalThis\.__ccPendingCompact\?\(globalThis\.__ccPendingCompact=!1,!0\):!1\)'
+        ),
+    ),
+    min_version=(2, 1, 170),
+)
+
+
 # --- provider brand patch sets ----------------------------------------------
 #
 # Applied additively on top of the defaults when `ccpatch apply --brand <name>`
@@ -902,4 +984,5 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
         DEV_CHANNEL_INHERITANCE,
         CATPPUCCIN_SYNTAX,
         THINKING_SUMMARIES_NONINTERACTIVE,
+        COMPACT_SESSION,
     ]

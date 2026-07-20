@@ -16,6 +16,7 @@ from wlrenv.ccpatch.patches import (
     _SYNTAX_DARK_MAP,
     CATPPUCCIN_SYNTAX,
     CHANNELS_ENABLED,
+    COMPACT_SESSION,
     DEV_CHANNEL_INHERITANCE,
     FABLE_MODEL,
     THINKING_SUMMARIES_NONINTERACTIVE,
@@ -258,3 +259,41 @@ def test_kimi_verbs_and_symbols() -> None:
     assert '"Sparked","Glinted"' in out  # ing -> ed
     assert '["·","•","◦","•"]' in out  # spinner glyphs
     assert "Word0ing" not in out  # defaults replaced
+
+
+# Real 2.1.170 shape: the TodoWrite (JZH) build tail with the todo-schema string
+# anchor, the qg() tool-registry head, and the xXf auto-compact verdict — the three
+# compact_session anchors in one synthetic snippet (no binary needed).
+_COMPACT_SRC = (
+    'K7f=yH(()=>N.strictObject({todos:x.describe("The todo list after the update")})),'
+    "JZH=aK({name:wk,async description(){return e24},get inputSchema(){return K7f()},"
+    "async call({todos:H},$){return{data:{}}}});"
+    "function qg(){return[yh8,KS8,vD,RB,eb,JZH,...cS4?[cS4]:[]]}"
+    'function xXf(H,$,q,K,_=0){if(!aT())return!1;let f=PX(H)-_,A=FuH(f,$,q);'
+    'return k(`autocompact`),A.level==="compact"||A.level==="blocked"}'
+)
+
+
+def test_compact_session_applies() -> None:
+    out = COMPACT_SESSION.apply(_COMPACT_SRC)
+    # tool defined (globalThis bridge at the TodoWrite build site)
+    assert 'globalThis.__ccCompactTool=aK({name:"compact_session"' in out
+    # registered into qg() via the init-order-proof guarded spread
+    assert (
+        "...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),yh8,KS8" in out
+    )
+    # forces compaction at the xXf verdict (flag-first consume-on-read)
+    assert (
+        "(globalThis.__ccPendingCompact?(globalThis.__ccPendingCompact=!1,!0):!1)||"
+        in out
+    )
+    # the TodoWrite build is preserved immediately after the injected tool
+    assert ",JZH=aK({name:wk" in out
+
+
+def test_compact_session_idempotent() -> None:
+    once = COMPACT_SESSION.apply(_COMPACT_SRC)
+    # re-match-proofed: on a second apply the define patch matches nothing and the
+    # required-match guard raises, so no double-injection is possible.
+    with pytest.raises(PatchError, match="define-compact-session-tool"):
+        COMPACT_SESSION.apply(once)
