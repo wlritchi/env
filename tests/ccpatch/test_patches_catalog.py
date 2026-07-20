@@ -7,6 +7,8 @@ binary is exercised in test_elf_integration / manual validation.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import pytest
 
 from wlrenv.ccpatch.patches import (
@@ -261,38 +263,93 @@ def test_kimi_verbs_and_symbols() -> None:
     assert "Word0ing" not in out  # defaults replaced
 
 
-# Real 2.1.170 shape: the TodoWrite (JZH) build tail with the todo-schema string
-# anchor, the qg() tool-registry head, and the xXf auto-compact verdict — the three
-# compact_session anchors in one synthetic snippet (no binary needed).
-_COMPACT_SRC = (
-    'K7f=yH(()=>N.strictObject({todos:x.describe("The todo list after the update")})),'
-    "JZH=aK({name:wk,async description(){return e24},get inputSchema(){return K7f()},"
-    "async call({todos:H},$){return{data:{}}}});"
-    "function qg(){return[yh8,KS8,vD,RB,eb,JZH,...cS4?[cS4]:[]]}"
-    'function xXf(H,$,q,K,_=0){if(!aT())return!1;let f=PX(H)-_,A=FuH(f,$,q);'
-    'return k(`autocompact`),A.level==="compact"||A.level==="blocked"}'
+# Real 2.1.170 shape: the TodoWrite build tail (todo-schema before/after strings +
+# the tool constructor), the tool-registry function head, and the auto-compact
+# verdict — the three compact_session anchors in one synthetic snippet (no binary
+# needed). Every identifier here is minifier-assigned and differs per platform, so
+# the snippet is rendered for each build's real IDs (captured from the linux-x64 and
+# darwin-arm64 2.1.170 bundles) to prove the anchors derive them structurally rather
+# than by literal.
+class _CompactFlavor(NamedTuple):
+    label: str
+    schema_ns: str  # zod-like namespace (N on linux-x64, k on darwin-arm64)
+    describe: str  # todo-item schema helper (ZK$ / W9_)
+    builder: str  # tool constructor (aK / a9)
+    todo_tool: str  # TodoWrite tool var (JZH / M0H)
+    registry_fn: str  # tool-registry function (qg / TQ)
+    tool0: str  # first tool in the registry array (yh8 / Cv6)
+    tool1: str  # second tool (KS8 / AE6)
+    verdict: str  # auto-compact verdict var (A / z)
+
+
+_COMPACT_FLAVORS = (
+    _CompactFlavor("linux-x64", "N", "ZK$", "aK", "JZH", "qg", "yh8", "KS8", "A"),
+    _CompactFlavor("darwin-arm64", "k", "W9_", "a9", "M0H", "TQ", "Cv6", "AE6", "z"),
 )
 
 
-def test_compact_session_applies() -> None:
-    out = COMPACT_SESSION.apply(_COMPACT_SRC)
-    # tool defined (globalThis bridge at the TodoWrite build site)
-    assert 'globalThis.__ccCompactTool=aK({name:"compact_session"' in out
-    # registered into qg() via the init-order-proof guarded spread
-    assert (
-        "...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),yh8,KS8" in out
+def _compact_src(f: _CompactFlavor) -> str:
+    ns, dsc, bld, tool = f.schema_ns, f.describe, f.builder, f.todo_tool
+    return (
+        "_x=yH(()=>"
+        + ns
+        + ".object({oldTodos:"
+        + dsc
+        + '().describe("The todo list before the update"),newTodos:'
+        + dsc
+        + '().describe("The todo list after the update")})),'
+        + tool
+        + "="
+        + bld
+        + "({name:wk,async description(){return e24},"
+        "get inputSchema(){return _x()},async call({todos:H},$){return{data:{}}}});"
+        "function "
+        + f.registry_fn
+        + "(){return["
+        + f.tool0
+        + ","
+        + f.tool1
+        + ",vD,RB,eb,"
+        + tool
+        + ",...cS4?[cS4]:[]]}"
+        "function xXf(H,$,q,K,_=0){if(!aT())return!1;let g=PX(H)-_,"
+        + f.verdict
+        + "=FuH(g,$,q);return k(`autocompact`),"
+        + f.verdict
+        + '.level==="compact"||'
+        + f.verdict
+        + '.level==="blocked"}'
     )
-    # forces compaction at the xXf verdict (flag-first consume-on-read)
+
+
+@pytest.mark.parametrize(
+    "f", _COMPACT_FLAVORS, ids=[fl.label for fl in _COMPACT_FLAVORS]
+)
+def test_compact_session_applies(f: _CompactFlavor) -> None:
+    out = COMPACT_SESSION.apply(_compact_src(f))
+    # tool defined with THIS build's constructor and schema namespace, not a literal
+    assert f'globalThis.__ccCompactTool={f.builder}({{name:"compact_session"' in out
+    assert f"get inputSchema(){{return {f.schema_ns}.object({{}})}}" in out
+    # registered at the head of the registry array, before its original first tools
+    assert (
+        f"function {f.registry_fn}(){{return"
+        "[...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
+        f"{f.tool0},{f.tool1}," in out
+    )
+    # forces compaction at the auto-compact verdict (flag-first consume-on-read)
     assert (
         "(globalThis.__ccPendingCompact?(globalThis.__ccPendingCompact=!1,!0):!1)||"
-        in out
+        f'{f.verdict}.level==="compact"' in out
     )
     # the TodoWrite build is preserved immediately after the injected tool
-    assert ",JZH=aK({name:wk" in out
+    assert f",{f.todo_tool}={f.builder}({{name:wk" in out
 
 
-def test_compact_session_idempotent() -> None:
-    once = COMPACT_SESSION.apply(_COMPACT_SRC)
+@pytest.mark.parametrize(
+    "f", _COMPACT_FLAVORS, ids=[fl.label for fl in _COMPACT_FLAVORS]
+)
+def test_compact_session_idempotent(f: _CompactFlavor) -> None:
+    once = COMPACT_SESSION.apply(_compact_src(f))
     # re-match-proofed: on a second apply the define patch matches nothing and the
     # required-match guard raises, so no double-injection is possible.
     with pytest.raises(PatchError, match="define-compact-session-tool"):

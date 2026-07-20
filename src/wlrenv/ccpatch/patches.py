@@ -447,13 +447,22 @@ THINKING_SUMMARIES_NONINTERACTIVE = PatchSet(
 )
 
 
-_COMPACT_SESSION_TOOL = (
-    'globalThis.__ccCompactTool=aK({name:"compact_session",'
+# The injected compact_session tool object, split around the two build-specific
+# identifiers that _define_compact_tool splices in: the tool constructor (`<builder>`,
+# e.g. `aK` on linux-x64, `a9` on darwin-arm64) and the zod-like schema namespace
+# (`<ns>`, e.g. `N` vs `k`). Both are captured from the adjacent TodoWrite definition
+# so the injected tool references whatever symbols the current build's minifier chose
+# -- the IDs differ per platform, so hardcoding them breaks the non-linux binaries.
+_COMPACT_TOOL_HEAD = (
+    '{name:"compact_session",'
     'async description(){return"Schedule compaction of this session: summarize the '
     "conversation so far to free up context. Runs at the end of the current turn if "
     "compaction is enabled and healthy; any in-flight work in this turn completes first. "
     'Use proactively when context is filling up instead of waiting for the automatic threshold."},'
-    "get inputSchema(){return N.object({})},"
+    "get inputSchema(){return "
+)
+_COMPACT_TOOL_TAIL = (
+    ".object({})},"
     "isReadOnly(){return!0},isConcurrencySafe(){return!0},"
     "async call(H,$){let W=Date.now(),Z=globalThis.__ccLastSelfCompact||0;"
     "if(W-Z<3e5){let Q=Math.round((W-Z)/1e3);"
@@ -464,18 +473,29 @@ _COMPACT_SESSION_TOOL = (
     "is enabled and healthy. Context will be summarized; in-flight work in this turn "
     'completes first."}}},'
     "mapToolResultToToolResultBlockParam(H,$){"
-    'return{tool_use_id:$,type:"tool_result",content:H.data.message}}})'
+    'return{tool_use_id:$,type:"tool_result",content:H.data.message}}}'
 )
 
 
 def _define_compact_tool(m: re.Match[str]) -> str:
-    return m.group(1) + _COMPACT_SESSION_TOOL + ","
+    # m.1 = the TodoWrite schema declarator (re-emitted verbatim); m.2 = the zod-like
+    # schema namespace; m.3 = the tool constructor. Splice both into the injected tool
+    # so it uses the same symbols the real tools in this build do.
+    schema_ns, builder = m.group(2), m.group(3)
+    tool = (
+        f"globalThis.__ccCompactTool={builder}("
+        f"{_COMPACT_TOOL_HEAD}{schema_ns}{_COMPACT_TOOL_TAIL})"
+    )
+    return f"{m.group(1)}{tool},"
 
 
 def _register_compact(m: re.Match[str]) -> str:
+    # m.1 = the tool-registry function name; the array body (from its first tool
+    # identifier on) is preserved by the pattern's lookahead. Prepend the guarded
+    # spread so the compact tool is registered iff it was defined (init-order-proof).
     return (
         f"function {m.group(1)}()"
-        "{return[...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),yh8,KS8,"
+        "{return[...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
     )
 
 
@@ -492,13 +512,15 @@ COMPACT_SESSION = PatchSet(
         Patch(
             "define-compact-session-tool",
             re.compile(
-                r'(The todo list after the update"\)\}\)\),)(?=[\w$]+=aK\(\{name:)'
+                r'(([\w$]+)\.object\(\{oldTodos:[\w$]+\(\)\.describe\('
+                r'"The todo list before the update"\),newTodos:[\w$]+\(\)\.describe\('
+                r'"The todo list after the update"\)\}\)\),)(?=[\w$]+=([\w$]+)\(\{name:)'
             ),
             _define_compact_tool,
         ),
         Patch(
             "register-compact-session-in-toollist",
-            re.compile(r"function ([\w$]+)\(\)\{return\[yh8,KS8,"),
+            re.compile(r"function ([\w$]+)\(\)\{return\[(?=[\w$]+,)"),
             _register_compact,
         ),
         Patch(
@@ -510,17 +532,17 @@ COMPACT_SESSION = PatchSet(
         ),
     ),
     verify_present=(
-        re.compile(r'globalThis\.__ccCompactTool=aK\(\{name:"compact_session"'),
+        re.compile(r'globalThis\.__ccCompactTool=[\w$]+\(\{name:"compact_session"'),
         re.compile(
-            r'\.\.\.\(globalThis\.__ccCompactTool\?\[globalThis\.__ccCompactTool\]:\[\]\),yh8,KS8'
+            r'\.\.\.\(globalThis\.__ccCompactTool\?\[globalThis\.__ccCompactTool\]:\[\]\),[\w$]+,'
         ),
         re.compile(
             r'globalThis\.__ccPendingCompact=!1,!0\):!1\)\|\|[\w$]+\.level==="compact"'
         ),
     ),
     verify_absent=(
-        re.compile(r'The todo list after the update"\)\}\)\),[\w$]+=aK\(\{name:'),
-        re.compile(r'function [\w$]+\(\)\{return\[yh8,KS8'),
+        re.compile(r'The todo list after the update"\)\}\)\),[\w$]+=[\w$]+\(\{name:'),
+        re.compile(r'function [\w$]+\(\)\{return\[[\w$]+,'),
         re.compile(
             r':!1\)\|\|\(globalThis\.__ccPendingCompact\?\(globalThis\.__ccPendingCompact=!1,!0\):!1\)'
         ),
