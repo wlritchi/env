@@ -76,6 +76,7 @@
         "device" : {
           "category" : "mouse",
           "productID" : "0x4031",
+          "productName" : "usb-switch host-facing pico",
           "vendorID" : "0xcafe"
         }
       },
