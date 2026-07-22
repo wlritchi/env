@@ -5,8 +5,10 @@ description: >-
   pushed as a PR. Flags comments that narrate WHAT the code does instead of WHY
   it does it, comments that describe the change relative to earlier versions of
   the code or earlier iterations of the same change (historical narration that
-  belongs in commit messages or PR bodies), and paragraph-length workaround
-  justifications that suggest the workaround itself is the wrong approach.
+  belongs in commit messages or PR bodies), paragraph-length workaround
+  justifications that suggest the workaround itself is the wrong approach, and
+  comments that leak internal or runtime details (customer names, incident
+  specifics) that belong in a ticket rather than the codebase.
   Dispatch as a local review subagent on the diff before opening a PR. Provide
   the diff scope as input (e.g. "unstaged changes", "staged changes", or
   "commits on this branch vs main").
@@ -75,6 +77,16 @@ Acceptable comments:
    comment. A short pointer to an upstream bug with a one-line explanation is
    fine; a defensive essay is not.
 
+4. **Internal/runtime details**: comments that name specific customers,
+   tenants, accounts, incidents, or other operational specifics — "Acme Corp
+   hit this with 40k rows", "added after the 2024-03 outage for BigCo". The
+   code should describe the general condition the bug case revealed ("large
+   result sets can exceed the driver's row limit"), and at most cite a ticket
+   number that carries the specifics. Flag any comment where removing the
+   customer/incident reference loses nothing the next maintainer needs; the
+   recommendation is a rewrite in terms of the general condition, plus a
+   ticket reference if one exists.
+
 Do not flag: license headers, shebangs, editor/vim modelines, linter or
 type-checker directives (`# noqa`, `// eslint-disable`, `# type: ignore`),
 doc-comment metadata required by tooling, or commented-out code (out of scope
@@ -87,7 +99,8 @@ conversational message. For each finding give:
 
 - `file:line` (line number in the new version of the file)
 - The comment text (or its first line, if long)
-- Category: `what-not-why` | `historical` | `workaround-essay`
+- Category: `what-not-why` | `historical` | `workaround-essay` |
+  `internal-details`
 - A one-sentence explanation of the problem
 - A concrete recommendation: usually the replacement comment text (or
   "delete"), or for `workaround-essay`, what to reconsider about the approach
