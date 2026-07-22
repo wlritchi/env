@@ -2,7 +2,15 @@ diff --git a/dotfiles/.config/niri/config.kdl b/dotfiles/.config/niri/config.kdl
 index 469eef8..24459f6 100644
 --- a/dotfiles/.config/niri/config.kdl
 +++ b/dotfiles/.config/niri/config.kdl
-@@ -99,9 +99,7 @@ output "Apple Computer Inc Color LCD Unknown" {
+@@ -18,7 +18,5 @@
+             // For example:
+             // layout "us,ru"
+             // options "grp:win_space_toggle,compose:ralt,ctrl:nocaps"
+-            layout "wlr"
+-            variant "dvorak"
+             options "numpad:mac"
+         }
+@@ -99,11 +97,17 @@
  }
  
  output "Acer Technologies XZ242Q Unknown" {
@@ -10,5 +18,16 @@ index 469eef8..24459f6 100644
      mode "1920x1080"
 -    scale 0.5
      transform "normal"
-     position x=1850 y=-2160
+-    position x=1850 y=-2160
++    position x=0 y=0
++    background-color "#181926"  // crust
++}
++
++output "LG ELECTRONICS LG ULTRAFINE 602NTDVEB354" {
++    mode "3840x2160@60.000"
++    scale 1.5
++    transform "normal"
++    position x=1920 y=0
      background-color "#181926"  // crust
+ }
+ 
