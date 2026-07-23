@@ -41,9 +41,95 @@ let
     }
   '';
 
-  sideberyWidget = "_3c078156-979c-498b-8990-85f7987dd929_-browser-action";
-  darkReaderWidget = "addon_darkreader_org-browser-action";
-  browserpassWidget = "browserpass_maximbaz_com-browser-action";
+  # CustomizableUI.makeWidgetId: toolbar widget ids are the extension id
+  # lowercased with everything outside [a-z0-9_-] replaced by "_"
+  widgetId =
+    id:
+    "${
+      lib.stringAsChars (c: if builtins.match "[a-z0-9_-]" c != null then c else "_") (lib.toLower id)
+    }-browser-action";
+
+  # Force-installed AMO extensions. Toolbar button order follows list order:
+  # `left` entries sit before the back button, `right` entries after the
+  # urlbar, and `unpinned` entries land in the extensions overflow menu.
+  extensions = {
+    left = [
+      {
+        id = "{3c078156-979c-498b-8990-85f7987dd929}";
+        slug = "sidebery";
+      }
+      {
+        id = "tab-counter@daawesomep.addons.mozilla.org";
+        slug = "tab-counter-webext";
+      }
+    ];
+    right = [
+      {
+        id = "addon@darkreader.org";
+        slug = "darkreader";
+      }
+      {
+        # Extension counterpart to programs.browserpass, which only installs
+        # the native messaging host
+        id = "browserpass@maximbaz.com";
+        slug = "browserpass-ce";
+      }
+      {
+        id = "uBlock0@raymondhill.net";
+        slug = "ublock-origin";
+      }
+      {
+        id = "{531906d3-e22f-4a6c-a102-8057b88a1a63}";
+        slug = "single-file";
+      }
+      {
+        id = "sponsorBlocker@ajay.app";
+        slug = "sponsorblock";
+      }
+      {
+        id = "{55f61747-c3d3-4425-97f9-dfc19a0be23c}";
+        slug = "spoof-timezone";
+      }
+      {
+        # Stylus
+        id = "{7a7a4a92-a2a0-41d1-9fd7-1e92480d612d}";
+        slug = "styl-us";
+      }
+      {
+        id = "{aecec67f-0d10-4fa7-b7c7-609a2db280cf}";
+        slug = "violentmonkey";
+      }
+      {
+        # Web Archives
+        id = "{d07ccf11-c0cd-4938-a265-2a4d6ad01189}";
+        slug = "view-page-archive";
+      }
+    ];
+    unpinned = [
+      {
+        id = "{a4c4eda4-fb84-4a84-b4a1-f7c1cbf2a1ad}";
+        slug = "refined-github-";
+      }
+      {
+        id = "@react-devtools";
+        slug = "react-devtools";
+      }
+      {
+        # I still don't care about cookies
+        id = "idcac-pub@guus.ninja";
+        slug = "istilldontcareaboutcookies";
+      }
+      {
+        id = "tabclosegold@mukunku.com";
+        slug = "tab-close-gold";
+      }
+      {
+        # Duplicate Tabs Closer
+        id = "jid0-RvYT2rGWfM8q5yWxIxAHYAeo5Qg@jetpack";
+        slug = "duplicate-tabs-closer";
+      }
+    ];
+  };
 
   # Reapplied from user.js on every launch, so manual toolbar rearrangement
   # reverts on restart; edit here instead.
@@ -51,18 +137,20 @@ let
     placements = {
       "widget-overflow-fixed-list" = [ ];
       "unified-extensions-area" = [ ];
-      "nav-bar" = [
-        sideberyWidget
-        "back-button"
-        "forward-button"
-        "vertical-spacer"
-        "stop-reload-button"
-        "urlbar-container"
-        darkReaderWidget
-        browserpassWidget
-        "unified-extensions-button"
-        "downloads-button"
-      ];
+      "nav-bar" =
+        map (e: widgetId e.id) extensions.left
+        ++ [
+          "back-button"
+          "forward-button"
+          "vertical-spacer"
+          "stop-reload-button"
+          "urlbar-container"
+        ]
+        ++ map (e: widgetId e.id) extensions.right
+        ++ [
+          "unified-extensions-button"
+          "downloads-button"
+        ];
       "toolbar-menubar" = [ "menubar-items" ];
       "TabsToolbar" = [
         "tabbrowser-tabs"
@@ -83,22 +171,15 @@ in
     # (Linux machines using a distro-packaged LibreWolf need
     # ~/.librewolf/policies/policies.json instead; see librewolf-extension.nix).
     policies = {
-      ExtensionSettings = {
-        "{3c078156-979c-498b-8990-85f7987dd929}" = {
-          installation_mode = "force_installed";
-          install_url = "https://addons.mozilla.org/firefox/downloads/latest/sidebery/latest.xpi";
-        };
-        "addon@darkreader.org" = {
-          installation_mode = "force_installed";
-          install_url = "https://addons.mozilla.org/firefox/downloads/latest/darkreader/latest.xpi";
-        };
-        # The extension counterpart to programs.browserpass, which only
-        # installs the native messaging host
-        "browserpass@maximbaz.com" = {
-          installation_mode = "force_installed";
-          install_url = "https://addons.mozilla.org/firefox/downloads/latest/browserpass-ce/latest.xpi";
-        };
-      };
+      ExtensionSettings = lib.listToAttrs (
+        map (
+          e:
+          lib.nameValuePair e.id {
+            installation_mode = "force_installed";
+            install_url = "https://addons.mozilla.org/firefox/downloads/latest/${e.slug}/latest.xpi";
+          }
+        ) (extensions.left ++ extensions.right ++ extensions.unpinned)
+      );
     };
 
     # To adopt a pre-existing profile (keeping its data), run
