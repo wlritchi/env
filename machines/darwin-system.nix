@@ -161,6 +161,11 @@
       autoUpdate = false;
       cleanup = "none";
     };
+    # Prefer nixpkgs; brews are for tools not packaged there (displayplacer is
+    # Homebrew-only as of 2026-07)
+    brews = [
+      "displayplacer"
+    ];
     casks = [
       "jordanbaird-ice"
       "linearmouse"
