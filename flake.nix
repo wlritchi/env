@@ -1,9 +1,7 @@
 {
   description = "home-manager config";
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/release-25.11";
-    # Older release kept around for packages broken in 25.11 (librewolf on darwin)
-    nixpkgs-2505.url = "github:NixOS/nixpkgs/release-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/release-26.05";
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     homebrew-cask = {
       url = "github:homebrew/homebrew-cask";
@@ -14,7 +12,7 @@
       flake = false;
     };
     home-manager = {
-      url = "github:nix-community/home-manager/release-25.11";
+      url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     krew2nix = {
@@ -22,7 +20,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-darwin = {
-      url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
+      url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     try = {
@@ -37,7 +35,6 @@
       home-manager,
       krew2nix,
       nixpkgs,
-      nixpkgs-2505,
       nix-darwin,
       nix-homebrew,
       try,
@@ -55,41 +52,8 @@
         });
       };
 
-      # Pin bun to 1.3.13 until nixpkgs#508770 lands; required for Claude Code
-      # v2.1.113+ post-install hook compatibility. Override `src` directly
-      # rather than `passthru.sources` because release-25.11's bun uses
-      # `mkDerivation rec`, which freezes `src` against pre-override scope.
-      bunOverlay = final: prev: {
-        bun = prev.bun.overrideAttrs (oldAttrs: {
-          version = "1.3.13";
-          __intentionallyOverridingVersion = true;
-          src =
-            {
-              "aarch64-darwin" = prev.fetchurl {
-                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-darwin-aarch64.zip";
-                hash = "sha256-VGfj9l26Umuf6pjwzOBO+vwMY+Fpcz7Ce4dqOtMtoZA=";
-              };
-              "aarch64-linux" = prev.fetchurl {
-                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-aarch64.zip";
-                hash = "sha256-cLrkGzkIsKEg4eWMXIrzDnSvrjuNEbDT/djnh937SyI=";
-              };
-              "x86_64-darwin" = prev.fetchurl {
-                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-darwin-x64-baseline.zip";
-                hash = "sha256-qYumpIDyL9qbNDYmuQak4mqlNhi/hdK8WSjs8rpF8O0=";
-              };
-              "x86_64-linux" = prev.fetchurl {
-                url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-x64.zip";
-                hash = "sha256-ecB3H6i5LDOq5B4VoODTB+qZ0OLwAxfHHGxTI3p44lo=";
-              };
-            }
-            .${prev.stdenvNoCC.hostPlatform.system}
-              or (throw "Unsupported system for bun override: ${prev.stdenvNoCC.hostPlatform.system}");
-        });
-      };
-
       overlays = [
         aerospaceOverlay
-        bunOverlay
       ];
 
       mkPkgs =
@@ -154,7 +118,6 @@
               krew2nix
               try
               ;
-            pkgs2505 = import nixpkgs-2505 { inherit system; };
           };
         };
     in

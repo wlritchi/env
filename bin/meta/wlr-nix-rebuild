@@ -44,7 +44,7 @@ NIX_HOSTNAME="$(get_short_hostname)" || NIX_HOSTNAME="default"
 home_manager=(
     nix
     run
-    home-manager/release-25.11
+    home-manager/release-26.05
     --
 )
 
