@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Adopt an existing (imperatively created) LibreWolf profile into the profile
+# path declared by home-manager (machines/librewolf.nix), so wlr-nix-rebuild
+# can take over profile management without clobber errors or data loss.
+#
+# Usage: wlr-librewolf-adopt-profile [existing-profile-dir-name]
+#
+# With no argument, the current default profile is detected from installs.ini
+# (locked default) or profiles.ini (Default=1). Run wlr-nix-rebuild afterwards.
+#
+# Dependencies: coreutils, pgrep (procps)
+
+set -euo pipefail
+
+# Must match profiles.default.path in machines/librewolf.nix
+target_name='default'
+
+case "$(uname)" in
+    Darwin)
+        config_dir="$HOME/Library/Application Support/LibreWolf"
+        profiles_dir="$config_dir/Profiles"
+        ;;
+    *)
+        config_dir="$HOME/.librewolf"
+        profiles_dir="$config_dir"
+        ;;
+esac
+
+if [ ! -d "$config_dir" ]; then
+    wlr-err "no LibreWolf config directory at $config_dir; nothing to adopt"
+    exit 1
+fi
+
+if pgrep -x librewolf >/dev/null 2>&1 || pgrep -f 'LibreWolf.app' >/dev/null 2>&1; then
+    wlr-err "LibreWolf appears to be running; close it before adopting a profile"
+    exit 1
+fi
+
+# Read Key=Value from the first ini section whose header starts with a prefix
+ini_lookup() {
+    local file="$1" section_prefix="$2" key="$3"
+    awk -F= -v sp="$section_prefix" -v key="$key" '
+        /^\[/ { in_section = (index($0, sp) == 1) }
+        in_section && $1 == key { print $2; exit }
+    ' "$file"
+}
+
+detect_default_profile() {
+    local path=''
+    if [ -f "$config_dir/installs.ini" ]; then
+        path="$(ini_lookup "$config_dir/installs.ini" '[Install' 'Default')"
+    fi
+    if [ -z "$path" ] && [ -f "$config_dir/profiles.ini" ]; then
+        path="$(awk -F= '
+            /^\[Profile/ { path = ""; def = 0 }
+            $1 == "Path" { path = $2 }
+            $1 == "Default" && $2 == "1" { def = 1 }
+            def && path { print path; exit }
+        ' "$config_dir/profiles.ini")"
+    fi
+    # Paths in the ini files are relative to config_dir, even on macOS where
+    # profiles live under Profiles/; reduce to a name relative to profiles_dir
+    basename "$path"
+}
+
+if [ $# -ge 1 ]; then
+    source_name="$1"
+else
+    source_name="$(detect_default_profile)"
+    if [ -z "$source_name" ]; then
+        if [ -d "$profiles_dir/$target_name" ] && [ ! -f "$config_dir/profiles.ini" ]; then
+            wlr-good "profile already adopted at $profiles_dir/$target_name"
+            exit 0
+        fi
+        wlr-err "could not detect a default profile; pass its directory name explicitly"
+        wlr-err "profiles present in $profiles_dir:"
+        ls "$profiles_dir" >&2
+        exit 1
+    fi
+fi
+
+source_dir="$profiles_dir/$source_name"
+target_dir="$profiles_dir/$target_name"
+
+if [ ! -d "$source_dir" ]; then
+    wlr-err "profile directory $source_dir does not exist"
+    exit 1
+fi
+
+backup() {
+    local path="$1"
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        mv "$path" "$path.pre-adopt.bak"
+        wlr-warn "moved $path to $path.pre-adopt.bak"
+    fi
+}
+
+if [ "$source_name" != "$target_name" ]; then
+    if [ -e "$target_dir" ]; then
+        # A leftover home-manager-created profile only contains managed files;
+        # anything else means real data we must not displace
+        unmanaged="$(find "$target_dir" -type f \
+            -not -name .keep -not -name user.js -not -name userChrome.css)"
+        if [ -n "$unmanaged" ]; then
+            wlr-err "$target_dir already exists and contains unmanaged files:"
+            printf '%s\n' "$unmanaged" >&2
+            wlr-err "resolve manually, or pass the profile to adopt explicitly"
+            exit 1
+        fi
+        backup "$target_dir"
+    fi
+    mv "$source_dir" "$target_dir"
+    wlr-good "moved $source_dir to $target_dir"
+else
+    wlr-good "profile already at $target_dir"
+fi
+
+# home-manager refuses to clobber unmanaged files it wants to own; the stale
+# installs.ini would also keep pointing its locked default at the old path
+backup "$config_dir/profiles.ini"
+backup "$config_dir/installs.ini"
+for f in "$target_dir/user.js" "$target_dir/chrome/userChrome.css"; do
+    if [ -e "$f" ] && [ ! -L "$f" ]; then
+        backup "$f"
+    fi
+done
+
+wlr-good "profile adopted; run wlr-nix-rebuild to let home-manager take over"

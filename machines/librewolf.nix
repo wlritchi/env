@@ -63,9 +63,9 @@ in
       };
     };
 
-    # To adopt a pre-existing profile, set `path` to its directory name under
-    # Profiles/ (e.g. "abcd1234.default") and remove any stale installs.ini
-    # whose locked default points elsewhere.
+    # To adopt a pre-existing profile (keeping its data), run
+    # wlr-librewolf-adopt-profile before the first rebuild; it moves the
+    # profile to this path and clears the stale ini files.
     profiles.default = {
       isDefault = true;
 
