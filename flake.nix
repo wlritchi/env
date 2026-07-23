@@ -2,6 +2,8 @@
   description = "home-manager config";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/release-25.11";
+    # Older release kept around for packages broken in 25.11 (librewolf on darwin)
+    nixpkgs-2505.url = "github:NixOS/nixpkgs/release-25.05";
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     homebrew-cask = {
       url = "github:homebrew/homebrew-cask";
@@ -35,6 +37,7 @@
       home-manager,
       krew2nix,
       nixpkgs,
+      nixpkgs-2505,
       nix-darwin,
       nix-homebrew,
       try,
@@ -151,6 +154,7 @@
               krew2nix
               try
               ;
+            pkgs2505 = import nixpkgs-2505 { inherit system; };
           };
         };
     in

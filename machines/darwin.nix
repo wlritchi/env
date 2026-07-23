@@ -4,6 +4,7 @@
   lib,
   hostname ? "default",
   username ? "luc.ritchie",
+  pkgs2505,
   ...
 }:
 
@@ -54,6 +55,14 @@ in
     run ${pkgs.rsync}/bin/rsync -aL --chmod=u+w \
       "${../keyboard}/" "$HOME/Library/Keyboard Layouts/"
   '';
+
+  # 25.11's librewolf fails to link its rlbox-sandboxed libs on aarch64-darwin
+  # (wasm-clang emits LLVM 21.1.7 bitcode, host clang/lld are 20.1.8), so take
+  # the package from 25.05.
+  programs.librewolf = {
+    enable = true;
+    package = pkgs2505.librewolf;
+  };
 
   programs.browserpass = {
     enable = true;
