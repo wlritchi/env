@@ -43,6 +43,7 @@ let
 
   sideberyWidget = "_3c078156-979c-498b-8990-85f7987dd929_-browser-action";
   darkReaderWidget = "addon_darkreader_org-browser-action";
+  browserpassWidget = "browserpass_maximbaz_com-browser-action";
 
   # Reapplied from user.js on every launch, so manual toolbar rearrangement
   # reverts on restart; edit here instead.
@@ -58,6 +59,7 @@ let
         "stop-reload-button"
         "urlbar-container"
         darkReaderWidget
+        browserpassWidget
         "unified-extensions-button"
         "downloads-button"
       ];
@@ -89,6 +91,12 @@ in
         "addon@darkreader.org" = {
           installation_mode = "force_installed";
           install_url = "https://addons.mozilla.org/firefox/downloads/latest/darkreader/latest.xpi";
+        };
+        # The extension counterpart to programs.browserpass, which only
+        # installs the native messaging host
+        "browserpass@maximbaz.com" = {
+          installation_mode = "force_installed";
+          install_url = "https://addons.mozilla.org/firefox/downloads/latest/browserpass-ce/latest.xpi";
         };
       };
     };
