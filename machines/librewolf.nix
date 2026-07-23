@@ -128,6 +128,10 @@ let
         id = "jid0-RvYT2rGWfM8q5yWxIxAHYAeo5Qg@jetpack";
         slug = "duplicate-tabs-closer";
       }
+      {
+        id = "search@kagi.com";
+        slug = "kagi-search-for-firefox";
+      }
     ];
   };
 
@@ -193,6 +197,16 @@ in
         "privacy.sanitize.sanitizeOnShutdown" = false;
         "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
         "browser.uiCustomization.state" = uiCustomizationState;
+      };
+
+      search = {
+        force = true; # replace any existing search.json.mozlz4
+        default = "kagi";
+        engines.kagi = {
+          name = "Kagi";
+          urls = [ { template = "https://kagi.com/search?q={searchTerms}"; } ];
+          definedAliases = [ "@kagi" ];
+        };
       };
 
       # Concatenated at build time (not builtins.readFile) so cross-platform
