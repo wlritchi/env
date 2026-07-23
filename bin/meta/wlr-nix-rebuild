@@ -41,10 +41,13 @@ get_short_hostname() {
 export NIX_HOSTNAME
 NIX_HOSTNAME="$(get_short_hostname)" || NIX_HOSTNAME="default"
 
+# Run home-manager (and darwin-rebuild below) from the public flake's own
+# outputs, so the tool versions always match the inputs locked in flake.lock.
 home_manager=(
     nix
     run
-    home-manager/release-26.05
+    --impure
+    "path:$WLR_ENV_PATH#home-manager"
     --
 )
 
@@ -55,7 +58,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     nix_darwin=(
         nix
         run
-        nix-darwin
+        --impure
+        "path:$WLR_ENV_PATH#darwin-rebuild"
         --
     )
     # Build first (no sudo needed) to check if anything changed

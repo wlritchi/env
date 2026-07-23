@@ -130,6 +130,16 @@
           ;
       };
 
+      # Re-export the CLI tools from the locked inputs so wlr-nix-rebuild runs
+      # the same versions declared here, with flake.lock as the single source
+      # of truth.
+      packages.${system} = {
+        home-manager = home-manager.packages.${system}.home-manager;
+      }
+      // nixpkgs.lib.optionalAttrs isDarwin {
+        darwin-rebuild = nix-darwin.packages.${system}.darwin-rebuild;
+      };
+
       homeConfigurations.default = mkHomeConfiguration { };
 
       darwinConfigurations.default = nix-darwin.lib.darwinSystem {
