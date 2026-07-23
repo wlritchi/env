@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 let
   # Pinned to the same rev as the checkout in the Linux profile's chrome/ dir
@@ -10,6 +10,36 @@ let
   };
 
   hideTabsCss = if pkgs.stdenv.isDarwin then "hide_tabs_toolbar_osx.css" else "hide_tabs_toolbar.css";
+
+  # Firefox 134+ renamed the :root attribute tabsintitlebar -> customtitlebar,
+  # so the pinned window_control_placeholder_support.css rules never match and
+  # the macOS traffic-light buttons overlap the leftmost nav-bar widgets.
+  # Upstream deprecated the style rather than fixing it, so reserve the space
+  # ourselves (window controls sit on the LEFT on macOS).
+  macosWindowControlSpace = pkgs.writeText "macos-window-control-space.css" ''
+    @media (-moz-platform: macos) {
+      :root:is([customtitlebar], [tabsintitlebar]) {
+        --uc-window-control-width: 72px;
+        --uc-window-drag-space-pre: 30px;
+        --uc-window-drag-space-post: 30px;
+      }
+      :root:is([customtitlebar], [tabsintitlebar])[sizemode="fullscreen"] {
+        --uc-window-control-width: 0px;
+      }
+      :root:is([customtitlebar], [tabsintitlebar])[sizemode="maximized"] {
+        --uc-window-drag-space-pre: 0px;
+      }
+      :root:is([customtitlebar], [tabsintitlebar]) #nav-bar {
+        border-inline: 0px solid transparent;
+        border-inline-style: solid !important;
+        border-inline-width: calc(
+            var(--uc-window-control-width, 0px) + var(--uc-window-drag-space-pre, 0px)
+          )
+          var(--uc-window-drag-space-post, 0px);
+        background-clip: border-box !important;
+      }
+    }
+  '';
 
   sideberyWidget = "_3c078156-979c-498b-8990-85f7987dd929_-browser-action";
   darkReaderWidget = "addon_darkreader_org-browser-action";
@@ -78,10 +108,13 @@ in
 
       # Concatenated at build time (not builtins.readFile) so cross-platform
       # QA evals don't require building the fetcher for the foreign system
-      userChrome = pkgs.concatText "userChrome.css" [
-        "${firefox-csshacks}/chrome/window_control_placeholder_support.css"
-        "${firefox-csshacks}/chrome/${hideTabsCss}"
-      ];
+      userChrome = pkgs.concatText "userChrome.css" (
+        [
+          "${firefox-csshacks}/chrome/window_control_placeholder_support.css"
+          "${firefox-csshacks}/chrome/${hideTabsCss}"
+        ]
+        ++ lib.optional pkgs.stdenv.isDarwin macosWindowControlSpace
+      );
     };
   };
 }
