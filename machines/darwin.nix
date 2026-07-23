@@ -20,6 +20,7 @@ in
   imports = [
     ./common.nix
     ./launchd-services.nix
+    ./librewolf.nix
   ]
   ++ hostImports;
 
@@ -54,8 +55,6 @@ in
     run ${pkgs.rsync}/bin/rsync -aL --chmod=u+w \
       "${../keyboard}/" "$HOME/Library/Keyboard Layouts/"
   '';
-
-  programs.librewolf.enable = true;
 
   programs.browserpass = {
     enable = true;
