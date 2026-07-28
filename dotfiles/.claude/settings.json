@@ -48,6 +48,9 @@
     }
   },
   "model": "fable",
+  "permissions": {
+    "defaultMode": "auto"
+  },
   "showThinkingSummaries": true,
   "skipWorkflowUsageWarning": true,
   "statusLine": {
