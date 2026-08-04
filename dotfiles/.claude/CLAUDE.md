@@ -138,9 +138,9 @@ Use imports at the top of the file, NOT local imports. Use local imports ONLY to
 import issues.
 
 After making changes to a file, ALWAYS run an autoformatter on the file. If you have trouble with
-the official way to run the formatter, for Python try `uv tool run ruff` or just `ruff` as a
-fallback. For JS and TS, if you have trouble, try `fnm exec npx prettier`, `npx prettier`, or just
-`prettier`.
+the official way to run the formatter, for Python try `uv run ruff`, `uv tool run ruff`, or just
+`ruff` as a fallback. For JS and TS, if you have trouble, try `fnm exec npx prettier`,
+`npx prettier`, or just `prettier`.
 
 IT IS VERY IMPORTANT THAT YOU RUN THE AUTOFORMATTER. Your editing tools omit trailing newlines in
 some versions of the harness, which WILL cause the linters to fail in most projects.
