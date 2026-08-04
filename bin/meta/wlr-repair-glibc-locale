@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Detect and repair the glibc locale-archive Nix store mutation, then
+# regenerate the system locale archive on platforms that have locale-gen.
+#
+# Motivating incident: a root locale-gen picked up Nix's localedef from PATH
+# and wrote a locale archive to localedef's baked-in default path inside the
+# store (root bypasses the read-only permission bits), corrupting glibc's
+# store path while leaving /usr/lib/locale/locale-archive missing. This
+# script checks exactly the store paths that mutation can hit — any glibc
+# path containing a lib/locale/locale-archive — instead of verifying the
+# whole store. Repairing requires direct (non-daemon) store access, so
+# repairs run via sudo.
+#
+# Dependencies: nix, sudo
+
+if ! command -v nix >/dev/null 2>&1; then
+    wlr-err "Nix not installed"
+    exit 1
+fi
+
+export NIX_CONFIG="experimental-features = nix-command flakes"
+
+# sudo's secure_path won't include the Nix profile, so resolve nix-store now.
+nix_store_bin="$(command -v nix-store)"
+
+# glibc-locales packages legitimately ship a locale-archive, so candidates
+# can't be told apart by globbing alone; verify each against the Nix
+# database and repair only the ones whose contents don't match.
+shopt -s nullglob
+candidates=(/nix/store/*glibc*/lib/locale/locale-archive)
+shopt -u nullglob
+
+if [ "${#candidates[@]}" -eq 0 ]; then
+    wlr-good "no glibc locale archives in the Nix store; nothing to check"
+else
+    repaired=0
+    for archive in "${candidates[@]}"; do
+        store_path="${archive%/lib/locale/locale-archive}"
+        if nix store verify --no-trust "$store_path" 2>/dev/null; then
+            continue
+        fi
+        wlr-warn "repairing $store_path"
+        sudo "$nix_store_bin" --repair-path "$store_path"
+        repaired=$((repaired + 1))
+    done
+    if [ "$repaired" -eq 0 ]; then
+        wlr-good "all ${#candidates[@]} glibc locale archive path(s) verified clean"
+    else
+        wlr-good "repaired $repaired store path(s)"
+    fi
+fi
+
+# The same incident that corrupts the store usually leaves the system locale
+# archive missing, and content verification can't detect that; regenerate it.
+if command -v locale-gen >/dev/null 2>&1; then
+    echo "Regenerating system locales..."
+    sudo locale-gen
+    wlr-good "system locale archive regenerated"
+else
+    echo "locale-gen not present on this platform; skipping"
+fi
