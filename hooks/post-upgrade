@@ -36,6 +36,17 @@ fi
 # Rebuild Nix environment (includes niri-spacer and other Rust utilities)
 "$WLR_ENV_PATH/bin/meta/wlr-nix-rebuild"
 
+# One-time repair for machines upgrading from before the glibc locale fix:
+# commits before mold-unwrapped (a1411f5) shadowed Arch's localedef, which
+# may have corrupted glibc's store path and wiped the system locale archive.
+# The upgraded wlr-check-update exports the old commit; fall back to
+# ORIG_HEAD, which the ff-merge just set, for upgrades from older versions.
+old_commit="${WLR_UPGRADE_OLD_COMMIT:-$(git -C "$WLR_ENV_PATH" rev-parse -q --verify ORIG_HEAD || true)}"
+if [ -n "$old_commit" ] \
+    && ! git -C "$WLR_ENV_PATH" cat-file -e "$old_commit:bin/meta/wlr-repair-glibc-locale" 2>/dev/null; then
+    "$WLR_ENV_PATH/bin/meta/wlr-repair-glibc-locale" --auto
+fi
+
 # Reinstall wlrenv itself so updated source is picked up even without a version bump
 "$WLR_ENV_PATH/bin/meta/wlr-install-self" --reinstall
 

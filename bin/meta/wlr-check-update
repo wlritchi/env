@@ -103,8 +103,11 @@ any_updated=
 
 # Update public repo first (it contains the update scripts)
 PUBLIC_REMOTE_URL="https://github.com/wlritchi/env"
+public_old_commit="$(git -C "$WLR_ENV_PATH" rev-parse HEAD)"
 if update_repo "$WLR_ENV_PATH" "$PUBLIC_REMOTE_URL" "$WLR_ENV_PATH/.allowed_signers"; then
     any_updated=y
+    # Let post-upgrade hooks (from the new commit) see where we upgraded from
+    export WLR_UPGRADE_OLD_COMMIT="$public_old_commit"
 fi
 
 # Update private repo if it exists
