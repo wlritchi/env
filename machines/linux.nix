@@ -29,7 +29,7 @@ in
   home.packages =
     (with pkgs; [
       cargo-llvm-cov # broken on Darwin; only used for niri-spacer coverage (Linux-only)
-      mold
+      mold-unwrapped # not `mold`: the bintools wrapper propagates glibc-bin, shadowing Arch's locale/localedef
       rclone
     ])
     ++ [
