@@ -21,6 +21,9 @@ OPTIONS:
 
     -t  If a conflicting file exists at DESTINATION, check if one of the two files is a truncated copy of the other.
         If so, keep the longer file.
+        If a file ends with at least 512 zero bytes, the trailing zeros are treated as an incomplete
+        write: the file'\''s effective size for this comparison is the position after its last nonzero
+        byte, and the file with the greater effective size is kept.
         Requires -n.
 
     -l  Replace each SOURCE with a symlink to its new location.
@@ -113,6 +116,34 @@ generate_names_for_search() {
     done
 }
 
+effective_size() {
+    # Prints the file's size, unless its final 512 bytes are all zero, in which
+    # case trailing zeros are assumed to be an incomplete write and the position
+    # after the last nonzero byte is printed instead.
+    local file="$1"
+    local size="$2"
+    if [ "$size" -lt 512 ] || [ "$(tail -c512 "$file" | tr -d '\0' | wc -c)" -gt 0 ]; then
+        echo "$size"
+        return
+    fi
+    local chunk=1048576
+    local end="$size"
+    local start len last_nonzero
+    while [ "$end" -gt 0 ]; do
+        start=$((end - chunk))
+        [ "$start" -lt 0 ] && start=0
+        len=$((end - start))
+        # cmp -l against /dev/zero lists the 1-based offsets of nonzero bytes
+        last_nonzero="$(tail -c"+$((start + 1))" "$file" | head -c"$len" | cmp -l -- - /dev/zero 2>/dev/null | tail -n1 | awk '{print $1}' || true)"
+        if [ -n "$last_nonzero" ]; then
+            echo "$((start + last_nonzero))"
+            return
+        fi
+        end="$start"
+    done
+    echo 0
+}
+
 get_existing_path() {
     local src="$1"
     local dest="$2"
@@ -132,22 +163,40 @@ get_existing_path() {
                     echo "$candidate"
                     return 0
                 fi
-            elif [ -n "$check_truncated" ]; then
-                if [ "$src_size" -lt "$candidate_size" ]; then
-                    src_hash="$(sha256sum "$src" | head -c64)"
-                    candidate_trunc_hash="$(head -c"$src_size" "$candidate" | sha256sum | head -c64)"
+            fi
+            if [ -n "$check_truncated" ]; then
+                src_eff="$(effective_size "$src" "$src_size")"
+                candidate_eff="$(effective_size "$candidate" "$candidate_size")"
+                if [ "$src_eff" -lt "$candidate_eff" ]; then
+                    src_hash="$(head -c"$src_eff" "$src" | sha256sum | head -c64)"
+                    candidate_trunc_hash="$(head -c"$src_eff" "$candidate" | sha256sum | head -c64)"
                     if [ "$src_hash" == "$candidate_trunc_hash" ]; then
                         printf '# %s -X(trunc)    %s\n' "$src" "$candidate" >&2
                         echo "$candidate"
                         return 0  # no move required
                     fi
-                else
-                    src_trunc_hash="$(head -c"$candidate_size" "$src" | sha256sum | head -c64)"
-                    candidate_hash="$(sha256sum "$candidate" | head -c64)"
+                elif [ "$src_eff" -gt "$candidate_eff" ]; then
+                    src_trunc_hash="$(head -c"$candidate_eff" "$src" | sha256sum | head -c64)"
+                    candidate_hash="$(head -c"$candidate_eff" "$candidate" | sha256sum | head -c64)"
                     if [ "$src_trunc_hash" == "$candidate_hash" ]; then
                         printf '# %s --(extend)--> %s\n' "$src" "$candidate" >&2
                         echo "$candidate"
                         return 1  # move required
+                    fi
+                elif [ "$src_size" != "$candidate_size" ]; then
+                    # equal effective sizes but different zero-padded tails
+                    src_hash="$(head -c"$src_eff" "$src" | sha256sum | head -c64)"
+                    candidate_hash="$(head -c"$candidate_eff" "$candidate" | sha256sum | head -c64)"
+                    if [ "$src_hash" == "$candidate_hash" ]; then
+                        if [ "$src_eff" == "$src_size" ] && [ "$candidate_eff" != "$candidate_size" ]; then
+                            # src is the clean copy; replace the zero-padded candidate
+                            printf '# %s --(extend)--> %s\n' "$src" "$candidate" >&2
+                            echo "$candidate"
+                            return 1  # move required
+                        fi
+                        printf '# %s -X(trunc)    %s\n' "$src" "$candidate" >&2
+                        echo "$candidate"
+                        return 0  # no move required
                     fi
                 fi
             fi
