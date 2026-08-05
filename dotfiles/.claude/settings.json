@@ -49,6 +49,9 @@
   },
   "model": "fable",
   "permissions": {
+    "allow": [
+      "mcp__plugin_notifications_notifications"
+    ],
     "defaultMode": "auto"
   },
   "showThinkingSummaries": true,
