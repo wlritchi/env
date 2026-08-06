@@ -6,9 +6,11 @@ description: >-
   it does it, comments that describe the change relative to earlier versions of
   the code or earlier iterations of the same change (historical narration that
   belongs in commit messages or PR bodies), paragraph-length workaround
-  justifications that suggest the workaround itself is the wrong approach, and
+  justifications that suggest the workaround itself is the wrong approach,
   comments that leak internal or runtime details (customer names, incident
-  specifics) that belong in a ticket rather than the codebase.
+  specifics) that belong in a ticket rather than the codebase, and comments
+  that reference enumerations from planning ("Hazard #2", "Option B") that
+  the code itself never defines.
   Dispatch as a local review subagent on the diff before opening a PR. Provide
   the diff scope as input (e.g. "unstaged changes", "staged changes", or
   "commits on this branch vs main").
@@ -87,6 +89,19 @@ Acceptable comments:
    recommendation is a rewrite in terms of the general condition, plus a
    ticket reference if one exists.
 
+5. **Orphaned enumeration references**: comments that cite a numbered or
+   lettered item from some enumeration — "Hazard #2", "Rule A", "Option B",
+   "addresses finding 3", "see mitigation (c)" — where that enumeration lives
+   only in a plan, review, design discussion, or PR description, not in the
+   code. The next reader has no list to look the label up in, so the label
+   carries no meaning. The reference is acceptable only if the codebase
+   itself enumerates the items somewhere (a doc file, a header comment, an
+   enum, a spec checked into the repo) — verify that before flagging, e.g.
+   with a quick grep for the label. Recommendation: replace the label with a
+   brief description of the actual issue or approach; if the same issue must
+   be referenced from several places, give it a descriptive name and put the
+   full explanation in one canonical spot the comments can point to.
+
 Do not flag: license headers, shebangs, editor/vim modelines, linter or
 type-checker directives (`# noqa`, `// eslint-disable`, `# type: ignore`),
 doc-comment metadata required by tooling, or commented-out code (out of scope
@@ -100,7 +115,7 @@ conversational message. For each finding give:
 - `file:line` (line number in the new version of the file)
 - The comment text (or its first line, if long)
 - Category: `what-not-why` | `historical` | `workaround-essay` |
-  `internal-details`
+  `internal-details` | `orphaned-reference`
 - A one-sentence explanation of the problem
 - A concrete recommendation: usually the replacement comment text (or
   "delete"), or for `workaround-essay`, what to reconsider about the approach
