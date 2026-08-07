@@ -272,6 +272,8 @@ def _setup() -> None:
         if which('nvim'):
             XSH.aliases['vim'] = 'nvim'
 
+        # rg is deliberately not aliased to rg-shim here: the shim only does
+        # anything under CLAUDECODE=1, and Claude Code runs bash, not xonsh.
         if which('dd-shim'):
             XSH.aliases['dd'] = 'dd-shim'
         if which('gradle-shim'):
