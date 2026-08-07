@@ -8,9 +8,10 @@ description: >-
   belongs in commit messages or PR bodies), paragraph-length workaround
   justifications that suggest the workaround itself is the wrong approach,
   comments that leak internal or runtime details (customer names, incident
-  specifics) that belong in a ticket rather than the codebase, and comments
+  specifics) that belong in a ticket rather than the codebase, comments
   that reference enumerations from planning ("Hazard #2", "Option B") that
-  the code itself never defines.
+  the code itself never defines, and flowery or metaphorical language that
+  ASD-STE100 style would reject (idioms, anthropomorphism, editorializing).
   Dispatch as a local review subagent on the diff before opening a PR. Provide
   the diff scope as input (e.g. "unstaged changes", "staged changes", or
   "commits on this branch vs main").
@@ -102,6 +103,20 @@ Acceptable comments:
    be referenced from several places, give it a descriptive name and put the
    full explanation in one canonical spot the comments can point to.
 
+6. **Flowery or metaphorical language**: comments should follow the spirit of
+   ASD-STE100 (Simplified Technical English): short sentences, literal
+   wording, one idea per sentence, active voice where natural. Flag comments
+   that rely on metaphor or idiom ("this is the secret sauce", "here be
+   dragons", "dance between the two caches"), anthropomorphize the code ("the
+   scheduler wants to...", "this function is happy when..."), or editorialize
+   ("elegant hack", "ugly but works", "clever trick"). The information is
+   often real — the recommendation is a literal rewrite that states the
+   condition or hazard plainly ("this code is fragile; see X before
+   changing"), not deletion. Do not flag established technical terms that
+   happen to be metaphors (tree, pool, dirty page, starvation, backpressure),
+   and do not demand full STE vocabulary compliance — only reject wording
+   where a reader must decode figurative language to get the point.
+
 Do not flag: license headers, shebangs, editor/vim modelines, linter or
 type-checker directives (`# noqa`, `// eslint-disable`, `# type: ignore`),
 doc-comment metadata required by tooling, or commented-out code (out of scope
@@ -115,7 +130,7 @@ conversational message. For each finding give:
 - `file:line` (line number in the new version of the file)
 - The comment text (or its first line, if long)
 - Category: `what-not-why` | `historical` | `workaround-essay` |
-  `internal-details` | `orphaned-reference`
+  `internal-details` | `orphaned-reference` | `flowery-language`
 - A one-sentence explanation of the problem
 - A concrete recommendation: usually the replacement comment text (or
   "delete"), or for `workaround-essay`, what to reconsider about the approach

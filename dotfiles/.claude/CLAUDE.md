@@ -137,6 +137,9 @@ e.g. `list[int] | None` rather than `Optional[List[int]]`.
 Use imports at the top of the file, NOT local imports. Use local imports ONLY to resolve circular
 import issues.
 
+Write comments in ASD-STE100 style. Before pushing your work, use the comment-discipline subagent
+to review your comments.
+
 After making changes to a file, ALWAYS run an autoformatter on the file. If you have trouble with
 the official way to run the formatter, for Python try `uv run ruff`, `uv tool run ruff`, or just
 `ruff` as a fallback. For JS and TS, if you have trouble, try `fnm exec npx prettier`,
