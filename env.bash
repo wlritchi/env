@@ -420,6 +420,7 @@ command -v nvim >/dev/null 2>&1 && alias vim='nvim'
 
 command -v dd-shim >/dev/null 2>&1 && alias dd='dd-shim'
 command -v gradle-shim >/dev/null 2>&1 && alias gradle='gradle-shim'
+command -v rg-shim >/dev/null 2>&1 && alias rg='rg-shim'
 command -v rsync-shim >/dev/null 2>&1 && alias rsync='rsync-shim'
 command -v yay-shim >/dev/null 2>&1 && alias yay='yay-shim'
 

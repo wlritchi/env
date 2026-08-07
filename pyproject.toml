@@ -37,6 +37,7 @@ dynamic = ["version"]
 
 [project.scripts]
 retainer = 'wlrenv.retainer:cli_main'
+rg-shim = 'wlrenv.rgshim:main'
 mvx = 'wlrenv.mvx:main'
 wlr-ccpatch = 'wlrenv.ccpatch.cli:main'
 secwrap = 'wlrenv.secwrap:main'
@@ -116,6 +117,7 @@ select = [
 "src/wlrenv/mvx.py" = ["T201"]  # CLI tool uses print for output
 "src/wlrenv/retainer.py" = ["T201"]  # CLI tool uses print for output
 "src/wlrenv/niri/cli.py" = ["T201"]  # CLI entry points use print for errors
+"src/wlrenv/rgshim.py" = ["T201", "S606"]  # CLI entry point prints errors and execs rg
 "src/wlrenv/secwrap.py" = ["T201"]  # CLI entry point uses print for errors
 "src/wlrenv/ccpatch/cli.py" = ["T201"]  # CLI entry point uses print for output
 
