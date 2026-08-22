@@ -1,0 +1,41 @@
+plugins:
+  claude-agents-pod:
+    shortCut: Shift-A
+    description: Claude agents
+    scopes:
+      - pods
+    command: kubectl
+    background: false
+    args:
+      - exec
+      - -it
+      - --context
+      - $CONTEXT
+      - -n
+      - $NAMESPACE
+      - $NAME
+      - --
+      - su
+      - claude
+      - -c
+      - sh -c 'claude agents'
+  claude-agents-deploy:
+    shortCut: Shift-A
+    description: Claude agents
+    scopes:
+      - deployments
+    command: kubectl
+    background: false
+    args:
+      - exec
+      - -it
+      - --context
+      - $CONTEXT
+      - -n
+      - $NAMESPACE
+      - deploy/$NAME
+      - --
+      - su
+      - claude
+      - -c
+      - sh -c 'claude agents'
