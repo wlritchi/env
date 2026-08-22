@@ -1,41 +1,19 @@
 plugins:
-  claude-agents-pod:
+  claude-agents:
     shortCut: Shift-A
     description: Claude agents
     scopes:
       - pods
-    command: kubectl
-    background: false
-    args:
-      - exec
-      - -it
-      - --context
-      - $CONTEXT
-      - -n
-      - $NAMESPACE
-      - $NAME
-      - --
-      - su
-      - claude
-      - -c
-      - sh -c 'claude agents'
-  claude-agents-deploy:
-    shortCut: Shift-A
-    description: Claude agents
-    scopes:
       - deployments
-    command: kubectl
+    command: bash
     background: false
     args:
-      - exec
-      - -it
-      - --context
-      - $CONTEXT
-      - -n
-      - $NAMESPACE
-      - deploy/$NAME
-      - --
-      - su
-      - claude
       - -c
-      - sh -c 'claude agents'
+      - |
+        if [ "$RESOURCE_NAME" = "deployments" ]; then
+            target="deploy/$NAME"
+        else
+            target="$NAME"
+        fi
+        exec kubectl exec -it --context "$CONTEXT" -n "$NAMESPACE" "$target" -- \
+            su claude -c "sh -c 'claude agents'"
