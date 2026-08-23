@@ -120,6 +120,62 @@ class TestVerifyHash:
         assert (tmp_path / 'src').read_bytes() == DATA
 
 
+class TestBrokenSymlinks:
+    def test_matching_broken_links_deduplicated(self, tmp_path: Path) -> None:
+        (tmp_path / 'src').symlink_to('/nonexistent/target')
+        (tmp_path / 'dest').symlink_to('/nonexistent/target')
+        run(['-v', '-p', '-t', '-n', 'src', 'dest'])
+        assert not (tmp_path / 'src').is_symlink()
+        assert os.readlink(tmp_path / 'dest') == '/nonexistent/target'
+
+    def test_matching_relative_broken_links_deduplicated(self, tmp_path: Path) -> None:
+        (tmp_path / 'src').symlink_to('missing')
+        (tmp_path / 'dest').symlink_to('missing')
+        run(['-n', 'src', 'dest'])
+        assert not (tmp_path / 'src').is_symlink()
+        assert os.readlink(tmp_path / 'dest') == 'missing'
+
+    def test_same_link_text_different_target_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / 'a').mkdir()
+        (tmp_path / 'b').mkdir()
+        (tmp_path / 'a' / 'src').symlink_to('../a/missing')
+        (tmp_path / 'b' / 'dest').symlink_to('../b/missing')
+        run_fail(['-n', 'a/src', 'b/dest'])
+        assert (tmp_path / 'a' / 'src').is_symlink()
+        assert (tmp_path / 'b' / 'dest').is_symlink()
+
+    def test_broken_link_without_match_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / 'src').symlink_to('/nonexistent/target')
+        (tmp_path / 'dest').write_bytes(DATA)
+        run_fail(['-n', 'src', 'dest'])
+        assert os.readlink(tmp_path / 'src') == '/nonexistent/target'
+        assert (tmp_path / 'dest').read_bytes() == DATA
+
+    def test_broken_link_onto_itself_survives(self, tmp_path: Path) -> None:
+        (tmp_path / 'f').symlink_to('/nonexistent/target')
+        run(['-n', 'f', 'f'])
+        assert os.readlink(tmp_path / 'f') == '/nonexistent/target'
+
+    def test_broken_link_onto_itself_with_l_survives(self, tmp_path: Path) -> None:
+        (tmp_path / 'f').symlink_to('/nonexistent/target')
+        run(['-n', '-l', 'f', 'f'])
+        assert os.readlink(tmp_path / 'f') == '/nonexistent/target'
+
+    def test_dest_resolving_through_broken_src_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / 'src').symlink_to('/nonexistent/target')
+        (tmp_path / 'dest').symlink_to('src')
+        run_fail(['-n', 'src', 'dest'])
+        assert os.readlink(tmp_path / 'src') == '/nonexistent/target'
+        assert os.readlink(tmp_path / 'dest') == 'src'
+
+    def test_link_mode_relinks_src_to_dest(self, tmp_path: Path) -> None:
+        (tmp_path / 'src').symlink_to('/nonexistent/target')
+        (tmp_path / 'dest').symlink_to('/nonexistent/target')
+        run(['-n', '-l', 'src', 'dest'])
+        assert os.readlink(tmp_path / 'src') == 'dest'
+        assert os.readlink(tmp_path / 'dest') == '/nonexistent/target'
+
+
 class TestTruncationMatrix:
     def test_candidate_is_truncated_copy_extends(self, tmp_path: Path) -> None:
         (tmp_path / 'src').write_bytes(DATA)

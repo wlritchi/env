@@ -25,7 +25,8 @@ OPTIONS:
     -p  Create parents of DESTINATION if they do not exist.
 
     -n  If a file already exists at DESTINATION, verify that its hash matches and remove SOURCE.
-        In this mode, every SOURCE must be a file.
+        In this mode, every SOURCE must be a file, or a broken symlink whose target matches a
+        symlink already at DESTINATION.
 
     -a  If a conflicting file exists at DESTINATION, search for alternate filenames instead of raising an error.
         Requires -n.
@@ -230,6 +231,22 @@ def find_existing(src: str, dest: str, opts: Options) -> tuple[str, bool] | None
     return None
 
 
+def find_matching_link(src: str, dest: str, opts: Options) -> str | None:
+    """Search candidate names for a symlink that resolves to the same target as src.
+
+    Used for broken-symlink sources, which cannot be hash-compared. Non-strict
+    realpath resolves a dangling link to its (nonexistent) target path, so two
+    dangling links to the same place compare equal.
+    """
+    src_resolved = os.path.realpath(src)
+    for candidate in search_names(dest, opts.alt_rename):
+        if not os.path.islink(candidate):
+            continue
+        if os.path.realpath(candidate) == src_resolved:
+            return candidate
+    return None
+
+
 def find_final(dest: str, opts: Options) -> str | None:
     """First candidate name with nothing already at it, or None."""
     for candidate in move_names(dest, opts.alt_rename):
@@ -267,12 +284,21 @@ def copy_file(src: str, final: str) -> None:
 
 def make_link(src: str, final: str, opts: Options) -> None:
     """Replace src with a symlink to final."""
+    if os.path.abspath(src) == os.path.abspath(final):
+        # linking a file to itself would replace it with a self-loop symlink
+        print(
+            f'Warning: {src} is already at its destination, skipping symlink',
+            file=sys.stderr,
+        )
+        return
     if opts.absolute:
         relative = False
     elif opts.relative:
         relative = True
     else:
-        relative = os.stat(src).st_dev == os.stat(final).st_dev
+        # lstat: src or final may be a dangling symlink, and the link created
+        # at src points at the path final, not at what final resolves to
+        relative = os.lstat(src).st_dev == os.lstat(final).st_dev
     if relative:
         src_dir = os.path.dirname(os.path.abspath(src))
         target = os.path.relpath(os.path.abspath(final), src_dir)
@@ -288,20 +314,29 @@ def move_to(src: str, dest: str, opts: Options) -> None:
     needs_move = True
 
     if opts.verify_hash:
-        if not os.path.isfile(src):
-            raise MvxError(f'{src} is not a file')
         check_symlink_loop(src, dest)
-        existing = find_existing(src, dest, opts)
-        if existing is not None:
-            final, needs_move = existing
-        else:
-            found = find_final(dest, opts)
-            if found is None:
+        if os.path.islink(src) and not os.path.exists(src):
+            found_link = find_matching_link(src, dest, opts)
+            if found_link is None:
                 raise MvxError(
-                    f'{src} does not match {dest}'
-                    ' and no alternate filename is available'
+                    f'{src} is a broken symlink'
+                    f' and no symlink with the same target exists at {dest}'
                 )
-            final = found
+            final, needs_move = found_link, False
+        elif not os.path.isfile(src):
+            raise MvxError(f'{src} is not a file')
+        else:
+            existing = find_existing(src, dest, opts)
+            if existing is not None:
+                final, needs_move = existing
+            else:
+                found = find_final(dest, opts)
+                if found is None:
+                    raise MvxError(
+                        f'{src} does not match {dest}'
+                        ' and no alternate filename is available'
+                    )
+                final = found
     elif os.path.isdir(src) and not os.path.islink(src):
         raise MvxError(f'{src} is a directory; directory sources are not supported')
 
