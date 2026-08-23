@@ -1,6 +1,7 @@
 plugins:
   claude-agents:
     shortCut: Shift-A
+    override: true
     description: Claude agents
     scopes:
       - pods
