@@ -1007,6 +1007,27 @@ _OPENAI_MODEL_COSTS: ModelCostsByModel = {
         "promptCacheReadTokens": 0.075,
         "webSearchRequests": 0.01,
     },
+    "gpt-5.6-sol": {
+        "inputTokens": 4,
+        "outputTokens": 20,
+        "promptCacheWriteTokens": 5,
+        "promptCacheReadTokens": 0.4,
+        "webSearchRequests": 0.01,
+    },
+    "gpt-5.6-terra": {
+        "inputTokens": 2,
+        "outputTokens": 12,
+        "promptCacheWriteTokens": 2.5,
+        "promptCacheReadTokens": 0.2,
+        "webSearchRequests": 0.01,
+    },
+    "gpt-5.6-luna": {
+        "inputTokens": 0.2,
+        "outputTokens": 1.2,
+        "promptCacheWriteTokens": 0.25,
+        "promptCacheReadTokens": 0.02,
+        "webSearchRequests": 0.01,
+    },
 }
 
 
@@ -1023,6 +1044,9 @@ def openai_brand(splash: str | None = None) -> PatchSet:
             "gpt-5.4-mini": "GPT-5.4 Mini",
             "gpt-5.5": "GPT-5.5",
             "gpt-5.5-pro": "GPT-5.5 Pro",
+            "gpt-5.6-luna": "GPT-5.6 Luna",
+            "gpt-5.6-sol": "GPT-5.6 Sol",
+            "gpt-5.6-terra": "GPT-5.6 Terra",
         },
         email_domain="openai.com",
         model_costs=_OPENAI_MODEL_COSTS,
