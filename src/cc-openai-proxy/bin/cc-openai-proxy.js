@@ -13,9 +13,7 @@ const DEFAULT_HAIKU_MODEL = "gpt-5.4-mini";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 
 let modelsPromise;
-let piOauthPromise;
-let cachedApiKey;
-let cachedApiKeyExpires = 0;
+let credentialWriteChain = Promise.resolve();
 const processSessionId = `cc-openai-${randomUUID()}`;
 
 function usage() {
@@ -35,7 +33,10 @@ Environment:
 function parseArgs(argv) {
   const config = {
     host: process.env.CC_OPENAI_PROXY_HOST || DEFAULT_HOST,
-    port: Number.parseInt(process.env.CC_OPENAI_PROXY_PORT || String(DEFAULT_PORT), 10),
+    port: Number.parseInt(
+      process.env.CC_OPENAI_PROXY_PORT || String(DEFAULT_PORT),
+      10,
+    ),
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -53,35 +54,34 @@ function parseArgs(argv) {
   }
 
   if (!config.host) throw new Error("host must not be empty");
-  if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) {
+  if (
+    !Number.isInteger(config.port) ||
+    config.port <= 0 ||
+    config.port > 65535
+  ) {
     throw new Error(`invalid port: ${config.port}`);
   }
   return config;
 }
 
 async function loadModels() {
-  // pi-ai 0.80.x's public API is the Models collection (createModels + provider
-  // factories); the old getModel/streamSimple/completeSimple globals now live
-  // only under the deprecated /compat shim. We register just the openai-codex
-  // provider -- it is static, and its generated catalog is what gives us the
-  // gpt-5.6 sol/terra/luna models natively, with upstream cost data. The proxy
-  // still resolves the ChatGPT bearer itself and passes it as options.apiKey;
-  // the codex provider declares only oauth (no apiKey auth) and we wire no
-  // credential store, so pi-ai's auth layer resolves to nothing and passes our
-  // apiKey through unchanged.
+  // pi-ai's public API is the Models collection (createModels + provider
+  // factories). We register just the openai-codex provider -- it is static,
+  // and its generated catalog is what gives us the gpt-5.6 sol/terra/luna
+  // models natively, with upstream cost data. Since 0.84.x the auth layer
+  // only serves credentials from a CredentialStore (options.apiKey cannot
+  // reach an oauth-only provider), so we back the store with pi's auth.json:
+  // pi-ai runs token refresh under the store's modify() lock and persists the
+  // rotated credential through it.
   modelsPromise ??= (async () => {
     const { createModels } = await import("@earendil-works/pi-ai");
-    const { openaiCodexProvider } = await import("@earendil-works/pi-ai/providers/openai-codex");
-    const models = createModels();
+    const { openaiCodexProvider } =
+      await import("@earendil-works/pi-ai/providers/openai-codex");
+    const models = createModels({ credentials: authFileCredentialStore() });
     models.setProvider(openaiCodexProvider());
     return models;
   })();
   return modelsPromise;
-}
-
-async function loadPiOauth() {
-  piOauthPromise ??= import("@earendil-works/pi-ai/oauth");
-  return piOauthPromise;
 }
 
 function authPath() {
@@ -92,16 +92,13 @@ function authPath() {
   );
 }
 
-async function readAuthFile() {
-  const path = authPath();
+async function readAuthData() {
   try {
-    return { path, data: JSON.parse(await readFile(path, "utf8")) };
+    return JSON.parse(await readFile(authPath(), "utf8"));
   } catch (error) {
-    if (error?.code === "ENOENT") {
-      throw new Error(`missing pi auth file: ${path}. Run pi /login for ChatGPT Plus/Pro first.`);
-    }
+    if (error?.code === "ENOENT") return undefined;
     throw new Error(
-      `failed to read pi auth file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      `failed to read pi auth file ${authPath()}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -112,53 +109,105 @@ async function writeAuthFile(path, data) {
   await rename(tmp, path);
 }
 
-async function resolveOpenAICodexApiKey() {
-  const explicit =
-    process.env.CC_OPENAI_CODEX_TOKEN ||
-    process.env.OPENAI_CODEX_TOKEN ||
-    process.env.OPENAI_CODEX_API_KEY;
-  if (explicit) return explicit;
+// The codex provider declares only oauth auth, so a directly supplied bearer
+// (env var, or an api_key entry in auth.json) is served as an oauth
+// credential with a far-future expiry: pi-ai's refresh path stays idle and
+// toAuth() forwards the token as-is.
+const STATIC_TOKEN_EXPIRES = 4102444800000; // 2100-01-01
 
-  if (cachedApiKey && Date.now() < cachedApiKeyExpires - 60_000) {
-    return cachedApiKey;
-  }
-
-  const { path, data } = await readAuthFile();
-  const entry = data[DEFAULT_PROVIDER];
-  if (!entry) {
-    throw new Error(
-      `missing ${DEFAULT_PROVIDER} credentials in ${path}. Run pi /login for ChatGPT Plus/Pro first.`,
-    );
-  }
-
-  if (entry.type === "api_key" && typeof entry.key === "string" && entry.key) {
-    cachedApiKey = entry.key;
-    cachedApiKeyExpires = Date.now() + 10 * 60_000;
-    return cachedApiKey;
-  }
-
-  if (entry.type !== "oauth") {
-    throw new Error(`unsupported ${DEFAULT_PROVIDER} credential type in ${path}: ${entry.type}`);
-  }
-
-  const { getOAuthApiKey } = await loadPiOauth();
-  const credentials = { [DEFAULT_PROVIDER]: stripType(entry) };
-  const result = await getOAuthApiKey(DEFAULT_PROVIDER, credentials);
-  if (!result?.apiKey) {
-    throw new Error(`failed to resolve ${DEFAULT_PROVIDER} OAuth token from ${path}`);
-  }
-
-  data[DEFAULT_PROVIDER] = { type: "oauth", ...result.newCredentials };
-  await writeAuthFile(path, data);
-
-  cachedApiKey = result.apiKey;
-  cachedApiKeyExpires = Number(result.newCredentials.expires || 0);
-  return cachedApiKey;
+function staticCredential(token) {
+  return {
+    type: "oauth",
+    access: token,
+    refresh: "",
+    expires: STATIC_TOKEN_EXPIRES,
+  };
 }
 
-function stripType(value) {
-  const { type: _type, ...rest } = value;
-  return rest;
+function explicitToken() {
+  return (
+    process.env.CC_OPENAI_CODEX_TOKEN ||
+    process.env.OPENAI_CODEX_TOKEN ||
+    process.env.OPENAI_CODEX_API_KEY ||
+    ""
+  );
+}
+
+function toCredential(entry) {
+  if (!entry || typeof entry !== "object") return undefined;
+  if (entry.type === "api_key") {
+    return typeof entry.key === "string" && entry.key
+      ? staticCredential(entry.key)
+      : undefined;
+  }
+  return entry;
+}
+
+// CredentialStore over pi's auth.json. pi-ai runs oauth refresh inside
+// modify(), so the rotated token is persisted for the pi CLI too. Writes are
+// serialized through a promise chain per the CredentialStore contract.
+function authFileCredentialStore() {
+  const chained = (task) => {
+    const result = credentialWriteChain.then(task);
+    credentialWriteChain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+
+  return {
+    async read(providerId) {
+      if (providerId === DEFAULT_PROVIDER && explicitToken()) {
+        return staticCredential(explicitToken());
+      }
+      return toCredential((await readAuthData())?.[providerId]);
+    },
+    async list() {
+      const data = (await readAuthData()) ?? {};
+      return Object.entries(data)
+        .filter(([, entry]) => entry?.type)
+        .map(([providerId, entry]) => ({ providerId, type: entry.type }));
+    },
+    modify(providerId, fn) {
+      return chained(async () => {
+        if (providerId === DEFAULT_PROVIDER && explicitToken()) {
+          // Env-supplied tokens are read-only; never persist over them.
+          await fn(staticCredential(explicitToken()));
+          return staticCredential(explicitToken());
+        }
+        const data = (await readAuthData()) ?? {};
+        const current = toCredential(data[providerId]);
+        const next = await fn(current);
+        if (next === undefined) return current;
+        data[providerId] = next;
+        await writeAuthFile(authPath(), data);
+        return next;
+      });
+    },
+    delete(providerId) {
+      return chained(async () => {
+        const data = await readAuthData();
+        if (!data || !(providerId in data)) return;
+        delete data[providerId];
+        await writeAuthFile(authPath(), data);
+      });
+    },
+  };
+}
+
+// Resolve auth before streaming starts so a missing login or failed refresh
+// becomes a clean HTTP error instead of an SSE error event after a 200.
+// getAuth() refreshes and persists an expiring token; the second resolution
+// inside streamSimple then sees the fresh credential without another refresh.
+async function requireCodexAuth(models) {
+  const result = await models.getAuth(DEFAULT_PROVIDER);
+  if (!result?.auth?.apiKey) {
+    throw httpError(
+      401,
+      `missing ${DEFAULT_PROVIDER} credentials in ${authPath()}. Run pi /login for ChatGPT Plus/Pro first.`,
+    );
+  }
 }
 
 function resolveModelId(requestedModel) {
@@ -168,11 +217,17 @@ function resolveModelId(requestedModel) {
     return process.env.CC_OPENAI_HAIKU_MODEL || DEFAULT_HAIKU_MODEL;
   }
   if (model.includes("opus")) {
-    return process.env.CC_OPENAI_OPUS_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL;
+    return (
+      process.env.CC_OPENAI_OPUS_MODEL ||
+      process.env.CC_OPENAI_DEFAULT_MODEL ||
+      DEFAULT_MODEL
+    );
   }
   if (model.includes("sonnet")) {
     return (
-      process.env.CC_OPENAI_SONNET_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL
+      process.env.CC_OPENAI_SONNET_MODEL ||
+      process.env.CC_OPENAI_DEFAULT_MODEL ||
+      DEFAULT_MODEL
     );
   }
   return process.env.CC_OPENAI_DEFAULT_MODEL || requestedModel || DEFAULT_MODEL;
@@ -183,7 +238,8 @@ function thinkingToReasoning(thinking) {
   if (forced) return forced === "none" ? "off" : forced;
   if (!thinking || typeof thinking !== "object") return undefined;
   if (thinking.type === "disabled") return "off";
-  if (thinking.type !== "enabled" && thinking.type !== "adaptive") return undefined;
+  if (thinking.type !== "enabled" && thinking.type !== "adaptive")
+    return undefined;
 
   if (typeof thinking.effort === "string") {
     return thinking.effort === "none" ? "off" : thinking.effort;
@@ -214,7 +270,12 @@ function anthropicToContext(request) {
 
   for (const message of request.messages || []) {
     if (message?.role === "assistant") {
-      const assistant = anthropicAssistantToPi(message, request.model, toolNames, timestamp++);
+      const assistant = anthropicAssistantToPi(
+        message,
+        request.model,
+        toolNames,
+        timestamp++,
+      );
       if (assistant.content.length > 0) messages.push(assistant);
     } else if (message?.role === "user") {
       pushUserMessage(messages, message.content, toolNames, timestamp);
@@ -237,14 +298,22 @@ function pushUserMessage(messages, content, toolNames, timestamp) {
     return;
   }
   if (!Array.isArray(content)) {
-    messages.push({ role: "user", content: stringifyUnknown(content), timestamp });
+    messages.push({
+      role: "user",
+      content: stringifyUnknown(content),
+      timestamp,
+    });
     return;
   }
 
   let batch = [];
   const flushBatch = () => {
     if (batch.length === 0) return;
-    messages.push({ role: "user", content: collapseUserContent(batch), timestamp: timestamp++ });
+    messages.push({
+      role: "user",
+      content: collapseUserContent(batch),
+      timestamp: timestamp++,
+    });
     batch = [];
   };
 
@@ -297,7 +366,8 @@ function anthropicInputBlockToPi(block) {
 
 function anthropicToolResultContentToPi(content) {
   if (typeof content === "string") return [{ type: "text", text: content }];
-  if (!Array.isArray(content)) return [{ type: "text", text: stringifyUnknown(content) }];
+  if (!Array.isArray(content))
+    return [{ type: "text", text: stringifyUnknown(content) }];
   const blocks = content.map(anthropicInputBlockToPi).filter(Boolean);
   return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
 }
@@ -316,7 +386,9 @@ function anthropicAssistantToPi(message, requestModel, toolNames, timestamp) {
       content.push({
         type: "thinking",
         thinking: String(block.thinking || ""),
-        ...(block.signature ? { thinkingSignature: String(block.signature) } : {}),
+        ...(block.signature
+          ? { thinkingSignature: String(block.signature) }
+          : {}),
       });
     } else if (block?.type === "redacted_thinking") {
       content.push({
@@ -326,7 +398,9 @@ function anthropicAssistantToPi(message, requestModel, toolNames, timestamp) {
         redacted: true,
       });
     } else if (block?.type === "tool_use") {
-      const id = String(block.id || `toolu_${randomUUID().replaceAll("-", "")}`);
+      const id = String(
+        block.id || `toolu_${randomUUID().replaceAll("-", "")}`,
+      );
       const name = String(block.name || "tool");
       toolNames.set(id, name);
       content.push({
@@ -379,12 +453,17 @@ function piContentToAnthropic(content) {
     }
     if (block.type === "thinking") {
       if (block.redacted) {
-        return { type: "redacted_thinking", data: block.thinkingSignature || block.thinking || "" };
+        return {
+          type: "redacted_thinking",
+          data: block.thinkingSignature || block.thinking || "",
+        };
       }
       return {
         type: "thinking",
         thinking: block.thinking || "",
-        ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}),
+        ...(block.thinkingSignature
+          ? { signature: block.thinkingSignature }
+          : {}),
       };
     }
     return {
@@ -437,7 +516,10 @@ async function readJsonBody(req) {
   try {
     return text ? JSON.parse(text) : {};
   } catch (error) {
-    throw httpError(400, `invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw httpError(
+      400,
+      `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -555,11 +637,18 @@ async function streamAnthropicResponse(res, piStream, modelId) {
       });
     } else if (event.type === "thinking_end") {
       const block = contentBlockFromPartial(event);
-      if (block?.type === "thinking" && block.thinkingSignature && !block.redacted) {
+      if (
+        block?.type === "thinking" &&
+        block.thinkingSignature &&
+        !block.redacted
+      ) {
         writeSse(res, "content_block_delta", {
           type: "content_block_delta",
           index: event.contentIndex,
-          delta: { type: "signature_delta", signature: block.thinkingSignature },
+          delta: {
+            type: "signature_delta",
+            signature: block.thinkingSignature,
+          },
         });
       }
       closeBlock(event.contentIndex);
@@ -599,10 +688,14 @@ async function streamAnthropicResponse(res, piStream, modelId) {
       closeBlock(event.contentIndex);
     } else if (event.type === "done") {
       ensureMessageStart(event.message);
-      for (const index of [...openBlocks].sort((a, b) => a - b)) closeBlock(index);
+      for (const index of [...openBlocks].sort((a, b) => a - b))
+        closeBlock(index);
       writeSse(res, "message_delta", {
         type: "message_delta",
-        delta: { stop_reason: mapStopReason(event.message.stopReason), stop_sequence: null },
+        delta: {
+          stop_reason: mapStopReason(event.message.stopReason),
+          stop_sequence: null,
+        },
         usage: anthropicUsage(event.message.usage),
       });
       writeSse(res, "message_stop", { type: "message_stop" });
@@ -625,7 +718,6 @@ function buildOptions(request, req, signal) {
   return {
     maxTokens: request.max_tokens,
     temperature: request.temperature,
-    apiKey: undefined,
     signal,
     ...(reasoning ? { reasoning } : {}),
     transport: process.env.CC_OPENAI_TRANSPORT || "auto",
@@ -643,7 +735,8 @@ function buildOptions(request, req, signal) {
 
 function extractInboundBearer(req) {
   const auth = req.headers["authorization"];
-  if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7).trim();
+  if (typeof auth === "string" && auth.startsWith("Bearer "))
+    return auth.slice(7).trim();
   const apiKey = req.headers["x-api-key"];
   if (typeof apiKey === "string") return apiKey.trim();
   return "";
@@ -700,7 +793,8 @@ async function handleMessages(req, res) {
   // so a model works before the next pi-ai bump ships its descriptor -- at the
   // cost of placeholder pricing/metadata and a 502 (not 400) for ids the
   // backend rejects.
-  if (!model) throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
+  if (!model)
+    throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
 
   const controller = new AbortController();
   let complete = false;
@@ -709,12 +803,16 @@ async function handleMessages(req, res) {
     if (!complete) controller.abort(new Error("client disconnected"));
   });
 
+  await requireCodexAuth(models);
   const options = buildOptions(body, req, controller.signal);
-  options.apiKey = await resolveOpenAICodexApiKey();
   const context = anthropicToContext(body);
 
   if (body.stream !== false) {
-    await streamAnthropicResponse(res, models.streamSimple(model, context, options), modelId);
+    await streamAnthropicResponse(
+      res,
+      models.streamSimple(model, context, options),
+      modelId,
+    );
     complete = true;
     return;
   }
@@ -728,9 +826,15 @@ async function handleMessages(req, res) {
 }
 
 async function route(req, res) {
-  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const url = new URL(
+    req.url || "/",
+    `http://${req.headers.host || "localhost"}`,
+  );
   try {
-    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/" || url.pathname === "/health")
+    ) {
       sendJson(res, 200, {
         ok: true,
         provider: DEFAULT_PROVIDER,
@@ -804,10 +908,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       process.exit(1);
     });
     server.listen(config.port, config.host, () => {
-      process.stderr.write(`cc-openai-proxy listening on http://${config.host}:${config.port}\n`);
+      process.stderr.write(
+        `cc-openai-proxy listening on http://${config.host}:${config.port}\n`,
+      );
     });
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
     process.exit(2);
   }
 }
