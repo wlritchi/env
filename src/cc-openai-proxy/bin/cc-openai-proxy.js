@@ -565,13 +565,47 @@ function errorType(status) {
   return "invalid_request_error";
 }
 
-function sendError(res, error) {
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logPath(req) {
+  try {
+    const url = new URL(req?.url || "/", "http://localhost");
+    return url.pathname;
+  } catch {
+    return "/";
+  }
+}
+
+function sanitizeLogMessage(message) {
+  return String(message)
+    .replace(/\bBearer\s+[^\s,"'}]+/gi, "Bearer [redacted]")
+    .replace(
+      /(["']?(?:api[_-]?key|password|secret|token)["']?\s*[=:]\s*["']?)[^\s,"'}]+/gi,
+      "$1[redacted]",
+    )
+    .slice(0, 500);
+}
+
+function logError(status, message, req) {
+  const method = req?.method || "?";
+  const type = errorType(status);
+  const detail = status >= 500 ? ` ${sanitizeLogMessage(message)}` : "";
+  process.stderr.write(
+    `cc-openai-proxy: ${method} ${logPath(req)} -> ${status} ${type}${detail}\n`,
+  );
+}
+
+function sendError(res, error, req) {
   const status = error?.status || 500;
+  const message = errorMessage(error);
+  logError(status, message, req);
   sendJson(res, status, {
     type: "error",
     error: {
       type: errorType(status),
-      message: error instanceof Error ? error.message : String(error),
+      message,
     },
   });
 }
@@ -585,7 +619,7 @@ function contentBlockFromPartial(event) {
   return event.partial?.content?.[event.contentIndex];
 }
 
-async function streamAnthropicResponse(res, piStream, modelId) {
+async function streamAnthropicResponse(req, res, piStream, modelId) {
   res.writeHead(200, {
     "content-type": "text/event-stream",
     "cache-control": "no-cache, no-transform",
@@ -722,11 +756,14 @@ async function streamAnthropicResponse(res, piStream, modelId) {
       });
       writeSse(res, "message_stop", { type: "message_stop" });
     } else if (event.type === "error") {
+      const status = event.reason === "aborted" ? 499 : 502;
+      const message = event.error?.errorMessage || "upstream error";
+      logError(status, message, req);
       writeSse(res, "error", {
         type: "error",
         error: {
           type: event.reason === "aborted" ? "request_aborted" : "api_error",
-          message: event.error?.errorMessage || "upstream error",
+          message,
         },
       });
     }
@@ -848,6 +885,7 @@ async function handleMessages(req, res) {
 
   if (body.stream !== false) {
     await streamAnthropicResponse(
+      req,
       res,
       models.streamSimple(model, context, options),
       modelId,
@@ -900,13 +938,15 @@ async function route(req, res) {
     }
   } catch (error) {
     if (!res.headersSent) {
-      sendError(res, error);
+      sendError(res, error, req);
     } else {
+      const message = errorMessage(error);
+      logError(error?.status || 500, message, req);
       writeSse(res, "error", {
         type: "error",
         error: {
           type: "api_error",
-          message: error instanceof Error ? error.message : String(error),
+          message,
         },
       });
       res.end();
@@ -939,6 +979,7 @@ export {
   piContentToAnthropic,
   piMessageToAnthropic,
   resolveModelId,
+  sanitizeLogMessage,
   thinkingToReasoning,
 };
 
