@@ -35,10 +35,7 @@ Environment:
 function parseArgs(argv) {
   const config = {
     host: process.env.CC_OPENAI_PROXY_HOST || DEFAULT_HOST,
-    port: Number.parseInt(
-      process.env.CC_OPENAI_PROXY_PORT || String(DEFAULT_PORT),
-      10,
-    ),
+    port: Number.parseInt(process.env.CC_OPENAI_PROXY_PORT || String(DEFAULT_PORT), 10),
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -56,11 +53,7 @@ function parseArgs(argv) {
   }
 
   if (!config.host) throw new Error("host must not be empty");
-  if (
-    !Number.isInteger(config.port) ||
-    config.port <= 0 ||
-    config.port > 65535
-  ) {
+  if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) {
     throw new Error(`invalid port: ${config.port}`);
   }
   return config;
@@ -77,8 +70,7 @@ async function loadModels() {
   // rotated credential through it.
   modelsPromise ??= (async () => {
     const { createModels } = await import("@earendil-works/pi-ai");
-    const { openaiCodexProvider } =
-      await import("@earendil-works/pi-ai/providers/openai-codex");
+    const { openaiCodexProvider } = await import("@earendil-works/pi-ai/providers/openai-codex");
     const models = createModels({ credentials: authFileCredentialStore() });
     models.setProvider(openaiCodexProvider());
     return models;
@@ -138,9 +130,7 @@ function explicitToken() {
 function toCredential(entry) {
   if (!entry || typeof entry !== "object") return undefined;
   if (entry.type === "api_key") {
-    return typeof entry.key === "string" && entry.key
-      ? staticCredential(entry.key)
-      : undefined;
+    return typeof entry.key === "string" && entry.key ? staticCredential(entry.key) : undefined;
   }
   return entry;
 }
@@ -219,17 +209,11 @@ function resolveModelId(requestedModel) {
     return process.env.CC_OPENAI_HAIKU_MODEL || DEFAULT_HAIKU_MODEL;
   }
   if (model.includes("opus")) {
-    return (
-      process.env.CC_OPENAI_OPUS_MODEL ||
-      process.env.CC_OPENAI_DEFAULT_MODEL ||
-      DEFAULT_MODEL
-    );
+    return process.env.CC_OPENAI_OPUS_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL;
   }
   if (model.includes("sonnet")) {
     return (
-      process.env.CC_OPENAI_SONNET_MODEL ||
-      process.env.CC_OPENAI_DEFAULT_MODEL ||
-      DEFAULT_MODEL
+      process.env.CC_OPENAI_SONNET_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL
     );
   }
   return process.env.CC_OPENAI_DEFAULT_MODEL || requestedModel || DEFAULT_MODEL;
@@ -240,8 +224,7 @@ function thinkingToReasoning(thinking) {
   if (forced) return forced === "none" ? "off" : forced;
   if (!thinking || typeof thinking !== "object") return undefined;
   if (thinking.type === "disabled") return "off";
-  if (thinking.type !== "enabled" && thinking.type !== "adaptive")
-    return undefined;
+  if (thinking.type !== "enabled" && thinking.type !== "adaptive") return undefined;
 
   if (typeof thinking.effort === "string") {
     return thinking.effort === "none" ? "off" : thinking.effort;
@@ -272,12 +255,7 @@ function anthropicToContext(request) {
 
   for (const message of request.messages || []) {
     if (message?.role === "assistant") {
-      const assistant = anthropicAssistantToPi(
-        message,
-        request.model,
-        toolNames,
-        timestamp++,
-      );
+      const assistant = anthropicAssistantToPi(message, request.model, toolNames, timestamp++);
       if (assistant.content.length > 0) messages.push(assistant);
     } else if (message?.role === "user") {
       pushUserMessage(messages, message.content, toolNames, timestamp);
@@ -368,8 +346,7 @@ function anthropicInputBlockToPi(block) {
 
 function anthropicToolResultContentToPi(content) {
   if (typeof content === "string") return [{ type: "text", text: content }];
-  if (!Array.isArray(content))
-    return [{ type: "text", text: stringifyUnknown(content) }];
+  if (!Array.isArray(content)) return [{ type: "text", text: stringifyUnknown(content) }];
   const blocks = content.map(anthropicInputBlockToPi).filter(Boolean);
   return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
 }
@@ -388,9 +365,7 @@ function anthropicAssistantToPi(message, requestModel, toolNames, timestamp) {
       content.push({
         type: "thinking",
         thinking: String(block.thinking || ""),
-        ...(block.signature
-          ? { thinkingSignature: String(block.signature) }
-          : {}),
+        ...(block.signature ? { thinkingSignature: String(block.signature) } : {}),
       });
     } else if (block?.type === "redacted_thinking") {
       content.push({
@@ -400,9 +375,7 @@ function anthropicAssistantToPi(message, requestModel, toolNames, timestamp) {
         redacted: true,
       });
     } else if (block?.type === "tool_use") {
-      const id = String(
-        block.id || `toolu_${randomUUID().replaceAll("-", "")}`,
-      );
+      const id = String(block.id || `toolu_${randomUUID().replaceAll("-", "")}`);
       const name = String(block.name || "tool");
       toolNames.set(id, name);
       content.push({
@@ -463,9 +436,7 @@ function piContentToAnthropic(content) {
       return {
         type: "thinking",
         thinking: block.thinking || "",
-        ...(block.thinkingSignature
-          ? { signature: block.thinkingSignature }
-          : {}),
+        ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}),
       };
     }
     return {
@@ -538,10 +509,7 @@ async function readJsonBody(req, maxBodyBytes = MAX_BODY_BYTES) {
     }
     return body;
   } catch (error) {
-    throw httpError(
-      400,
-      `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw httpError(400, `invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -693,11 +661,7 @@ async function streamAnthropicResponse(req, res, piStream, modelId) {
       });
     } else if (event.type === "thinking_end") {
       const block = contentBlockFromPartial(event);
-      if (
-        block?.type === "thinking" &&
-        block.thinkingSignature &&
-        !block.redacted
-      ) {
+      if (block?.type === "thinking" && block.thinkingSignature && !block.redacted) {
         writeSse(res, "content_block_delta", {
           type: "content_block_delta",
           index: event.contentIndex,
@@ -744,8 +708,7 @@ async function streamAnthropicResponse(req, res, piStream, modelId) {
       closeBlock(event.contentIndex);
     } else if (event.type === "done") {
       ensureMessageStart(event.message);
-      for (const index of [...openBlocks].sort((a, b) => a - b))
-        closeBlock(index);
+      for (const index of [...openBlocks].sort((a, b) => a - b)) closeBlock(index);
       writeSse(res, "message_delta", {
         type: "message_delta",
         delta: {
@@ -794,8 +757,7 @@ function buildOptions(request, req, signal) {
 
 function extractInboundBearer(req) {
   const auth = req.headers["authorization"];
-  if (typeof auth === "string" && auth.startsWith("Bearer "))
-    return auth.slice(7).trim();
+  if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7).trim();
   const apiKey = req.headers["x-api-key"];
   if (typeof apiKey === "string") return apiKey.trim();
   return "";
@@ -860,11 +822,7 @@ async function handleCountTokens(req, res) {
   assertInboundAuth(req);
   const body = await readJsonBody(req, MAX_COUNT_TOKENS_BODY_BYTES);
   await assertKnownModel(body.model);
-  sendJson(
-    res,
-    200,
-    countTokensResponse(estimateInputTokens(body[RAW_BODY_BYTES] || 0)),
-  );
+  sendJson(res, 200, countTokensResponse(estimateInputTokens(body[RAW_BODY_BYTES] || 0)));
 }
 
 async function handleMessages(req, res) {
@@ -884,12 +842,7 @@ async function handleMessages(req, res) {
   const context = anthropicToContext(body);
 
   if (body.stream !== false) {
-    await streamAnthropicResponse(
-      req,
-      res,
-      models.streamSimple(model, context, options),
-      modelId,
-    );
+    await streamAnthropicResponse(req, res, models.streamSimple(model, context, options), modelId);
     complete = true;
     return;
   }
@@ -903,15 +856,9 @@ async function handleMessages(req, res) {
 }
 
 async function route(req, res) {
-  const url = new URL(
-    req.url || "/",
-    `http://${req.headers.host || "localhost"}`,
-  );
+  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   try {
-    if (
-      req.method === "GET" &&
-      (url.pathname === "/" || url.pathname === "/health")
-    ) {
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
       sendJson(res, 200, {
         ok: true,
         provider: DEFAULT_PROVIDER,
@@ -924,8 +871,7 @@ async function route(req, res) {
       await handleModels(req, res);
     } else if (
       req.method === "POST" &&
-      (url.pathname === "/v1/messages/count_tokens" ||
-        url.pathname === "/messages/count_tokens")
+      (url.pathname === "/v1/messages/count_tokens" || url.pathname === "/messages/count_tokens")
     ) {
       await handleCountTokens(req, res);
     } else if (
@@ -996,14 +942,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       process.exit(1);
     });
     server.listen(config.port, config.host, () => {
-      process.stderr.write(
-        `cc-openai-proxy listening on http://${config.host}:${config.port}\n`,
-      );
+      process.stderr.write(`cc-openai-proxy listening on http://${config.host}:${config.port}\n`);
     });
   } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`,
-    );
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(2);
   }
 }

@@ -39,9 +39,7 @@ test("converts Anthropic messages, tools, and tool results to pi context", () =>
       },
       {
         role: "user",
-        content: [
-          { type: "tool_result", tool_use_id: "toolu_1", content: "contents" },
-        ],
+        content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "contents" }],
       },
     ],
   });
@@ -55,18 +53,9 @@ test("converts Anthropic messages, tools, and tool results to pi context", () =>
 
 test("maps Anthropic thinking budgets to pi reasoning levels", () => {
   assert.equal(thinkingToReasoning({ type: "disabled" }), "off");
-  assert.equal(
-    thinkingToReasoning({ type: "enabled", budget_tokens: 512 }),
-    "low",
-  );
-  assert.equal(
-    thinkingToReasoning({ type: "enabled", budget_tokens: 4096 }),
-    "medium",
-  );
-  assert.equal(
-    thinkingToReasoning({ type: "enabled", budget_tokens: 20000 }),
-    "high",
-  );
+  assert.equal(thinkingToReasoning({ type: "enabled", budget_tokens: 512 }), "low");
+  assert.equal(thinkingToReasoning({ type: "enabled", budget_tokens: 4096 }), "medium");
+  assert.equal(thinkingToReasoning({ type: "enabled", budget_tokens: 20000 }), "high");
 });
 
 test("maps Anthropic family names to OpenAI Codex defaults", () => {
