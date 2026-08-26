@@ -74,8 +74,9 @@ let
       exit 1
     fi
 
-    default_model="''${CC_OPENAI_DEFAULT_MODEL:-gpt-5.5}"
-    haiku_model="''${CC_OPENAI_HAIKU_MODEL:-gpt-5.4-mini}"
+    default_model="''${CC_OPENAI_DEFAULT_MODEL:-gpt-5.6-sol}"
+    sonnet_model="''${CC_OPENAI_SONNET_MODEL:-''${CC_OPENAI_MODEL:-gpt-5.6-terra}}"
+    haiku_model="''${CC_OPENAI_HAIKU_MODEL:-''${CC_OPENAI_MODEL:-gpt-5.6-luna}}"
 
     export ANTHROPIC_BASE_URL="$base_url"
     export ANTHROPIC_AUTH_TOKEN="''${ANTHROPIC_AUTH_TOKEN:-cc-openai-local}"
@@ -83,9 +84,10 @@ let
 
     export ANTHROPIC_MODEL="''${CC_OPENAI_MODEL:-$default_model}"
     export ANTHROPIC_DEFAULT_OPUS_MODEL="''${CC_OPENAI_OPUS_MODEL:-''${CC_OPENAI_MODEL:-$default_model}}"
-    export ANTHROPIC_DEFAULT_SONNET_MODEL="''${CC_OPENAI_SONNET_MODEL:-''${CC_OPENAI_MODEL:-$default_model}}"
-    export ANTHROPIC_DEFAULT_HAIKU_MODEL="''${CC_OPENAI_MODEL:-$haiku_model}"
-    export ANTHROPIC_SMALL_FAST_MODEL="''${CC_OPENAI_MODEL:-$haiku_model}"
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="$sonnet_model"
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$haiku_model"
+    export ANTHROPIC_DEFAULT_FABLE_MODEL="''${CC_OPENAI_FABLE_MODEL:-''${CC_OPENAI_MODEL:-$default_model}}"
+    export ANTHROPIC_SMALL_FAST_MODEL="$haiku_model"
     export CLAUDE_CODE_SUBAGENT_MODEL="''${CC_OPENAI_MODEL:-$default_model}"
     export API_TIMEOUT_MS="''${API_TIMEOUT_MS:-3000000}"
     export BASH_DEFAULT_TIMEOUT_MS="''${BASH_DEFAULT_TIMEOUT_MS:-3600000}"

@@ -8,8 +8,9 @@ import { join } from "node:path";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 17780;
 const DEFAULT_PROVIDER = "openai-codex";
-const DEFAULT_MODEL = "gpt-5.5";
-const DEFAULT_HAIKU_MODEL = "gpt-5.4-mini";
+const DEFAULT_MODEL = "gpt-5.6-sol";
+const DEFAULT_SONNET_MODEL = "gpt-5.6-terra";
+const DEFAULT_HAIKU_MODEL = "gpt-5.6-luna";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 const MAX_COUNT_TOKENS_BODY_BYTES = 1024 * 1024;
 const RAW_BODY_BYTES = Symbol("rawBodyBytes");
@@ -23,8 +24,8 @@ function usage() {
 
 Environment:
   CC_OPENAI_MODEL            Override all requested models
-  CC_OPENAI_OPUS_MODEL       Model for Anthropic opus requests (${DEFAULT_MODEL})
-  CC_OPENAI_SONNET_MODEL     Model for Anthropic sonnet requests (${DEFAULT_MODEL})
+  CC_OPENAI_OPUS_MODEL       Model for Anthropic opus and fable requests (${DEFAULT_MODEL})
+  CC_OPENAI_SONNET_MODEL     Model for Anthropic sonnet requests (${DEFAULT_SONNET_MODEL})
   CC_OPENAI_HAIKU_MODEL      Model for Anthropic haiku requests (${DEFAULT_HAIKU_MODEL})
   CC_OPENAI_AUTH_FILE        Auth file (default ~/.pi/agent/auth.json)
   CC_OPENAI_TRANSPORT        pi-ai transport: auto, sse, websocket, websocket-cached
@@ -208,12 +209,14 @@ function resolveModelId(requestedModel) {
   if (model.includes("haiku")) {
     return process.env.CC_OPENAI_HAIKU_MODEL || DEFAULT_HAIKU_MODEL;
   }
-  if (model.includes("opus")) {
+  if (model.includes("opus") || model.includes("fable")) {
     return process.env.CC_OPENAI_OPUS_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL;
   }
   if (model.includes("sonnet")) {
     return (
-      process.env.CC_OPENAI_SONNET_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL
+      process.env.CC_OPENAI_SONNET_MODEL ||
+      process.env.CC_OPENAI_DEFAULT_MODEL ||
+      DEFAULT_SONNET_MODEL
     );
   }
   return process.env.CC_OPENAI_DEFAULT_MODEL || requestedModel || DEFAULT_MODEL;
