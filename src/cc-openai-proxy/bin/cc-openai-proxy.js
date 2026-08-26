@@ -11,6 +11,8 @@ const DEFAULT_PROVIDER = "openai-codex";
 const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_HAIKU_MODEL = "gpt-5.4-mini";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
+const MAX_COUNT_TOKENS_BODY_BYTES = 1024 * 1024;
+const RAW_BODY_BYTES = Symbol("rawBodyBytes");
 
 let modelsPromise;
 let credentialWriteChain = Promise.resolve();
@@ -491,6 +493,22 @@ function anthropicUsage(usage = emptyUsage()) {
   };
 }
 
+function estimateInputTokens(byteLength) {
+  return Math.max(1, Math.ceil(byteLength / 4));
+}
+
+function countTokensResponse(inputTokens) {
+  return {
+    input_tokens: inputTokens,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  };
+}
+
 function piMessageToAnthropic(message, fallbackModel) {
   return {
     id: message.responseId || `msg_${randomUUID().replaceAll("-", "")}`,
@@ -504,17 +522,21 @@ function piMessageToAnthropic(message, fallbackModel) {
   };
 }
 
-async function readJsonBody(req) {
+async function readJsonBody(req, maxBodyBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let total = 0;
   for await (const chunk of req) {
     total += chunk.byteLength;
-    if (total > MAX_BODY_BYTES) throw httpError(413, "request body too large");
+    if (total > maxBodyBytes) throw httpError(413, "request body too large");
     chunks.push(chunk);
   }
   const text = Buffer.concat(chunks).toString("utf8");
   try {
-    return text ? JSON.parse(text) : {};
+    const body = text ? JSON.parse(text) : {};
+    if (body !== null && typeof body === "object") {
+      Object.defineProperty(body, RAW_BODY_BYTES, { value: total });
+    }
+    return body;
   } catch (error) {
     throw httpError(
       400,
@@ -782,19 +804,36 @@ async function handleModels(req, res) {
   });
 }
 
-async function handleMessages(req, res) {
-  assertInboundAuth(req);
-  const body = await readJsonBody(req);
+async function assertKnownModel(modelName) {
   const models = await loadModels();
-  const modelId = resolveModelId(body.model);
+  const modelId = resolveModelId(modelName);
   const model = models.getModel(DEFAULT_PROVIDER, modelId);
   // Unknown ids 400 here. Future option (P3): synthesize an
   // openai-codex-responses descriptor on this miss and optimistically route it,
   // so a model works before the next pi-ai bump ships its descriptor -- at the
   // cost of placeholder pricing/metadata and a 502 (not 400) for ids the
   // backend rejects.
-  if (!model)
+  if (!model) {
     throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
+  }
+  return { model, modelId, models };
+}
+
+async function handleCountTokens(req, res) {
+  assertInboundAuth(req);
+  const body = await readJsonBody(req, MAX_COUNT_TOKENS_BODY_BYTES);
+  await assertKnownModel(body.model);
+  sendJson(
+    res,
+    200,
+    countTokensResponse(estimateInputTokens(body[RAW_BODY_BYTES] || 0)),
+  );
+}
+
+async function handleMessages(req, res) {
+  assertInboundAuth(req);
+  const body = await readJsonBody(req);
+  const { model, modelId, models } = await assertKnownModel(body.model);
 
   const controller = new AbortController();
   let complete = false;
@@ -847,6 +886,12 @@ async function route(req, res) {
       await handleModels(req, res);
     } else if (
       req.method === "POST" &&
+      (url.pathname === "/v1/messages/count_tokens" ||
+        url.pathname === "/messages/count_tokens")
+    ) {
+      await handleCountTokens(req, res);
+    } else if (
+      req.method === "POST" &&
       (url.pathname === "/v1/messages" || url.pathname === "/messages")
     ) {
       await handleMessages(req, res);
@@ -887,7 +932,9 @@ export {
   anthropicToContext,
   anthropicToolsToPi,
   assertInboundAuth,
+  countTokensResponse,
   errorType,
+  estimateInputTokens,
   extractInboundBearer,
   piContentToAnthropic,
   piMessageToAnthropic,
