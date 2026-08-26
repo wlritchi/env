@@ -8,6 +8,7 @@ import {
   piContentToAnthropic,
   resolveModelId,
   thinkingToReasoning,
+  wantsStreaming,
 } from "../bin/cc-openai-proxy.js";
 
 test("converts Anthropic messages, tools, and tool results to pi context", () => {
@@ -102,4 +103,12 @@ test("count token response includes Anthropic and validation usage shapes", () =
       cache_read_input_tokens: 0,
     },
   });
+});
+
+test("streams only when the request sets stream to true", () => {
+  assert.equal(wantsStreaming({ stream: true }), true);
+  assert.equal(wantsStreaming({ stream: false }), false);
+  // The SDK omits the field on non-streaming calls (/model validation probes).
+  assert.equal(wantsStreaming({}), false);
+  assert.equal(wantsStreaming({ stream: "true" }), false);
 });

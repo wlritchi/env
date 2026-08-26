@@ -825,6 +825,13 @@ async function handleCountTokens(req, res) {
   sendJson(res, 200, countTokensResponse(estimateInputTokens(body[RAW_BODY_BYTES] || 0)));
 }
 
+// The Anthropic API defaults `stream` to false, and Claude Code's SDK omits
+// the field on non-streaming requests (for example /model validation probes).
+// An SSE reply to such a request makes the SDK resolve to the raw event text.
+function wantsStreaming(body) {
+  return body.stream === true;
+}
+
 async function handleMessages(req, res) {
   assertInboundAuth(req);
   const body = await readJsonBody(req);
@@ -841,7 +848,7 @@ async function handleMessages(req, res) {
   const options = buildOptions(body, req, controller.signal);
   const context = anthropicToContext(body);
 
-  if (body.stream !== false) {
+  if (wantsStreaming(body)) {
     await streamAnthropicResponse(req, res, models.streamSimple(model, context, options), modelId);
     complete = true;
     return;
@@ -927,6 +934,7 @@ export {
   resolveModelId,
   sanitizeLogMessage,
   thinkingToReasoning,
+  wantsStreaming,
 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
