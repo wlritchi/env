@@ -1,8 +1,7 @@
-"""Tests for the ported patch catalog (Fable, channels, dev-channel, syntax).
+"""Tests for the ported patch catalog (channels, dev-channel, syntax).
 
-Each uses a synthetic snippet matching the real 2.1.170 minification so the
-patches are covered without a binary. End-to-end application against a real
-binary is exercised in test_elf_integration / manual validation.
+Each test uses a synthetic snippet that matches the real 2.1.170 minification.
+The integration tests apply COMPACT_SESSION to a real binary.
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from wlrenv.ccpatch.patches import (
     CHANNELS_ENABLED,
     COMPACT_SESSION,
     DEV_CHANNEL_INHERITANCE,
-    FABLE_MODEL,
     THINKING_SUMMARIES_NONINTERACTIVE,
     PatchError,
     PatchSet,
@@ -64,12 +62,6 @@ _DEV_CHANNEL_SRC = (
     'Y$=c$(U$,"--dangerously-load-development-channels")}'
     'if(r$.length>0){d("tengu_mcp_channel_flags",{})}'
 )
-
-
-def test_enfable_inserts_push() -> None:
-    src = "let{availableModels:q}=$;if(!q)return!0;if(q.length===0)return!1;rest"
-    out = FABLE_MODEL.apply(src)
-    assert "if(!q)return!0;q.push('fable');if(q.length===0)return!1;" in out
 
 
 def test_channels_enabled() -> None:
@@ -141,8 +133,8 @@ def test_catppuccin_recolors_full_map() -> None:
 
 
 def test_version_gating_skips_below_2_1_151() -> None:
-    assert not FABLE_MODEL.applies_to((2, 1, 150))
-    assert FABLE_MODEL.applies_to((2, 1, 151))
+    assert not CHANNELS_ENABLED.applies_to((2, 1, 150))
+    assert CHANNELS_ENABLED.applies_to((2, 1, 151))
     assert CATPPUCCIN_SYNTAX.applies_to((2, 1, 170))
 
 

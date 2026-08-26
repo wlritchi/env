@@ -3,7 +3,7 @@
 # Fetches the platform-specific Bun standalone binary from npm (the real binary
 # lives in @anthropic-ai/claude-code-<platform>, not the meta package), runs the
 # pure-Python ccpatch pipeline over it (length-free JS patches + Bun repack), and
-# wraps it in a launcher that reproduces the runtime env the claude shim sets.
+# wraps it in a launcher that configures terminal-specific runtime behavior.
 #
 # The patch step needs no network and -- on Linux -- no dependencies beyond
 # python3 (stdlib). On Darwin the Mach-O repack path needs python3Packages.lief.
@@ -106,8 +106,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     install -Dm755 ./claude-patched "$out/libexec/claude-code/claude"
 
-    # Launcher: reproduces the runtime env the claude shim sets, then execs the
-    # patched binary. Kept as a script (not makeWrapper --add-flags) for the
+    # The launcher configures terminal-specific behavior, then runs the patched
+    # binary. Keep it as a script (not makeWrapper --add-flags) for the
     # truecolor tweak, which is conditional on the terminal. (Dev-channel
     # inheritance used to live here as an env hack; it is now done natively in
     # the binary by the dev-channel-inheritance patch -- nothing to do here.)

@@ -1,7 +1,7 @@
 """Integration: parse/rebuild the Bun blob of a real installed Claude binary.
 
-Skipped unless a binary is found (``CCPATCH_TEST_BINARY`` or a local Bun
-install). Does not execute the Claude binary itself: it validates that the
+Skipped unless a binary is found (``CCPATCH_TEST_BINARY`` or the Nix profile).
+Does not execute the Claude binary itself: it validates that the
 container + blob round-trips structurally on real data, and that the injected
 compact_session tool is runtime shape-complete against the real cli.js (the
 latter node-evals the extracted tool object, and skips without node/bun).
@@ -9,7 +9,6 @@ latter node-evals the extracted tool object, and skips without node/bun).
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import re
@@ -28,11 +27,14 @@ def _find_binary() -> Path | None:
     env = os.environ.get("CCPATCH_TEST_BINARY")
     if env and Path(env).is_file():
         return Path(env)
-    pattern = os.path.expanduser(
-        "~/.claude-bun_*/install/global/node_modules/@anthropic-ai/claude-code-*/claude"
-    )
-    matches = sorted(glob.glob(pattern))
-    return Path(matches[-1]) if matches else None
+
+    launcher = Path.home() / ".nix-profile/bin/claude"
+    if launcher.is_file():
+        binary = launcher.resolve().parent.parent / "libexec/claude-code/claude"
+        if binary.is_file():
+            return binary
+
+    return None
 
 
 @pytest.fixture(scope="module")

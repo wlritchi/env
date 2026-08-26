@@ -139,30 +139,6 @@ def thinking_expanded(version: Version | None) -> PatchSet:
     )
 
 
-# --- Fable in the model list (2.1.151+) -------------------------------------
-
-
-def _enfable_replacement(m: re.Match[str]) -> str:
-    # m.1 = "availableModels:VAR}=X;if(!VAR)return!0;", m.2 = VAR, m.3 = guard
-    return f"{m.group(1)}{m.group(2)}.push('fable');{m.group(3)}"
-
-
-FABLE_MODEL = PatchSet(
-    name="fable-in-model-list",
-    patches=(
-        Patch(
-            name="enfable",
-            pattern=re.compile(
-                rf"(availableModels:({_ID})\}}={_ID};if\(!\2\)return!0;)"
-                rf"(if\(\2\.length===0\)return!1;)"
-            ),
-            replacement=_enfable_replacement,
-        ),
-    ),
-    verify_present=(re.compile(r"\.push\('fable'\);if\([\w$]+\.length===0\)"),),
-    min_version=_V_2_1_151,
-)
-
 # --- enable channels (2.1.151+) ---------------------------------------------
 
 CHANNELS_ENABLED = PatchSet(
@@ -1057,7 +1033,6 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
     """The patch sets applied by ``ccpatch apply`` (order matters)."""
     return [
         thinking_expanded(version),
-        FABLE_MODEL,
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
         CATPPUCCIN_SYNTAX,
