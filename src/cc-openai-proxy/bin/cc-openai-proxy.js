@@ -8,14 +8,15 @@ import { join } from "node:path";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 17780;
 const DEFAULT_PROVIDER = "openai-codex";
-const DEFAULT_MODEL = "gpt-5.5";
-const DEFAULT_HAIKU_MODEL = "gpt-5.4-mini";
+const DEFAULT_MODEL = "gpt-5.6-sol";
+const DEFAULT_SONNET_MODEL = "gpt-5.6-terra";
+const DEFAULT_HAIKU_MODEL = "gpt-5.6-luna";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
+const MAX_COUNT_TOKENS_BODY_BYTES = 1024 * 1024;
+const RAW_BODY_BYTES = Symbol("rawBodyBytes");
 
 let modelsPromise;
-let piOauthPromise;
-let cachedApiKey;
-let cachedApiKeyExpires = 0;
+let credentialWriteChain = Promise.resolve();
 const processSessionId = `cc-openai-${randomUUID()}`;
 
 function usage() {
@@ -23,8 +24,8 @@ function usage() {
 
 Environment:
   CC_OPENAI_MODEL            Override all requested models
-  CC_OPENAI_OPUS_MODEL       Model for Anthropic opus requests (${DEFAULT_MODEL})
-  CC_OPENAI_SONNET_MODEL     Model for Anthropic sonnet requests (${DEFAULT_MODEL})
+  CC_OPENAI_OPUS_MODEL       Model for Anthropic opus and fable requests (${DEFAULT_MODEL})
+  CC_OPENAI_SONNET_MODEL     Model for Anthropic sonnet requests (${DEFAULT_SONNET_MODEL})
   CC_OPENAI_HAIKU_MODEL      Model for Anthropic haiku requests (${DEFAULT_HAIKU_MODEL})
   CC_OPENAI_AUTH_FILE        Auth file (default ~/.pi/agent/auth.json)
   CC_OPENAI_TRANSPORT        pi-ai transport: auto, sse, websocket, websocket-cached
@@ -60,28 +61,22 @@ function parseArgs(argv) {
 }
 
 async function loadModels() {
-  // pi-ai 0.80.x's public API is the Models collection (createModels + provider
-  // factories); the old getModel/streamSimple/completeSimple globals now live
-  // only under the deprecated /compat shim. We register just the openai-codex
-  // provider -- it is static, and its generated catalog is what gives us the
-  // gpt-5.6 sol/terra/luna models natively, with upstream cost data. The proxy
-  // still resolves the ChatGPT bearer itself and passes it as options.apiKey;
-  // the codex provider declares only oauth (no apiKey auth) and we wire no
-  // credential store, so pi-ai's auth layer resolves to nothing and passes our
-  // apiKey through unchanged.
+  // pi-ai's public API is the Models collection (createModels + provider
+  // factories). We register just the openai-codex provider -- it is static,
+  // and its generated catalog is what gives us the gpt-5.6 sol/terra/luna
+  // models natively, with upstream cost data. Since 0.84.x the auth layer
+  // only serves credentials from a CredentialStore (options.apiKey cannot
+  // reach an oauth-only provider), so we back the store with pi's auth.json:
+  // pi-ai runs token refresh under the store's modify() lock and persists the
+  // rotated credential through it.
   modelsPromise ??= (async () => {
     const { createModels } = await import("@earendil-works/pi-ai");
     const { openaiCodexProvider } = await import("@earendil-works/pi-ai/providers/openai-codex");
-    const models = createModels();
+    const models = createModels({ credentials: authFileCredentialStore() });
     models.setProvider(openaiCodexProvider());
     return models;
   })();
   return modelsPromise;
-}
-
-async function loadPiOauth() {
-  piOauthPromise ??= import("@earendil-works/pi-ai/oauth");
-  return piOauthPromise;
 }
 
 function authPath() {
@@ -92,16 +87,13 @@ function authPath() {
   );
 }
 
-async function readAuthFile() {
-  const path = authPath();
+async function readAuthData() {
   try {
-    return { path, data: JSON.parse(await readFile(path, "utf8")) };
+    return JSON.parse(await readFile(authPath(), "utf8"));
   } catch (error) {
-    if (error?.code === "ENOENT") {
-      throw new Error(`missing pi auth file: ${path}. Run pi /login for ChatGPT Plus/Pro first.`);
-    }
+    if (error?.code === "ENOENT") return undefined;
     throw new Error(
-      `failed to read pi auth file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      `failed to read pi auth file ${authPath()}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -112,53 +104,103 @@ async function writeAuthFile(path, data) {
   await rename(tmp, path);
 }
 
-async function resolveOpenAICodexApiKey() {
-  const explicit =
-    process.env.CC_OPENAI_CODEX_TOKEN ||
-    process.env.OPENAI_CODEX_TOKEN ||
-    process.env.OPENAI_CODEX_API_KEY;
-  if (explicit) return explicit;
+// The codex provider declares only oauth auth, so a directly supplied bearer
+// (env var, or an api_key entry in auth.json) is served as an oauth
+// credential with a far-future expiry: pi-ai's refresh path stays idle and
+// toAuth() forwards the token as-is.
+const STATIC_TOKEN_EXPIRES = 4102444800000; // 2100-01-01
 
-  if (cachedApiKey && Date.now() < cachedApiKeyExpires - 60_000) {
-    return cachedApiKey;
-  }
-
-  const { path, data } = await readAuthFile();
-  const entry = data[DEFAULT_PROVIDER];
-  if (!entry) {
-    throw new Error(
-      `missing ${DEFAULT_PROVIDER} credentials in ${path}. Run pi /login for ChatGPT Plus/Pro first.`,
-    );
-  }
-
-  if (entry.type === "api_key" && typeof entry.key === "string" && entry.key) {
-    cachedApiKey = entry.key;
-    cachedApiKeyExpires = Date.now() + 10 * 60_000;
-    return cachedApiKey;
-  }
-
-  if (entry.type !== "oauth") {
-    throw new Error(`unsupported ${DEFAULT_PROVIDER} credential type in ${path}: ${entry.type}`);
-  }
-
-  const { getOAuthApiKey } = await loadPiOauth();
-  const credentials = { [DEFAULT_PROVIDER]: stripType(entry) };
-  const result = await getOAuthApiKey(DEFAULT_PROVIDER, credentials);
-  if (!result?.apiKey) {
-    throw new Error(`failed to resolve ${DEFAULT_PROVIDER} OAuth token from ${path}`);
-  }
-
-  data[DEFAULT_PROVIDER] = { type: "oauth", ...result.newCredentials };
-  await writeAuthFile(path, data);
-
-  cachedApiKey = result.apiKey;
-  cachedApiKeyExpires = Number(result.newCredentials.expires || 0);
-  return cachedApiKey;
+function staticCredential(token) {
+  return {
+    type: "oauth",
+    access: token,
+    refresh: "",
+    expires: STATIC_TOKEN_EXPIRES,
+  };
 }
 
-function stripType(value) {
-  const { type: _type, ...rest } = value;
-  return rest;
+function explicitToken() {
+  return (
+    process.env.CC_OPENAI_CODEX_TOKEN ||
+    process.env.OPENAI_CODEX_TOKEN ||
+    process.env.OPENAI_CODEX_API_KEY ||
+    ""
+  );
+}
+
+function toCredential(entry) {
+  if (!entry || typeof entry !== "object") return undefined;
+  if (entry.type === "api_key") {
+    return typeof entry.key === "string" && entry.key ? staticCredential(entry.key) : undefined;
+  }
+  return entry;
+}
+
+// CredentialStore over pi's auth.json. pi-ai runs oauth refresh inside
+// modify(), so the rotated token is persisted for the pi CLI too. Writes are
+// serialized through a promise chain per the CredentialStore contract.
+function authFileCredentialStore() {
+  const chained = (task) => {
+    const result = credentialWriteChain.then(task);
+    credentialWriteChain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+
+  return {
+    async read(providerId) {
+      if (providerId === DEFAULT_PROVIDER && explicitToken()) {
+        return staticCredential(explicitToken());
+      }
+      return toCredential((await readAuthData())?.[providerId]);
+    },
+    async list() {
+      const data = (await readAuthData()) ?? {};
+      return Object.entries(data)
+        .filter(([, entry]) => entry?.type)
+        .map(([providerId, entry]) => ({ providerId, type: entry.type }));
+    },
+    modify(providerId, fn) {
+      return chained(async () => {
+        if (providerId === DEFAULT_PROVIDER && explicitToken()) {
+          // Env-supplied tokens are read-only; never persist over them.
+          await fn(staticCredential(explicitToken()));
+          return staticCredential(explicitToken());
+        }
+        const data = (await readAuthData()) ?? {};
+        const current = toCredential(data[providerId]);
+        const next = await fn(current);
+        if (next === undefined) return current;
+        data[providerId] = next;
+        await writeAuthFile(authPath(), data);
+        return next;
+      });
+    },
+    delete(providerId) {
+      return chained(async () => {
+        const data = await readAuthData();
+        if (!data || !(providerId in data)) return;
+        delete data[providerId];
+        await writeAuthFile(authPath(), data);
+      });
+    },
+  };
+}
+
+// Resolve auth before streaming starts so a missing login or failed refresh
+// becomes a clean HTTP error instead of an SSE error event after a 200.
+// getAuth() refreshes and persists an expiring token; the second resolution
+// inside streamSimple then sees the fresh credential without another refresh.
+async function requireCodexAuth(models) {
+  const result = await models.getAuth(DEFAULT_PROVIDER);
+  if (!result?.auth?.apiKey) {
+    throw httpError(
+      401,
+      `missing ${DEFAULT_PROVIDER} credentials in ${authPath()}. Run pi /login for ChatGPT Plus/Pro first.`,
+    );
+  }
 }
 
 function resolveModelId(requestedModel) {
@@ -167,12 +209,14 @@ function resolveModelId(requestedModel) {
   if (model.includes("haiku")) {
     return process.env.CC_OPENAI_HAIKU_MODEL || DEFAULT_HAIKU_MODEL;
   }
-  if (model.includes("opus")) {
+  if (model.includes("opus") || model.includes("fable")) {
     return process.env.CC_OPENAI_OPUS_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL;
   }
   if (model.includes("sonnet")) {
     return (
-      process.env.CC_OPENAI_SONNET_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL
+      process.env.CC_OPENAI_SONNET_MODEL ||
+      process.env.CC_OPENAI_DEFAULT_MODEL ||
+      DEFAULT_SONNET_MODEL
     );
   }
   return process.env.CC_OPENAI_DEFAULT_MODEL || requestedModel || DEFAULT_MODEL;
@@ -237,14 +281,22 @@ function pushUserMessage(messages, content, toolNames, timestamp) {
     return;
   }
   if (!Array.isArray(content)) {
-    messages.push({ role: "user", content: stringifyUnknown(content), timestamp });
+    messages.push({
+      role: "user",
+      content: stringifyUnknown(content),
+      timestamp,
+    });
     return;
   }
 
   let batch = [];
   const flushBatch = () => {
     if (batch.length === 0) return;
-    messages.push({ role: "user", content: collapseUserContent(batch), timestamp: timestamp++ });
+    messages.push({
+      role: "user",
+      content: collapseUserContent(batch),
+      timestamp: timestamp++,
+    });
     batch = [];
   };
 
@@ -379,7 +431,10 @@ function piContentToAnthropic(content) {
     }
     if (block.type === "thinking") {
       if (block.redacted) {
-        return { type: "redacted_thinking", data: block.thinkingSignature || block.thinking || "" };
+        return {
+          type: "redacted_thinking",
+          data: block.thinkingSignature || block.thinking || "",
+        };
       }
       return {
         type: "thinking",
@@ -412,6 +467,22 @@ function anthropicUsage(usage = emptyUsage()) {
   };
 }
 
+function estimateInputTokens(byteLength) {
+  return Math.max(1, Math.ceil(byteLength / 4));
+}
+
+function countTokensResponse(inputTokens) {
+  return {
+    input_tokens: inputTokens,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  };
+}
+
 function piMessageToAnthropic(message, fallbackModel) {
   return {
     id: message.responseId || `msg_${randomUUID().replaceAll("-", "")}`,
@@ -425,17 +496,21 @@ function piMessageToAnthropic(message, fallbackModel) {
   };
 }
 
-async function readJsonBody(req) {
+async function readJsonBody(req, maxBodyBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let total = 0;
   for await (const chunk of req) {
     total += chunk.byteLength;
-    if (total > MAX_BODY_BYTES) throw httpError(413, "request body too large");
+    if (total > maxBodyBytes) throw httpError(413, "request body too large");
     chunks.push(chunk);
   }
   const text = Buffer.concat(chunks).toString("utf8");
   try {
-    return text ? JSON.parse(text) : {};
+    const body = text ? JSON.parse(text) : {};
+    if (body !== null && typeof body === "object") {
+      Object.defineProperty(body, RAW_BODY_BYTES, { value: total });
+    }
+    return body;
   } catch (error) {
     throw httpError(400, `invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -461,13 +536,47 @@ function errorType(status) {
   return "invalid_request_error";
 }
 
-function sendError(res, error) {
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logPath(req) {
+  try {
+    const url = new URL(req?.url || "/", "http://localhost");
+    return url.pathname;
+  } catch {
+    return "/";
+  }
+}
+
+function sanitizeLogMessage(message) {
+  return String(message)
+    .replace(/\bBearer\s+[^\s,"'}]+/gi, "Bearer [redacted]")
+    .replace(
+      /(["']?(?:api[_-]?key|password|secret|token)["']?\s*[=:]\s*["']?)[^\s,"'}]+/gi,
+      "$1[redacted]",
+    )
+    .slice(0, 500);
+}
+
+function logError(status, message, req) {
+  const method = req?.method || "?";
+  const type = errorType(status);
+  const detail = status >= 500 ? ` ${sanitizeLogMessage(message)}` : "";
+  process.stderr.write(
+    `cc-openai-proxy: ${method} ${logPath(req)} -> ${status} ${type}${detail}\n`,
+  );
+}
+
+function sendError(res, error, req) {
   const status = error?.status || 500;
+  const message = errorMessage(error);
+  logError(status, message, req);
   sendJson(res, status, {
     type: "error",
     error: {
       type: errorType(status),
-      message: error instanceof Error ? error.message : String(error),
+      message,
     },
   });
 }
@@ -481,7 +590,7 @@ function contentBlockFromPartial(event) {
   return event.partial?.content?.[event.contentIndex];
 }
 
-async function streamAnthropicResponse(res, piStream, modelId) {
+async function streamAnthropicResponse(req, res, piStream, modelId) {
   res.writeHead(200, {
     "content-type": "text/event-stream",
     "cache-control": "no-cache, no-transform",
@@ -559,7 +668,10 @@ async function streamAnthropicResponse(res, piStream, modelId) {
         writeSse(res, "content_block_delta", {
           type: "content_block_delta",
           index: event.contentIndex,
-          delta: { type: "signature_delta", signature: block.thinkingSignature },
+          delta: {
+            type: "signature_delta",
+            signature: block.thinkingSignature,
+          },
         });
       }
       closeBlock(event.contentIndex);
@@ -602,16 +714,22 @@ async function streamAnthropicResponse(res, piStream, modelId) {
       for (const index of [...openBlocks].sort((a, b) => a - b)) closeBlock(index);
       writeSse(res, "message_delta", {
         type: "message_delta",
-        delta: { stop_reason: mapStopReason(event.message.stopReason), stop_sequence: null },
+        delta: {
+          stop_reason: mapStopReason(event.message.stopReason),
+          stop_sequence: null,
+        },
         usage: anthropicUsage(event.message.usage),
       });
       writeSse(res, "message_stop", { type: "message_stop" });
     } else if (event.type === "error") {
+      const status = event.reason === "aborted" ? 499 : 502;
+      const message = event.error?.errorMessage || "upstream error";
+      logError(status, message, req);
       writeSse(res, "error", {
         type: "error",
         error: {
           type: event.reason === "aborted" ? "request_aborted" : "api_error",
-          message: event.error?.errorMessage || "upstream error",
+          message,
         },
       });
     }
@@ -625,7 +743,6 @@ function buildOptions(request, req, signal) {
   return {
     maxTokens: request.max_tokens,
     temperature: request.temperature,
-    apiKey: undefined,
     signal,
     ...(reasoning ? { reasoning } : {}),
     transport: process.env.CC_OPENAI_TRANSPORT || "auto",
@@ -689,18 +806,39 @@ async function handleModels(req, res) {
   });
 }
 
-async function handleMessages(req, res) {
-  assertInboundAuth(req);
-  const body = await readJsonBody(req);
+async function assertKnownModel(modelName) {
   const models = await loadModels();
-  const modelId = resolveModelId(body.model);
+  const modelId = resolveModelId(modelName);
   const model = models.getModel(DEFAULT_PROVIDER, modelId);
   // Unknown ids 400 here. Future option (P3): synthesize an
   // openai-codex-responses descriptor on this miss and optimistically route it,
   // so a model works before the next pi-ai bump ships its descriptor -- at the
   // cost of placeholder pricing/metadata and a 502 (not 400) for ids the
   // backend rejects.
-  if (!model) throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
+  if (!model) {
+    throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
+  }
+  return { model, modelId, models };
+}
+
+async function handleCountTokens(req, res) {
+  assertInboundAuth(req);
+  const body = await readJsonBody(req, MAX_COUNT_TOKENS_BODY_BYTES);
+  await assertKnownModel(body.model);
+  sendJson(res, 200, countTokensResponse(estimateInputTokens(body[RAW_BODY_BYTES] || 0)));
+}
+
+// The Anthropic API defaults `stream` to false, and Claude Code's SDK omits
+// the field on non-streaming requests (for example /model validation probes).
+// An SSE reply to such a request makes the SDK resolve to the raw event text.
+function wantsStreaming(body) {
+  return body.stream === true;
+}
+
+async function handleMessages(req, res) {
+  assertInboundAuth(req);
+  const body = await readJsonBody(req);
+  const { model, modelId, models } = await assertKnownModel(body.model);
 
   const controller = new AbortController();
   let complete = false;
@@ -709,12 +847,12 @@ async function handleMessages(req, res) {
     if (!complete) controller.abort(new Error("client disconnected"));
   });
 
+  await requireCodexAuth(models);
   const options = buildOptions(body, req, controller.signal);
-  options.apiKey = await resolveOpenAICodexApiKey();
   const context = anthropicToContext(body);
 
-  if (body.stream !== false) {
-    await streamAnthropicResponse(res, models.streamSimple(model, context, options), modelId);
+  if (wantsStreaming(body)) {
+    await streamAnthropicResponse(req, res, models.streamSimple(model, context, options), modelId);
     complete = true;
     return;
   }
@@ -743,6 +881,11 @@ async function route(req, res) {
       await handleModels(req, res);
     } else if (
       req.method === "POST" &&
+      (url.pathname === "/v1/messages/count_tokens" || url.pathname === "/messages/count_tokens")
+    ) {
+      await handleCountTokens(req, res);
+    } else if (
+      req.method === "POST" &&
       (url.pathname === "/v1/messages" || url.pathname === "/messages")
     ) {
       await handleMessages(req, res);
@@ -751,13 +894,15 @@ async function route(req, res) {
     }
   } catch (error) {
     if (!res.headersSent) {
-      sendError(res, error);
+      sendError(res, error, req);
     } else {
+      const message = errorMessage(error);
+      logError(error?.status || 500, message, req);
       writeSse(res, "error", {
         type: "error",
         error: {
           type: "api_error",
-          message: error instanceof Error ? error.message : String(error),
+          message,
         },
       });
       res.end();
@@ -783,12 +928,16 @@ export {
   anthropicToContext,
   anthropicToolsToPi,
   assertInboundAuth,
+  countTokensResponse,
   errorType,
+  estimateInputTokens,
   extractInboundBearer,
   piContentToAnthropic,
   piMessageToAnthropic,
   resolveModelId,
+  sanitizeLogMessage,
   thinkingToReasoning,
+  wantsStreaming,
 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {

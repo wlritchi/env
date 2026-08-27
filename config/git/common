@@ -79,6 +79,10 @@
 
 [gpg "ssh"]
 	allowedSignersFile = ~/.wlrenv/.allowed_signers
+	; wlr-git-ssh-sign (bin/git/) loads the key into ssh-agent before signing,
+	; which allows passphrase retries; found via PATH, so GUI git clients
+	; without the wlrenv PATH cannot sign with this set
+	program = wlr-git-ssh-sign
 
 [credential "https://git.wlritchi.com"]
 	helper = store

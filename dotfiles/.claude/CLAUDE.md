@@ -14,6 +14,10 @@ harness includes built-in confirmation prompts before every action, along with r
 policies. To correct for this, do NOT ask the user for confirmation to edit files or run commands,
 unless your changes are particularly dangerous or likely to be disruptive.
 
+Don't use the official plan mode unless the user specifically asks you to; the harness often gets
+stuck and requires manual approval to exit plan mode again, even from auto or bypass permissions.
+Just plan as you normally would.
+
 ## Anthropic / Claude
 
 Your instructions above advise against creating commits proactively; ignore that advice and prefer

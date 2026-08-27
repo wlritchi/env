@@ -182,6 +182,11 @@ _STORE_ENV: dict[str, str] = {
     "pass": "PASSWORD_STORE_DIR",
 }
 
+# gpg stderr markers that show the user mistyped the card PIN or key
+# passphrase; only these failures get an interactive retry.
+_PIN_RETRY_MARKERS: tuple[str, ...] = ("Bad PIN", "Bad Passphrase")
+_SHOW_PIN_ATTEMPTS = 3
+
 
 @dataclass(frozen=True)
 class Backend:
@@ -233,16 +238,34 @@ class Backend:
         return path if path.is_dir() else None
 
     def show(self, secret_path: str) -> str | None:
-        """Return decrypted content, or None if the entry doesn't exist."""
-        result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
-            [self.binary, "show", secret_path],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return None
-        return result.stdout
+        """Return decrypted content, or None if the entry doesn't exist.
+
+        A wrong smartcard PIN fails the whole operation: gpg-agent sends one
+        VERIFY to the card and aborts on a bad PIN, with no retry option at
+        the gpg/pinentry layer. Retry here so one typo does not fail the
+        wrapped command. The attempt cap matches the card's own retry
+        counter (3 consecutive bad PINs block the card). Other failures
+        (entry not found, prompt cancelled) return None without a retry.
+        """
+        for attempt in range(_SHOW_PIN_ATTEMPTS):
+            result = subprocess.run(  # noqa: S603 - trusted binary, controlled args
+                [self.binary, "show", secret_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout
+            stderr = result.stderr or ""
+            if not any(marker in stderr for marker in _PIN_RETRY_MARKERS):
+                return None
+            if attempt + 1 < _SHOW_PIN_ATTEMPTS:
+                print(
+                    f"secwrap: PIN rejected for {secret_path}, retrying "
+                    f"({attempt + 2}/{_SHOW_PIN_ATTEMPTS})",
+                    file=sys.stderr,
+                )
+        return None
 
     def list_tools(self) -> list[str]:
         """List base names of entries under config/env/ matching our extension."""

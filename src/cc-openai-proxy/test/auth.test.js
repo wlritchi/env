@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { assertInboundAuth, errorType, extractInboundBearer } from "../bin/cc-openai-proxy.js";
+import {
+  assertInboundAuth,
+  errorType,
+  extractInboundBearer,
+  sanitizeLogMessage,
+} from "../bin/cc-openai-proxy.js";
 
 function req(headers = {}) {
   return { headers };
@@ -24,11 +29,20 @@ function withEnv(env, body) {
 }
 
 test("extractInboundBearer reads Authorization then x-api-key, trims, defaults empty", () => {
-  assert.equal(extractInboundBearer(req({ authorization: "Bearer  secret " })), "secret");
-  assert.equal(extractInboundBearer(req({ "x-api-key": "  key123 " })), "key123");
+  assert.equal(
+    extractInboundBearer(req({ authorization: "Bearer  secret " })),
+    "secret",
+  );
+  assert.equal(
+    extractInboundBearer(req({ "x-api-key": "  key123 " })),
+    "key123",
+  );
   assert.equal(extractInboundBearer(req({})), "");
   // Authorization wins over x-api-key when both present.
-  assert.equal(extractInboundBearer(req({ authorization: "Bearer a", "x-api-key": "b" })), "a");
+  assert.equal(
+    extractInboundBearer(req({ authorization: "Bearer a", "x-api-key": "b" })),
+    "a",
+  );
 });
 
 test("assertInboundAuth fails secure when no bearer is configured", () => {
@@ -55,8 +69,12 @@ test("assertInboundAuth allows anonymous only with the explicit escape hatch", (
 
 test("assertInboundAuth enforces a configured bearer (constant-time), via either header", () => {
   withEnv({ CC_OPENAI_PROXY_BEARER: "s3cret" }, () => {
-    assert.doesNotThrow(() => assertInboundAuth(req({ authorization: "Bearer s3cret" })));
-    assert.doesNotThrow(() => assertInboundAuth(req({ "x-api-key": "s3cret" })));
+    assert.doesNotThrow(() =>
+      assertInboundAuth(req({ authorization: "Bearer s3cret" })),
+    );
+    assert.doesNotThrow(() =>
+      assertInboundAuth(req({ "x-api-key": "s3cret" })),
+    );
     assert.throws(
       () => assertInboundAuth(req({ authorization: "Bearer wrong" })),
       (e) => e.status === 401,
@@ -66,12 +84,15 @@ test("assertInboundAuth enforces a configured bearer (constant-time), via either
       (e) => e.status === 401,
     );
     // A configured bearer wins even if ALLOW_ANON is set: no bypass.
-    withEnv({ CC_OPENAI_PROXY_BEARER: "s3cret", CC_OPENAI_PROXY_ALLOW_ANON: "1" }, () => {
-      assert.throws(
-        () => assertInboundAuth(req({})),
-        (e) => e.status === 401,
-      );
-    });
+    withEnv(
+      { CC_OPENAI_PROXY_BEARER: "s3cret", CC_OPENAI_PROXY_ALLOW_ANON: "1" },
+      () => {
+        assert.throws(
+          () => assertInboundAuth(req({})),
+          (e) => e.status === 401,
+        );
+      },
+    );
   });
 });
 
@@ -82,4 +103,20 @@ test("errorType maps status classes for the Anthropic error envelope", () => {
   assert.equal(errorType(403), "authentication_error");
   assert.equal(errorType(400), "invalid_request_error");
   assert.equal(errorType(404), "invalid_request_error");
+});
+
+test("sanitizeLogMessage redacts common secret formats", () => {
+  assert.equal(
+    sanitizeLogMessage("Authorization: Bearer sk-secret"),
+    "Authorization: Bearer [redacted]",
+  );
+  assert.equal(sanitizeLogMessage("Bearer sk-secret"), "Bearer [redacted]");
+  assert.equal(
+    sanitizeLogMessage('{"api_key":"sk-secret","ok":true}'),
+    '{"api_key":"[redacted]","ok":true}',
+  );
+  assert.equal(
+    sanitizeLogMessage('{"authorization":"Bearer sk-secret"}'),
+    '{"authorization":"Bearer [redacted]"}',
+  );
 });

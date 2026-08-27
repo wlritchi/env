@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Dependencies: ssh-keygen, ssh-add, awk
+#
+# Git invokes this as gpg.ssh.program: wlr-git-ssh-sign -Y sign -n git -f <key> <buffer>
+# ssh-keygen gives only one passphrase attempt when it must decrypt the key
+# file, so a typo fails the commit. To avoid that, load the signing key into
+# ssh-agent first: ssh-add gives multiple passphrase attempts, and once the
+# key is loaded, later signatures need only a security-key touch. If ssh-add
+# fails (no agent, prompt cancelled), fall through to plain ssh-keygen, which
+# gives a single passphrase attempt.
+
+keyfile=''
+prev=''
+for arg in "$@"; do
+    if [ "$prev" = '-f' ]; then
+        keyfile="$arg"
+    fi
+    prev="$arg"
+done
+
+if [ -n "$keyfile" ]; then
+    pubfile="$keyfile"
+    if [ "${pubfile%.pub}" = "$pubfile" ] && [ -f "$pubfile.pub" ]; then
+        pubfile="$pubfile.pub"
+    fi
+    privfile="${pubfile%.pub}"
+    if [ -f "$pubfile" ] && [ -f "$privfile" ]; then
+        fingerprint="$(ssh-keygen -lf "$pubfile" | awk '{print $2}')" || fingerprint=''
+        if [ -n "$fingerprint" ] && ! ssh-add -l 2>/dev/null | grep -qF "$fingerprint"; then
+            ssh-add "$privfile" || true
+        fi
+    fi
+fi
+
+exec ssh-keygen "$@"
