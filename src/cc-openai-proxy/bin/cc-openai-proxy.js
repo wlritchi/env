@@ -540,38 +540,52 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+const LOG_PATHS = new Set([
+  "/",
+  "/health",
+  "/v1/models",
+  "/models",
+  "/v1/messages/count_tokens",
+  "/messages/count_tokens",
+  "/v1/messages",
+  "/messages",
+]);
+const LOG_METHODS = new Set(["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]);
+
 function logPath(req) {
   try {
-    const url = new URL(req?.url || "/", "http://localhost");
-    return url.pathname;
+    const pathname = new URL(req?.url || "/", "http://localhost").pathname;
+    return LOG_PATHS.has(pathname) ? pathname : "<unknown>";
   } catch {
-    return "/";
+    return "<invalid>";
   }
 }
 
-function sanitizeLogMessage(message) {
-  return String(message)
-    .replace(/\bBearer\s+[^\s,"'}]+/gi, "Bearer [redacted]")
-    .replace(
-      /(["']?(?:api[_-]?key|password|secret|token)["']?\s*[=:]\s*["']?)[^\s,"'}]+/gi,
-      "$1[redacted]",
-    )
-    .slice(0, 500);
+function logMethod(req) {
+  return LOG_METHODS.has(req?.method) ? req.method : "UNKNOWN";
 }
 
-function logError(status, message, req) {
-  const method = req?.method || "?";
-  const type = errorType(status);
-  const detail = status >= 500 ? ` ${sanitizeLogMessage(message)}` : "";
+function logStatus(status) {
+  return Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500;
+}
+
+function logError(status, req) {
+  const safeStatus = logStatus(status);
   process.stderr.write(
-    `cc-openai-proxy: ${method} ${logPath(req)} -> ${status} ${type}${detail}\n`,
+    `${JSON.stringify({
+      category: "request_error",
+      method: logMethod(req),
+      pathname: logPath(req),
+      status: safeStatus,
+      errorType: errorType(safeStatus),
+    })}\n`,
   );
 }
 
 function sendError(res, error, req) {
   const status = error?.status || 500;
   const message = errorMessage(error);
-  logError(status, message, req);
+  logError(status, req);
   sendJson(res, status, {
     type: "error",
     error: {
@@ -724,7 +738,7 @@ async function streamAnthropicResponse(req, res, piStream, modelId) {
     } else if (event.type === "error") {
       const status = event.reason === "aborted" ? 499 : 502;
       const message = event.error?.errorMessage || "upstream error";
-      logError(status, message, req);
+      logError(status, req);
       writeSse(res, "error", {
         type: "error",
         error: {
@@ -866,8 +880,8 @@ async function handleMessages(req, res) {
 }
 
 async function route(req, res) {
-  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   try {
+    const url = new URL(req.url || "/", "http://localhost");
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
       sendJson(res, 200, {
         ok: true,
@@ -897,7 +911,7 @@ async function route(req, res) {
       sendError(res, error, req);
     } else {
       const message = errorMessage(error);
-      logError(error?.status || 500, message, req);
+      logError(error?.status || 500, req);
       writeSse(res, "error", {
         type: "error",
         error: {
@@ -932,10 +946,10 @@ export {
   errorType,
   estimateInputTokens,
   extractInboundBearer,
+  logError,
   piContentToAnthropic,
   piMessageToAnthropic,
   resolveModelId,
-  sanitizeLogMessage,
   thinkingToReasoning,
   wantsStreaming,
 };
@@ -946,17 +960,29 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const server = createServer((req, res) => {
       void route(req, res);
     });
-    server.on("error", (error) => {
+    server.on("error", () => {
       process.stderr.write(
-        `cc-openai-proxy: ${error instanceof Error ? error.message : String(error)}\n`,
+        `${JSON.stringify({
+          origin: "cc-openai-proxy",
+          category: "server_error",
+          errorType: "network_error",
+        })}\n`,
       );
       process.exit(1);
     });
     server.listen(config.port, config.host, () => {
-      process.stderr.write(`cc-openai-proxy listening on http://${config.host}:${config.port}\n`);
+      process.stderr.write(
+        `${JSON.stringify({ origin: "cc-openai-proxy", category: "server_started" })}\n`,
+      );
     });
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  } catch {
+    process.stderr.write(
+      `${JSON.stringify({
+        origin: "cc-openai-proxy",
+        category: "startup_error",
+        errorType: "configuration_error",
+      })}\n`,
+    );
     process.exit(2);
   }
 }
