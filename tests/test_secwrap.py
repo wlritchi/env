@@ -351,6 +351,50 @@ def test_backend_show_returns_none_on_missing(
     assert backend.show("config/env/aws") is None
 
 
+def _completed(returncode: int, stdout: str, stderr: str) -> MagicMock:
+    completed = MagicMock(spec=["returncode", "stdout", "stderr"])
+    completed.returncode = returncode
+    completed.stdout = stdout
+    completed.stderr = stderr
+    return completed
+
+
+def test_backend_show_retries_on_bad_pin(
+    mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    backend = Backend(name="pass", binary="pass", extension="gpg", store_dir=tmp_path)
+    run_mock = mocker.patch(
+        "subprocess.run",
+        side_effect=[
+            _completed(2, "", "gpg: public key decryption failed: Bad PIN\n"),
+            _completed(0, "FOO=bar\n", ""),
+        ],
+    )
+    assert backend.show("config/env/aws") == "FOO=bar\n"
+    assert run_mock.call_count == 2
+    assert "retrying (2/3)" in capsys.readouterr().err
+
+
+def test_backend_show_gives_up_after_attempt_cap(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    backend = Backend(name="pass", binary="pass", extension="gpg", store_dir=tmp_path)
+    bad_pin = _completed(2, "", "gpg: public key decryption failed: Bad PIN\n")
+    run_mock = mocker.patch("subprocess.run", return_value=bad_pin)
+    assert backend.show("config/env/aws") is None
+    assert run_mock.call_count == 3
+
+
+def test_backend_show_no_retry_on_cancel(mocker: MockerFixture, tmp_path: Path) -> None:
+    backend = Backend(name="pass", binary="pass", extension="gpg", store_dir=tmp_path)
+    cancelled = _completed(
+        2, "", "gpg: public key decryption failed: Operation cancelled\n"
+    )
+    run_mock = mocker.patch("subprocess.run", return_value=cancelled)
+    assert backend.show("config/env/aws") is None
+    run_mock.assert_called_once()
+
+
 def test_backend_list_tools_empty(tmp_path: Path) -> None:
     backend = Backend(
         name="passage", binary="passage", extension="age", store_dir=tmp_path
