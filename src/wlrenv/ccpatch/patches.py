@@ -59,10 +59,11 @@ class PatchSet:
     verify_absent: tuple[re.Pattern[str], ...] = ()
     min_version: Version | None = None  # inclusive
     max_version: Version | None = None  # exclusive
+    requires_version: bool = False
 
     def applies_to(self, version: Version | None) -> bool:
         if version is None:
-            return True
+            return not self.requires_version
         if self.min_version is not None and version < self.min_version:
             return False
         if self.max_version is not None and version >= self.max_version:
@@ -91,6 +92,7 @@ class PatchSet:
 
 _ID = r"[\w$]+"
 _V_2_1_151 = (2, 1, 151)
+_V_2_1_174 = (2, 1, 174)
 
 # Drop the early-return guard that hides the standalone thinking block, and force
 # its render to the expanded (transcript + verbose) branch.
@@ -300,6 +302,752 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
     ),
     verify_absent=(re.compile(r"CLAUDE_DEV_CHANNELS"),),
     min_version=_V_2_1_151,
+)
+
+# --- provider environment inheritance for background agents (2.1.174) --------
+#
+# A background daemon can outlive the client that dispatches a job. Send the
+# current provider configuration for each authenticated socket dispatch. Do not
+# store this configuration in job files. A null value removes a value that a
+# cold or prewarmed worker inherited from an earlier process.
+_PROVIDER_ENV_PROTOCOL_VERSION = 1
+_PROVIDER_ENV_GROUPS = re.compile(
+    rf'(?P<selection>{_ID})=\["CLAUDE_CODE_USE_BEDROCK",'
+    rf'(?P<selection_tail>.{{0,1000}}?)\],(?P<base_urls>{_ID})='
+    r'\["ANTHROPIC_BASE_URL",'
+    rf'(?P<base_url_tail>.{{0,1000}}?)\],(?P<credentials>{_ID})='
+    r'\["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN",'
+    rf'(?P<credential_tail>.{{0,1000}}?)\],(?P<skip_auth>{_ID})='
+    r'\["CLAUDE_CODE_SKIP_BEDROCK_AUTH",'
+    rf'(?P<skip_auth_tail>.{{0,1000}}?)\],(?P<models>{_ID})='
+    r'\["ANTHROPIC_MODEL",'
+    rf'(?P<model_tail>.{{0,3000}}?)\],(?P<custom_models>{_ID})='
+    r'\["ANTHROPIC_CUSTOM_MODEL_OPTION",'
+    rf'(?P<custom_model_tail>.{{0,1000}}?)\],(?P<recognized>{_ID})=new Set'
+)
+_PROVIDER_ENV_SNAPSHOT = re.compile(
+    rf'function (?P<snapshot>{_ID})\(\)\{{let (?P<result>{_ID})=\{{\}};'
+    rf'for\(let (?P<key>{_ID}) of (?P<allowlist>{_ID})\)\{{let '
+    rf'(?P<value>{_ID})=process\.env\[(?P=key)\];if\((?P=value)===void 0\)continue;'
+    rf'if\((?P=value)===""&&(?P=key)!=="CLAUDE_SECURESTORAGE_CONFIG_DIR"\)continue;'
+    rf'(?P=result)\[(?P=key)\]=(?P=value)\}}return (?P=result)\}}'
+)
+_PROVIDER_ENV_SCHEMA = re.compile(
+    rf'(?P<schema>{_ID})\.object\(\{{proto:(?P<proto>{_ID}),op:'
+    rf'(?P=schema)\.literal\("dispatch"\),d:(?P<dispatch>{_ID})\(\),'
+    rf'timeoutMs:(?P=schema)\.number\(\),auth:'
+)
+_PROVIDER_ENV_PERSISTED_DEFAULT = re.compile(
+    rf'(?P<isolation>{_ID})=(?P<source>{_ID})==="repl"\?"none":'
+    rf'(?P<options>{_ID})\?\.bgIsolation,(?P<provider>{_ID})='
+    rf'(?P=options)\?\.providerEnv\?\?(?P<snapshot>{_ID})\(\),'
+)
+_PROVIDER_ENV_SOCKET = re.compile(
+    rf'(?P<call>{_ID})\(\{{proto:(?P<proto>{_ID}),op:"dispatch",d:'
+    rf'\{{\.\.\.(?P<job>{_ID}),nonce:(?P<nonce>[^}}]+)\}},timeoutMs:5000,'
+    rf'auth:await (?P<auth>{_ID})\(\)\}}'
+)
+_PROVIDER_ENV_SOCKET_RESULT = re.compile(
+    rf'if\((?P<response>{_ID})\.ok&&(?P=response)\.op==="dispatch"\)'
+    rf'(?P<success>return .{{0,500}}?);if\("code"in (?P=response)&&'
+)
+_PROVIDER_ENV_REDISPATCH_RESULT = re.compile(
+    rf'if\((?P<response>{_ID})\.ok&&(?P=response)\.op==="dispatch"\)'
+    rf'(?P<success>return .{{0,1000}}?\{{ok:!0,short:(?P<short>{_ID}),'
+    rf'sessionId:(?P<session>{_ID}),idle:(?P<idle>{_ID}),name:(?P<name>{_ID}),'
+    rf'rescued:!0\}})'
+)
+_PROVIDER_ENV_DAEMON_ACK = re.compile(
+    rf'return (?P<respond>{_ID})\((?P<socket>{_ID}),\{{ok:!0,op:(?P<op>{_ID}),'
+    rf'short:(?P<short>{_ID}),pid:(?P<worker>{_ID})\.record\.pid,'
+)
+_PROVIDER_ENV_CONTROL = re.compile(
+    rf'case"dispatch":if\(!(?P<auth_check>{_ID})\((?P<request>{_ID})\.auth,'
+    rf'(?P<control_key>{_ID})\)\)return (?P<respond>{_ID})\((?P<socket>{_ID}),'
+    rf'(?P<auth_error>\{{ok:!1,.{{0,300}}?code:"EAUTH"\}})\);if\(await '
+    rf'(?P<yield>{_ID})\(0\),(?P=socket)\.readableEnded\|\|(?P=socket)\.destroyed\)'
+    rf'(?P<stale>.{{0,300}}?)return (?P<wait>{_ID})\((?P<handles>{_ID}),(?P=socket),'
+    rf'"dispatch",(?P=request)\.d\.short,(?P=request)\.d\.nonce,'
+    rf'(?P=request)\.timeoutMs,(?P<dispatch_cb>{_ID})\((?P=request)\.d\)'
+)
+_PROVIDER_ENV_WORKER = re.compile(
+    rf'function (?P<env_builder>{_ID})\((?P<job>{_ID}),(?P<job_dir>{_ID}),'
+    rf'(?P<snapshot_path>{_ID}),(?P<rv_sock>{_ID}),(?P<socket_auth>{_ID})\)'
+    rf'\{{let (?P<ambient>{_ID})=\{{\.\.\.process\.env\}},(?P<env>{_ID})='
+    rf'\{{\.\.\.(?P=ambient),(?P<body>.{{0,2000}}?)\}};if\(process\.env\.'
+)
+_PROVIDER_ENV_WORKER_FINAL = re.compile(
+    rf'(?P<prefix>function (?P<env_builder>{_ID})\((?P<job>{_ID}),(?P<job_dir>{_ID}),'
+    rf'(?P<snapshot_path>{_ID}),(?P<rv_sock>{_ID}),(?P<socket_auth>{_ID}),'
+    rf'_ccProviderEnv\)\{{.{{0,500}}?let _ccProviderPayload=.{{0,5000}}?)'
+    rf'return (?P<env>{_ID})\}}'
+)
+_PROVIDER_ENV_PATCHED_SNAPSHOT = re.compile(
+    rf'function _ccProviderKeys\(\).{{0,5000}}?function (?P<snapshot>{_ID})\(\)'
+)
+_PROVIDER_ENV_MANAGER = re.compile(
+    rf'(?P<class_name>{_ID})\{{dispatch;spawnPty;getAuthSnapshot;via;record;'
+)
+_PROVIDER_ENV_CONSTRUCTOR = re.compile(
+    rf'constructor\((?P<job>{_ID}),(?P<spawn>{_ID}),(?P<auth>{_ID}),'
+    rf'(?P<via>{_ID}),(?P<record>{_ID})\)\{{this\.dispatch=(?P=job);'
+)
+_PROVIDER_ENV_STATIC_SPAWN = re.compile(
+    rf'static spawn\((?P<job>{_ID}),(?P<spawn>{_ID}),(?P<auth>{_ID}),'
+    rf'(?P<options>{_ID})\)\{{let (?P<worker>{_ID})=new (?P<class_name>{_ID})'
+    rf'\((?P=job),(?P=spawn)\?\?(?P<default_spawn>{_ID})\(\),(?P=auth),"cold"\);'
+)
+_PROVIDER_ENV_STATIC_CLAIM = re.compile(
+    rf'static claim\((?P<job>{_ID}),(?P<options>{_ID})\)\{{let '
+    rf'(?P<worker>{_ID})=new (?P<class_name>{_ID})\((?P=job),'
+    rf'(?P=options)\.spawnPty,(?P=options)\.getAuthSnapshot,"spare",'
+    rf'(?P<record>\{{pid:.{{0,1000}}?\.VERSION\}})\);'
+)
+_PROVIDER_ENV_CLAIM_FRAME = re.compile(
+    rf'static buildClaimFrame\((?P<job>{_ID}),(?P<snapshot>{_ID}),'
+    rf'(?P<auth>{_ID})\)\{{let (?P<job_dir>{_ID})=(?P<job_dir_fn>{_ID})'
+    rf'\((?P=job)\.short\),(?P<env>{_ID})=(?P<env_builder>{_ID})\('
+    rf'(?P=job),(?P=job_dir),(?P=snapshot),(?P<rv_sock>{_ID})'
+    rf'\((?P=job)\.short\),(?P=auth)\);'
+)
+_PROVIDER_ENV_DO_SPAWN = re.compile(
+    rf'let (?P<argv>{_ID})=(?P<argv_fn>{_ID})\((?P<job>{_ID}),this\.attempt,'
+    rf'(?P<has_messages>{_ID}),(?P<session>{_ID}),(?P<flags>{_ID})\),'
+    rf'(?P<env>{_ID})=(?P<env_builder>{_ID})\((?P=job),(?P<job_dir>{_ID}),'
+    rf'(?P<snapshot>{_ID}),this\.rvSockPath\?\?(?P<rv_sock>{_ID})'
+    rf'\((?P=job)\.short\),this\.socketAuth\(\)\);'
+)
+_PROVIDER_ENV_CLAIM_CALL = re.compile(
+    rf'(?P<claim>{_ID})\((?P<job>{_ID}),(?P<spare>{_ID}),(?P<spawn>{_ID}),'
+    rf'(?P<auth>{_ID})\)\{{let (?P<worker>{_ID})=(?P<class_name>{_ID})\.claim'
+    rf'\((?P=job),(?P<options>\{{pid:(?P=spare)\.hostPid,.{{0,300}}?\}})\);'
+)
+_PROVIDER_ENV_BUILD_CLAIM_CALL = re.compile(
+    rf'function (?P<frame>{_ID})\((?P<job>{_ID}),(?P<snapshot>{_ID}),'
+    rf'(?P<auth>{_ID}),(?P<claim_auth>{_ID})\)\{{let\{{env:(?P<env>{_ID}),'
+    rf'argv:(?P<argv>{_ID})\}}=(?P<class_name>{_ID})\.buildClaimFrame\('
+    rf'(?P=job),(?P=snapshot),(?P=auth)\);'
+)
+_PROVIDER_ENV_CLAIMED_SPARE_FRAME = re.compile(
+    rf'function (?P<claim>{_ID})\((?P<job>{_ID}),(?P<spare>{_ID}),'
+    rf'(?P<spawn>{_ID}),(?P<auth>{_ID})\)\{{let (?P<worker>{_ID})='
+    rf'(?P<class_name>{_ID})\.claim\((?P=job),(?P<options>\{{.{{0,500}}?\}})\);'
+    rf'return (?P<snapshot>{_ID})\((?P=job)\.short,(?P=auth)\?\.\(\)\)\.then\('
+    rf'\((?P<snapshot_arg>{_ID})\)=>(?P<send>{_ID})\((?P=spare)\.claimSock,'
+    rf'(?P<frame>{_ID})\((?P=job),(?P=snapshot_arg),(?P=worker)\.socketAuth\(\),'
+    rf'(?P=spare)\.claimAuth\)\)\)'
+)
+_PROVIDER_ENV_MANAGER_DISPATCH = re.compile(
+    rf'(?P<dispatch>{_ID})=async\((?P<job>{_ID}),(?P<retry>{_ID})=0,'
+    rf'(?P<after_upgrade>{_ID})\)=>\{{'
+)
+_PROVIDER_ENV_MANAGER_RETRY = re.compile(
+    rf'return await (?P<delay>{_ID})\(100\),(?P<dispatch>{_ID})\('
+    rf'(?P<job>{_ID}),(?P<retry>{_ID})\+1,(?P<after_upgrade>{_ID})\)'
+)
+_PROVIDER_ENV_MANAGER_CLAIM = re.compile(
+    rf'let (?P<worker>{_ID})=(?P<claim>{_ID})\((?P<job>{_ID}),'
+    rf'(?P<spare>{_ID}),(?P<spawn>{_ID}),(?P<auth_obj>{_ID})\.getAuthSnapshot\)'
+)
+_PROVIDER_ENV_MANAGER_SPAWN = re.compile(
+    rf'(?P<class_name>{_ID})\.spawn\((?P<job>{_ID}),(?P<spawn>{_ID}),'
+    rf'(?P<auth_obj>{_ID})\.getAuthSnapshot,(?P<after_upgrade>{_ID})\?'
+    rf'\{{afterUpgrade:(?P=after_upgrade)\}}:void 0\)'
+)
+_PROVIDER_ENV_CLAIMED_ENTRY = re.compile(
+    rf'(?P<prefix>async function (?P<entry>{_ID})\((?P<claim>{_ID}),(?P<main>{_ID})\)'
+    rf'\{{.{{0,1000}}?Object\.assign\(process\.env,(?P=claim)\.env\),'
+    rf'process\.argv=.{{0,300}}?),(?P<initializers>(?P<cache>{_ID})\(\),'
+    rf'(?P<auth>{_ID})\(\),.{{0,300}}?);let\{{main:(?P<worker_main>{_ID})\}}='
+    rf'await (?P=main);await (?P=worker_main)\(\)\}}'
+)
+_PROVIDER_ENV_PREACTION_START = re.compile(
+    rf'(?P<hook>\.hook\("preAction",async\((?P<command>{_ID}),(?P<action>{_ID})\)'
+    rf'=>\{{(?P<marker>{_ID})\("preAction_start"\);)'
+)
+_PROVIDER_ENV_PREACTION_INITIALIZED = re.compile(
+    rf'await (?P<initializer>{_ID})\(\),(?P<marker>{_ID})\("preAction_after_init"\)'
+)
+_PROVIDER_ENV_OPERATIONAL_ENTRY = re.compile(
+    rf'(?P<guard>if\((?P<noninteractive>{_ID})\)\{{.{{0,300}}?)(?P<settings>{_ID})\(\),'
+    rf'(?P<telemetry>{_ID})\(\);let (?P<start>{_ID})=performance\.now\(\),'
+)
+_PROVIDER_ENV_DELAYED_SETTINGS = re.compile(
+    rf'function (?P<telemetry>{_ID})\(\)\{{(?P<prefix>.{{0,1000}}?Waiting for remote '
+    rf'managed settings before telemetry init"\),)(?P<wait>{_ID})\(\)\.then\(async\(\)=>'
+    rf'\{{(?P<loaded>.{{0,300}}?Remote managed settings loaded, initializing telemetry"\),)'
+    rf'(?P<settings>{_ID})\(\),await (?P<initialize>{_ID})\(\)'
+)
+_PROVIDER_ENV_STATE_WRITE = re.compile(
+    rf'async function (?P<write>{_ID})\((?P<dir>{_ID}),(?P<state>{_ID})\)\{{let\{{'
+    rf'pinned:(?P<pinned>{_ID}),sortOrder:(?P<sort>{_ID}),stateSortOrder:'
+    rf'(?P<state_sort>{_ID}),\.\.\.(?P<rest>{_ID})\}}=(?P=state);'
+)
+_PROVIDER_ENV_STATE_VIEW = re.compile(
+    rf'bgIsolation:(?P<job>{_ID})\.bgIsolation,providerEnv:(?P=job)\.providerEnv,'
+)
+_PROVIDER_ENV_STATE_SCHEMA = re.compile(
+    rf'providerEnv:(?P<schema>{_ID})\.record\((?P=schema)\.string\(\),'
+    rf'(?P=schema)\.string\(\)\)\.transform\((?P<filter>{_ID})\)\.optional\(\),'
+)
+_PROVIDER_ENV_JOB_COPY = re.compile(rf'providerEnv:(?P<prior>{_ID})\?\.providerEnv,')
+_PROVIDER_ENV_SEED_STATE = re.compile(
+    rf'providerEnv:(?P<snapshot>{_ID})\(\),sessionPermissionRules:'
+)
+_PROVIDER_ENV_RESPAWN_GUARD = re.compile(r'\|\|(?P<job>[\w$]+)\.providerEnv')
+_PROVIDER_ENV_RESPAWN_OPTION = re.compile(
+    rf',\.\.\.(?P<job>{_ID})\.providerEnv&&\{{providerEnv:(?P=job)\.providerEnv\}}'
+)
+
+
+def _provider_groups(source: str) -> re.Match[str]:
+    groups = _PROVIDER_ENV_GROUPS.search(source)
+    if groups is None:
+        raise PatchError("background-provider-environment: provider groups absent")
+    return groups
+
+
+_PROVIDER_ENV_VERTEX_REGION_KEYS = (
+    "VERTEX_REGION_CLAUDE_FABLE_5",
+    "VERTEX_REGION_CLAUDE_HAIKU_4_5",
+    "VERTEX_REGION_CLAUDE_3_5_HAIKU",
+    "VERTEX_REGION_CLAUDE_3_5_SONNET",
+    "VERTEX_REGION_CLAUDE_3_7_SONNET",
+    "VERTEX_REGION_CLAUDE_4_8_OPUS",
+    "VERTEX_REGION_CLAUDE_4_7_OPUS",
+    "VERTEX_REGION_CLAUDE_4_6_OPUS",
+    "VERTEX_REGION_CLAUDE_4_5_OPUS",
+    "VERTEX_REGION_CLAUDE_4_1_OPUS",
+    "VERTEX_REGION_CLAUDE_4_0_OPUS",
+    "VERTEX_REGION_CLAUDE_4_6_SONNET",
+    "VERTEX_REGION_CLAUDE_4_5_SONNET",
+    "VERTEX_REGION_CLAUDE_4_0_SONNET",
+)
+_PROVIDER_ENV_EXPLICIT_KEYS = (
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_INTERNAL_FC_OVERRIDES",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_PROFILE",
+    "AWS_CONFIG_FILE",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_CLOUD_PROJECT",
+    "GCLOUD_PROJECT",
+    "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    "ANTHROPIC_UNIX_SOCKET",
+    "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+    "CLAUDE_CODE_HOST_AUTH_ENV_VAR",
+    "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+    "CLAUDE_CODE_HOST_AUTH_REFRESH_TIMEOUT_MS",
+    "ANTHROPIC_BEDROCK_SERVICE_TIER",
+    "ANTHROPIC_CUSTOM_HEADERS",
+    "CLAUDE_CODE_CERT_STORE",
+    *_PROVIDER_ENV_VERTEX_REGION_KEYS,
+)
+
+
+def _provider_key_sources(source: str) -> tuple[str, ...]:
+    groups = _provider_groups(source)
+    snapshot = _PROVIDER_ENV_SNAPSHOT.search(source)
+    if snapshot is None:
+        raise PatchError("background-provider-environment: provider snapshot absent")
+    return (
+        snapshot.group("allowlist"),
+        groups.group("selection"),
+        groups.group("base_urls"),
+        groups.group("credentials"),
+        groups.group("skip_auth"),
+        groups.group("models"),
+        groups.group("custom_models"),
+    )
+
+
+def _provider_keys_expression(source: str) -> str:
+    sources = _provider_key_sources(source)
+    explicit = tuple(f'"{key}"' for key in _PROVIDER_ENV_EXPLICIT_KEYS)
+    return "[" + ",".join((*[f"...{name}" for name in sources], *explicit)) + "]"
+
+
+def _replace_provider_snapshot(match: re.Match[str]) -> str:
+    snapshot = match.group("snapshot")
+    result = match.group("result")
+    key = match.group("key")
+    value = match.group("value")
+    sources = _provider_key_sources(match.string)
+    keys = _provider_keys_expression(match.string)
+    unavailable = "||".join(f"{source}==null" for source in sources)
+    key_error = (
+        'Object.assign(Error("Background provider environment key registry is '
+        'unavailable"),{code:"EPROVIDERENV"})'
+    )
+    payload_error = (
+        'Object.assign(Error("Background provider environment transient payload is '
+        'unavailable; dispatch again from the current Claude Code session"),'
+        '{code:"EPROVIDERENV"})'
+    )
+    invalid_error = (
+        'Object.assign(Error("Background provider environment transient payload is '
+        'invalid; dispatch again from the current Claude Code session"),'
+        '{code:"EPROVIDERENV"})'
+    )
+    return (
+        f"function _ccProviderKeys(){{if({unavailable})throw {key_error};"
+        f"return {keys}}}function _ccRequireProviderEnv(_ccProviderEnv){{"
+        'if(_ccProviderEnv==null||typeof _ccProviderEnv!=="object"||'
+        f"Array.isArray(_ccProviderEnv))throw {payload_error};"
+        "let _ccAllowed=new Set(_ccProviderKeys());"
+        "for(let[_ccKey,_ccValue]of Object.entries(_ccProviderEnv))"
+        "if(!_ccAllowed.has(_ccKey)||(_ccValue!==null&&"
+        f'typeof _ccValue!=="string"))throw {invalid_error};'
+        "return _ccProviderEnv}"
+        "function _ccProviderRetain(_ccProviderEnv){"
+        "return Object.freeze({..._ccRequireProviderEnv(_ccProviderEnv)})}"
+        "function _ccProviderCaptureTransport(_ccEnv=process.env){let _ccSerialized="
+        "_ccEnv.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT;delete "
+        "_ccEnv.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT;if(_ccSerialized===void 0)"
+        "return null;let _ccProviderEnv;try{_ccProviderEnv=JSON.parse(_ccSerialized)}"
+        'catch{throw Object.assign(Error("Background provider environment transient '
+        'transport is invalid; dispatch again from the current Claude Code session"),'
+        '{code:"EPROVIDERENV"})}return _ccProviderRetain(_ccProviderEnv)}'
+        "let _ccProviderWorkerEnv=_ccProviderCaptureTransport();"
+        "function _ccProviderApplyFinal(_ccProviderEnv){"
+        "_ccProviderEnv=_ccRequireProviderEnv(_ccProviderEnv);"
+        "for(let _ccKey of _ccProviderKeys())delete process.env[_ccKey];"
+        "for(let[_ccKey,_ccValue]of Object.entries(_ccProviderEnv))"
+        "if(_ccValue!==null)process.env[_ccKey]=_ccValue}"
+        f"function {snapshot}(){{let {result}={{}};"
+        f"for(let {key} of _ccProviderKeys()){{let {value}=process.env[{key}];"
+        f"{result}[{key}]={value}===void 0?null:{value}}}return {result}}}"
+    )
+
+
+def _replace_provider_schema(match: re.Match[str]) -> str:
+    schema = match.group("schema")
+    replacement = (
+        f"providerEnvVersion:{schema}.number().optional(),"
+        f"providerEnv:{schema}.record({schema}.enum(_ccProviderKeys()),"
+        f"{schema}.union([{schema}.string(),{schema}.null()])).optional(),"
+        "timeoutMs:"
+    )
+    return match.group(0).replace("timeoutMs:", replacement)
+
+
+def _replace_provider_socket(match: re.Match[str]) -> str:
+    snapshot = _PROVIDER_ENV_PATCHED_SNAPSHOT.search(match.string)
+    if snapshot is None:
+        raise PatchError("background-provider-environment: snapshot function absent")
+    version = _PROVIDER_ENV_PROTOCOL_VERSION
+    return (
+        f'{match.group("call")}({{proto:{match.group("proto")},op:"dispatch",'
+        f'd:{{...{match.group("job")},nonce:{match.group("nonce")}}},'
+        f'providerEnvVersion:{version},providerEnv:{snapshot.group("snapshot")}(),'
+        f'timeoutMs:5000,auth:await {match.group("auth")}()}}'
+    )
+
+
+def _provider_protocol_error() -> str:
+    return (
+        '{ok:!1,error:"Background provider environment protocol mismatch. Restart '
+        'the stale Claude Code daemon and try again",code:"EPROVIDERENV"}'
+    )
+
+
+def _validated_provider_dispatch_response(response: str, success: str) -> str:
+    version = _PROVIDER_ENV_PROTOCOL_VERSION
+    return (
+        f'if({response}.ok&&{response}.op==="dispatch"){{'
+        f'if({response}.providerEnvVersion!=={version})'
+        f"{response}={_provider_protocol_error()};else {success}}}"
+    )
+
+
+def _replace_provider_socket_result(match: re.Match[str]) -> str:
+    response = match.group("response")
+    stale_error = (
+        f'if("code"in {response}&&{response}.code==="EPROVIDERENV")'
+        f'return{{ok:!1,reason:"daemon-unreachable",detail:{response}.error}};'
+    )
+    validated_success = _validated_provider_dispatch_response(
+        response, match.group("success")
+    )
+    return validated_success + ";" + stale_error + match.group(0).split(";", 1)[1]
+
+
+def _replace_provider_redispatch_result(match: re.Match[str]) -> str:
+    response = match.group("response")
+    validated_success = _validated_provider_dispatch_response(
+        response, match.group("success")
+    )
+    protocol_error = (
+        f'if("code"in {response}&&{response}.code==="EPROVIDERENV")'
+        f'throw Object.assign(Error({response}.error),{{code:"EPROVIDERENV"}});'
+    )
+    return validated_success + ";" + protocol_error
+
+
+def _replace_provider_daemon_ack(match: re.Match[str]) -> str:
+    return match.group(0).replace(
+        f'op:{match.group("op")},',
+        f'op:{match.group("op")},providerEnvVersion:{_PROVIDER_ENV_PROTOCOL_VERSION},',
+    )
+
+
+def _replace_provider_control(match: re.Match[str]) -> str:
+    request = match.group("request")
+    respond = match.group("respond")
+    socket = match.group("socket")
+    version = _PROVIDER_ENV_PROTOCOL_VERSION
+    capability_check = (
+        f'if({request}.providerEnvVersion!=={version}||{request}.providerEnv===void 0)'
+        f'return {respond}({socket},{{ok:!1,error:"Background provider environment '
+        'protocol mismatch. Restart the stale Claude Code daemon and try again",'
+        'code:"EPROVIDERENV"});'
+    )
+    original = match.group(0)
+    original = original.replace(
+        f"if(await {match.group('yield')}(0)",
+        f"{capability_check}if(await {match.group('yield')}(0)",
+    )
+    return original.replace(
+        f'{match.group("dispatch_cb")}({request}.d)',
+        f'{match.group("dispatch_cb")}({request}.d,0,void 0,{request}.providerEnv)',
+    )
+
+
+def _replace_provider_worker(match: re.Match[str]) -> str:
+    env = match.group("env")
+    prefix = match.group(0)[: -len("if(process.env.")].replace(
+        f'{match.group("socket_auth")}){{',
+        f'{match.group("socket_auth")},_ccProviderEnv){{',
+    )
+    return (
+        f"{prefix}let _ccProviderPayload="
+        "_ccProviderRetain(_ccProviderEnv);"
+        f'{env}.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT='
+        "JSON.stringify(_ccProviderPayload);"
+        f"for(let _ccKey of _ccProviderKeys())delete {env}[_ccKey];"
+        f"for(let[_ccKey,_ccValue]of Object.entries(_ccProviderPayload))"
+        f"if(_ccValue!==null){env}[_ccKey]=_ccValue;if(process.env."
+    )
+
+
+def _replace_provider_worker_final(match: re.Match[str]) -> str:
+    env = match.group("env")
+    return (
+        match.group("prefix")
+        + f"for(let _ccKey of _ccProviderKeys())delete {env}[_ccKey];"
+        + "for(let[_ccKey,_ccValue]of Object.entries(_ccProviderPayload))"
+        + f"if(_ccValue!==null){env}[_ccKey]=_ccValue;return {env}}}"
+    )
+
+
+def _provider_final_apply(payload: str) -> str:
+    return f"_ccProviderApplyFinal({payload});"
+
+
+def _replace_provider_claimed_entry(match: re.Match[str]) -> str:
+    prefix = match.group("prefix").replace(
+        "{",
+        f"{{_ccProviderWorkerEnv=_ccProviderCaptureTransport({match.group('claim')}.env);",
+        1,
+    )
+    return (
+        prefix
+        + ","
+        + match.group("initializers")
+        + f";let{{main:{match.group('worker_main')}}}=await {match.group('main')};"
+        + _provider_final_apply("_ccProviderWorkerEnv")
+        + f"await {match.group('worker_main')}()}}"
+    )
+
+
+def _replace_provider_preact_start(match: re.Match[str]) -> str:
+    return match.group("hook")
+
+
+def _replace_provider_preact_initialized(match: re.Match[str]) -> str:
+    return (
+        match.group(0)
+        + ",_ccProviderWorkerEnv&&_ccProviderApplyFinal(_ccProviderWorkerEnv)"
+    )
+
+
+def _replace_provider_operational_entry(match: re.Match[str]) -> str:
+    return (
+        match.group("guard")
+        + f"{match.group('settings')}(),{match.group('telemetry')}(_ccProviderWorkerEnv);"
+        + "if(_ccProviderWorkerEnv)_ccProviderApplyFinal(_ccProviderWorkerEnv);"
+        + f"let {match.group('start')}=performance.now(),"
+    )
+
+
+def _replace_provider_delayed_settings(match: re.Match[str]) -> str:
+    return (
+        f"function {match.group('telemetry')}(_ccProviderWorkerEnv){{{match.group('prefix')}"
+        f"{match.group('wait')}().then(async()=>{{{match.group('loaded')}"
+        f"{match.group('settings')}(),_ccProviderWorkerEnv&&"
+        "_ccProviderApplyFinal(_ccProviderWorkerEnv),"
+        f"await {match.group('initialize')}()"
+    )
+
+
+def _replace_provider_constructor(match: re.Match[str]) -> str:
+    return (
+        f'constructor({match.group("job")},{match.group("spawn")},'
+        f'{match.group("auth")},{match.group("via")},{match.group("record")},'
+        f'_ccProviderEnv){{this.providerEnv=_ccProviderRetain(_ccProviderEnv);this.dispatch='
+        f'{match.group("job")};'
+    )
+
+
+def _replace_provider_claimed_spare_frame(match: re.Match[str]) -> str:
+    original = match.group(0)
+    original = original.replace(
+        f'{match.group("auth")}){{', f'{match.group("auth")},_ccProviderEnv){{'
+    )
+    original = original.replace(
+        f'{match.group("options")});', f'{match.group("options")},_ccProviderEnv);'
+    )
+    return original.replace(
+        f'{match.group("spare")}.claimAuth))',
+        f'{match.group("spare")}.claimAuth,_ccProviderEnv))',
+    )
+
+
+def _replace_provider_manager_dispatch(match: re.Match[str]) -> str:
+    original = match.group(0).replace(
+        f'{match.group("after_upgrade")})=>',
+        f'{match.group("after_upgrade")},_ccProviderEnv)=>',
+    )
+    return original + "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);"
+
+
+BACKGROUND_PROVIDER_ENV = PatchSet(
+    name="background-provider-environment",
+    patches=(
+        Patch(
+            "snapshot-transient-provider-env",
+            _PROVIDER_ENV_SNAPSHOT,
+            _replace_provider_snapshot,
+        ),
+        Patch(
+            "stop-persisting-provider-env",
+            _PROVIDER_ENV_PERSISTED_DEFAULT,
+            lambda match: (
+                f'{match.group("isolation")}={match.group("source")}==="repl"?'
+                f'"none":{match.group("options")}?.bgIsolation,'
+                f'{match.group("provider")}=void 0,'
+            ),
+        ),
+        Patch(
+            "remove-provider-env-from-state-writes",
+            _PROVIDER_ENV_STATE_WRITE,
+            lambda match: match.group(0).replace(
+                f'...{match.group("rest")}',
+                f'providerEnv:_ccProviderEnv,...{match.group("rest")}',
+            ),
+        ),
+        Patch(
+            "remove-provider-env-from-state-view",
+            _PROVIDER_ENV_STATE_VIEW,
+            "bgIsolation:" + r"\g<job>" + ".bgIsolation,",
+        ),
+        Patch("remove-provider-env-from-state-schema", _PROVIDER_ENV_STATE_SCHEMA, ""),
+        Patch("remove-provider-env-from-job-copy", _PROVIDER_ENV_JOB_COPY, ""),
+        Patch(
+            "remove-provider-env-from-seed-state",
+            _PROVIDER_ENV_SEED_STATE,
+            "sessionPermissionRules:",
+        ),
+        Patch(
+            "remove-provider-env-from-respawn-guard", _PROVIDER_ENV_RESPAWN_GUARD, ""
+        ),
+        Patch(
+            "remove-provider-env-from-respawn-options", _PROVIDER_ENV_RESPAWN_OPTION, ""
+        ),
+        Patch(
+            "add-control-provider-env", _PROVIDER_ENV_SCHEMA, _replace_provider_schema
+        ),
+        Patch(
+            "send-provider-env-over-socket",
+            _PROVIDER_ENV_SOCKET,
+            _replace_provider_socket,
+        ),
+        Patch(
+            "reject-stale-daemon-without-file-fallback",
+            _PROVIDER_ENV_SOCKET_RESULT,
+            _replace_provider_socket_result,
+        ),
+        Patch(
+            "validate-ack-timeout-redispatch",
+            _PROVIDER_ENV_REDISPATCH_RESULT,
+            _replace_provider_redispatch_result,
+        ),
+        Patch(
+            "acknowledge-provider-env-version",
+            _PROVIDER_ENV_DAEMON_ACK,
+            _replace_provider_daemon_ack,
+        ),
+        Patch(
+            "pass-provider-env-to-manager",
+            _PROVIDER_ENV_CONTROL,
+            _replace_provider_control,
+        ),
+        Patch(
+            "declare-worker-provider-env",
+            _PROVIDER_ENV_MANAGER,
+            lambda match: match.group(0).replace("dispatch;", "dispatch;providerEnv;"),
+        ),
+        Patch(
+            "store-worker-provider-env",
+            _PROVIDER_ENV_CONSTRUCTOR,
+            _replace_provider_constructor,
+        ),
+        Patch(
+            "thread-provider-env-through-spawn",
+            _PROVIDER_ENV_STATIC_SPAWN,
+            lambda match: (
+                match.group(0)
+                .replace('"cold")', '"cold",_ccProviderEnv)')
+                .replace(
+                    f'{match.group("options")})',
+                    f'{match.group("options")},_ccProviderEnv)',
+                )
+            ),
+        ),
+        Patch(
+            "thread-provider-env-through-claim",
+            _PROVIDER_ENV_STATIC_CLAIM,
+            lambda match: (
+                f'static claim({match.group("job")},{match.group("options")},_ccProviderEnv){{let {match.group("worker")}=new {match.group("class_name")}({match.group("job")},{match.group("options")}.spawnPty,{match.group("options")}.getAuthSnapshot,"spare",{match.group("record")},_ccProviderEnv);'
+            ),
+        ),
+        Patch(
+            "apply-provider-env-to-claim-frame",
+            _PROVIDER_ENV_CLAIM_FRAME,
+            lambda match: (
+                match.group(0)
+                .replace(
+                    f'{match.group("auth")})', f'{match.group("auth")},_ccProviderEnv)'
+                )
+                .replace(
+                    f'{match.group("auth")}){{',
+                    f'{match.group("auth")},_ccProviderEnv){{',
+                )
+            ),
+        ),
+        Patch(
+            "apply-provider-env-to-respawns",
+            _PROVIDER_ENV_DO_SPAWN,
+            lambda match: match.group(0).replace(
+                "this.socketAuth());", "this.socketAuth(),this.providerEnv);"
+            ),
+        ),
+        Patch(
+            "thread-provider-env-through-claimed-spare-frame",
+            _PROVIDER_ENV_CLAIMED_SPARE_FRAME,
+            _replace_provider_claimed_spare_frame,
+        ),
+        Patch(
+            "thread-provider-env-to-claim-frame",
+            _PROVIDER_ENV_BUILD_CLAIM_CALL,
+            lambda match: (
+                match.group(0)
+                .replace(
+                    f'{match.group("claim_auth")}){{',
+                    f'{match.group("claim_auth")},_ccProviderEnv){{',
+                )
+                .replace(
+                    f'{match.group("auth")});',
+                    f'{match.group("auth")},_ccProviderEnv);',
+                )
+            ),
+        ),
+        Patch(
+            "accept-transient-provider-env-in-manager",
+            _PROVIDER_ENV_MANAGER_DISPATCH,
+            _replace_provider_manager_dispatch,
+        ),
+        Patch(
+            "retain-provider-env-while-worker-settles",
+            _PROVIDER_ENV_MANAGER_RETRY,
+            lambda match: match.group(0)[:-1] + ",_ccProviderEnv)",
+        ),
+        Patch(
+            "pass-provider-env-to-claimed-spare",
+            _PROVIDER_ENV_MANAGER_CLAIM,
+            lambda match: f'{match.group(0)[:-1]},_ccProviderEnv)',
+        ),
+        Patch(
+            "pass-provider-env-to-cold-worker",
+            _PROVIDER_ENV_MANAGER_SPAWN,
+            lambda match: f'{match.group(0)[:-1]},_ccProviderEnv)',
+        ),
+        Patch(
+            "scrub-worker-provider-env", _PROVIDER_ENV_WORKER, _replace_provider_worker
+        ),
+        Patch(
+            "restore-provider-env-after-native-worker-scrubs",
+            _PROVIDER_ENV_WORKER_FINAL,
+            _replace_provider_worker_final,
+        ),
+        Patch(
+            "apply-provider-env-after-claimed-initializers",
+            _PROVIDER_ENV_CLAIMED_ENTRY,
+            _replace_provider_claimed_entry,
+        ),
+        Patch(
+            "capture-worker-provider-env-before-settings",
+            _PROVIDER_ENV_PREACTION_START,
+            _replace_provider_preact_start,
+        ),
+        Patch(
+            "restore-provider-env-after-settings-initializer",
+            _PROVIDER_ENV_PREACTION_INITIALIZED,
+            _replace_provider_preact_initialized,
+        ),
+        Patch(
+            "restore-provider-env-at-operational-entry",
+            _PROVIDER_ENV_OPERATIONAL_ENTRY,
+            _replace_provider_operational_entry,
+        ),
+        Patch(
+            "restore-provider-env-after-delayed-settings",
+            _PROVIDER_ENV_DELAYED_SETTINGS,
+            _replace_provider_delayed_settings,
+        ),
+    ),
+    verify_present=(
+        re.compile(r'function _ccProviderKeys\(\)\{if\('),
+        re.compile(r'function _ccRequireProviderEnv\('),
+        re.compile(r'function _ccProviderRetain\('),
+        re.compile(r'let _ccProviderWorkerEnv=_ccProviderCaptureTransport\(\)'),
+        re.compile(r'providerEnvVersion:1,providerEnv:[\w$]+\(\),timeoutMs:5000'),
+        re.compile(r'op:[\w$]+,providerEnvVersion:1,short:'),
+        re.compile(r'[\w$]+\.providerEnvVersion!==1'),
+        re.compile(
+            r'throw Object\.assign\(Error\([\w$]+\.error\),\{code:"EPROVIDERENV"\}\)'
+        ),
+        re.compile(r'"CLAUDE_CODE_CERT_STORE"'),
+        re.compile(r'"VERTEX_REGION_CLAUDE_FABLE_5"'),
+        re.compile(r'"VERTEX_REGION_CLAUDE_4_8_OPUS"'),
+        re.compile(r'"VERTEX_REGION_CLAUDE_4_0_SONNET"'),
+        re.compile(r'protocol mismatch\. Restart the stale Claude Code daemon'),
+        re.compile(r'for\(let _ccKey of _ccProviderKeys\(\)\)delete process\.env'),
+        re.compile(r'this\.providerEnv=_ccProviderRetain\(_ccProviderEnv\)'),
+        re.compile(r'providerEnv:_ccProviderEnv,\.\.\.[\w$]+'),
+    ),
+    verify_absent=(
+        re.compile(r'providerEnv:[\w$]+\?\.providerEnv'),
+        re.compile(r'providerEnv:[\w$]+\(\),sessionPermissionRules'),
+        re.compile(r'\.providerEnv&&\{providerEnv:'),
+        re.compile(r'providerEnv:[\w$]+\.record\([\w$]+\.string\(\),[\w$]+\.string'),
+        re.compile(r'_ccProviderSnapshotFromEnv'),
+    ),
+    min_version=_V_2_1_174,
+    max_version=(2, 1, 175),
+    requires_version=True,
 )
 
 # --- Catppuccin Macchiato syntax highlighting (2.1.151+) ---------------------
@@ -631,28 +1379,32 @@ _KIMI_VERBS = [
 _KIMI_SYMBOLS = ["·", "•", "◦", "•"]
 
 
-# Commit/PR co-author. Claude Code computes it as
-# `recognizedClaudeModel ? "Claude "+name : "Claude Fable 5"`; our providers'
-# models aren't recognized, so it falls back to "Claude Fable 5". We replace the
-# whole ternary with a lookup of the *runtime* model id (H = group 3) in a
-# per-brand display-name map, falling back to the raw id (`??H`). So a glm-5-turbo
-# session attributes to "GLM 5 Turbo", not a fixed flagship name. The map is keyed
-# lowercase and H is lowercased at lookup, since Claude Code lowercases the id.
-# Brand-only -- the plain `claude` build keeps the Claude display name. The other
-# "Claude Fable 5" (the Fable model constant) lacks the ternary, so it is untouched.
+# Commit/PR co-author. Versions 2.1.170-2.1.173 use "Claude Fable 5" or
+# "Claude" as the fallback name. Version 2.1.174 first handles Fable with a
+# first-party model constant. Replace both expression forms with a brand-specific
+# lookup. Map keys must be lowercase because the lookup normalizes the model ID.
+# Apply this patch only to branded builds. The plain build keeps the Claude name.
 _ATTRIBUTION_RE = re.compile(
-    r'([\w$]+)=([\w$]+)\(([\w$]+)\)!==null\?([\w$]+)\(\3\):"Claude Fable 5"'
+    rf"(?P<var>{_ID})={_ID}\((?P<model>{_ID})\)"
+    rf'(?:!==null\?{_ID}\((?P=model)\):"(?:Claude Fable 5|Claude)"'
+    rf'|\?(?P<format>{_ID})\({_ID}\.firstParty\):{_ID}\((?P=model)\)'
+    r'\?(?P=format)\((?P=model)\):"Claude")'
 )
 
 
 def _attribution_patch(model_map: dict[str, str]) -> Patch:
     table = json.dumps(model_map, ensure_ascii=False, separators=(",", ":"))
 
-    def repl(m: re.Match[str]) -> str:
-        var, model = m.group(1), m.group(3)
+    def replace_attribution(match: re.Match[str]) -> str:
+        var = match.group("var")
+        model = match.group("model")
         return f"{var}=({table})[(''+{model}).toLowerCase()]??{model}"
 
-    return Patch(name="attribution-model", pattern=_ATTRIBUTION_RE, replacement=repl)
+    return Patch(
+        name="attribution-model",
+        pattern=_ATTRIBUTION_RE,
+        replacement=replace_attribution,
+    )
 
 
 _ZAI_VERBS = [
@@ -852,7 +1604,7 @@ def _provider_brand(
         patches=patches,
         verify_present=present,
         verify_absent=(
-            re.compile(r'!==null\?[\w$]+\([\w$]+\):"Claude Fable 5"'),
+            _ATTRIBUTION_RE,
             re.compile(
                 r"\.hasCompletedOnboarding\|\|\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"
             ),
@@ -1059,6 +1811,7 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
         thinking_expanded(version),
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
+        BACKGROUND_PROVIDER_ENV,
         CATPPUCCIN_SYNTAX,
         THINKING_SUMMARIES_NONINTERACTIVE,
         COMPACT_SESSION,

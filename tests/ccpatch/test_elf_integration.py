@@ -20,30 +20,40 @@ import pytest
 
 from wlrenv.ccpatch.bunfmt import parse_blob, rebuild_blob
 from wlrenv.ccpatch.container import load_container
-from wlrenv.ccpatch.patches import COMPACT_SESSION, PatchError
+from wlrenv.ccpatch.patches import (
+    _PROVIDER_ENV_EXPLICIT_KEYS,
+    BACKGROUND_PROVIDER_ENV,
+    COMPACT_SESSION,
+    PatchError,
+)
 
 
-def _find_binary() -> Path | None:
+def _find_binary() -> tuple[Path | None, bool]:
     env = os.environ.get("CCPATCH_TEST_BINARY")
     if env and Path(env).is_file():
-        return Path(env)
+        return Path(env), True
 
     launcher = Path.home() / ".nix-profile/bin/claude"
     if launcher.is_file():
         binary = launcher.resolve().parent.parent / "libexec/claude-code/claude"
         if binary.is_file():
-            return binary
+            return binary, False
 
-    return None
+    return None, False
 
 
 @pytest.fixture(scope="module")
-def binary_bytes() -> bytes:
-    path = _find_binary()
+def binary_info() -> tuple[bytes, bool]:
+    path, explicit = _find_binary()
     if path is None:
         pytest.skip("no Claude Bun binary found (set CCPATCH_TEST_BINARY)")
     assert path is not None  # narrow type: pytest.skip above does not return
-    return path.read_bytes()
+    return path.read_bytes(), explicit
+
+
+@pytest.fixture(scope="module")
+def binary_bytes(binary_info: tuple[bytes, bool]) -> bytes:
+    return binary_info[0]
 
 
 def test_real_blob_round_trips(binary_bytes: bytes) -> None:
@@ -66,6 +76,140 @@ def test_write_blob_is_loadable_again(binary_bytes: bytes) -> None:
     # The rewritten file must re-parse as a valid container + blob.
     blob2 = parse_blob(load_container(new_file).read_blob())
     assert blob2 == blob
+
+
+def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
+    binary_bytes, explicit = binary_info
+    source = _entry_source(binary_bytes)
+    if 'VERSION:"2.1.174"' not in source:
+        if explicit:
+            pytest.fail("CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174")
+    if "providerEnvVersion:1,providerEnv:AW9()" in source:
+        if explicit:
+            pytest.fail("CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174")
+        pytest.skip("installed Claude Code 2.1.174 binary is already patched")
+    return source, BACKGROUND_PROVIDER_ENV.apply(source)
+
+
+def test_patched_binary_help_initializes_on_opt_in_host() -> None:
+    configured = os.environ.get("CCPATCH_TEST_PATCHED_BINARY")
+    if configured is None:
+        pytest.skip("set CCPATCH_TEST_PATCHED_BINARY for the host-side help test")
+    path = Path(configured)
+    if not path.is_file():
+        pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
+    source = _entry_source(path.read_bytes())
+    if 'VERSION:"2.1.174"' not in source or "providerEnvVersion:1" not in source:
+        pytest.fail(
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174"
+        )
+
+    try:
+        proc = subprocess.run(  # noqa: S603 - explicit opt-in test binary
+            [str(path), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "DISABLE_AUTOUPDATER": "1"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"patched binary --help timed out: {exc}")
+    except OSError as exc:
+        if exc.errno in {8, 13}:
+            pytest.skip(f"patched binary loader is unsupported on this host: {exc}")
+        raise
+
+    assert proc.returncode == 0, proc.stderr
+    assert "Usage:" in proc.stdout
+
+
+def test_real_source_secures_background_provider_environment(
+    binary_info: tuple[bytes, bool],
+) -> None:
+    source, patched = _provider_sources(binary_info)
+    vertex_region_keys = set(re.findall(r"VERTEX_REGION_CLAUDE_[A-Z0-9_]+", source))
+    assert vertex_region_keys == {
+        key for key in _PROVIDER_ENV_EXPLICIT_KEYS if key.startswith("VERTEX_REGION_")
+    }
+    assert '"CLAUDE_CODE_CERT_STORE"' in patched
+    assert patched.count("providerEnvVersion:1,providerEnv:AW9()") == 2
+    assert "providerEnvVersion:1,short:" in patched
+    assert patched.count(".providerEnvVersion!==1") == 3
+    assert patched.count('code==="EPROVIDERENV"') == 2
+    assert 'throw Object.assign(Error(' in patched
+    for key in _PROVIDER_ENV_EXPLICIT_KEYS:
+        assert f'"{key}"' in patched
+    assert "W0q(H,$,q,K,_ccProviderEnv)" in patched
+    assert "UVA(H,f,_.socketAuth(),$.claimAuth,_ccProviderEnv)" in patched
+    assert "UVA(H,$,q,K,_ccProviderEnv)" in patched
+    assert "wd.buildClaimFrame(H,$,q,_ccProviderEnv)" in patched
+    assert "D(E,I+1,R,_ccProviderEnv)" in patched
+    assert "D(I.dispatch,0,!0)" in patched
+    assert "Ea9((E)=>void D(E)" in patched
+    assert "dispatch:(E)=>void D(E)" in patched
+    manager_start = patched.index("D=async(E,I=0,R,_ccProviderEnv)=>{")
+    assert (
+        patched[manager_start : manager_start + 180].count(
+            "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);"
+        )
+        == 1
+    )
+    assert "for(let _ccKey of _ccProviderKeys())delete process.env[_ccKey]" in patched
+    assert "providerEnv:k.record(k.enum(_ccProviderKeys())" in patched
+    assert "K?.providerEnv??AW9()" not in patched
+    assert "providerEnv:AW9(),sessionPermissionRules" not in patched
+    assert "providerEnv:v?.providerEnv" not in patched
+    assert "providerEnv:H.providerEnv" not in patched
+    assert "...K.providerEnv&&{providerEnv:K.providerEnv}" not in patched
+    file_fallback = patched[patched.index("let D=IH({...H,nonce:O})") :]
+    assert (
+        "providerEnv" not in file_fallback[: file_fallback.index("await jO(A,D,384)")]
+    )
+    assert "Restart the stale Claude Code daemon and try again" in patched
+
+    builder_start = patched.index("function I09(")
+    builder = patched[
+        builder_start : patched.index("async function pXq", builder_start)
+    ]
+    payload = "let _ccProviderPayload=_ccProviderRetain(_ccProviderEnv)"
+    initial_apply = "Object.entries(_ccProviderPayload)"
+    native_scrubs = ("for(let z of UXq)", "for(let z of FXq)", "WG$.some")
+    final_apply = "Object.entries(_ccProviderPayload)"
+    assert builder.index(payload) < builder.index(initial_apply)
+    for native_scrub in native_scrubs:
+        assert builder.index(initial_apply) < builder.index(native_scrub)
+        assert builder.index(native_scrub) < builder.rindex(final_apply)
+    assert builder.rindex(final_apply) < builder.index("return A}")
+    assert "_ccProviderSnapshotFromEnv" not in builder
+    assert (
+        "A.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT=JSON.stringify(_ccProviderPayload)"
+        in builder
+    )
+
+    claimed_start = patched.index("async function pXq")
+    claimed = patched[claimed_start : claimed_start + 1300]
+    capture = "_ccProviderWorkerEnv=_ccProviderCaptureTransport("
+    assert (
+        claimed.index(capture)
+        < claimed.index("Object.assign(process.env,")
+        < claimed.index("_ccProviderApplyFinal(_ccProviderWorkerEnv)")
+        < claimed.index("await ")
+    )
+    assert "_ccProviderSnapshotFromEnv" not in patched
+
+    delayed_start = patched.index("Vy$().then(async()=>")
+    delayed = patched[delayed_start : delayed_start + 500]
+    assert (
+        delayed.index("Ko()")
+        < delayed.index("_ccProviderApplyFinal(_ccProviderWorkerEnv)")
+        < delayed.index("await vLq()")
+    )
+    operational_start = patched.index("Ko(),CB$(_ccProviderWorkerEnv)")
+    operational = patched[operational_start : operational_start + 250]
+    assert operational.index("CB$(_ccProviderWorkerEnv)") < operational.index(
+        "_ccProviderApplyFinal(_ccProviderWorkerEnv)"
+    )
 
 
 # --- runtime shape-completeness of the injected compact_session tool ----------

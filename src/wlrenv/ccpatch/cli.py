@@ -100,23 +100,37 @@ def _entry_source(data: bytes) -> str:
     return _decode(entry.contents)
 
 
-def _smoke_test(path: Path) -> str:
-    """Run ``<binary> --version``; return the version line or raise."""
+def _run_smoke_command(path: Path, argument: str) -> subprocess.CompletedProcess[str]:
     try:
-        result = subprocess.run(  # noqa: S603  # trusted constructed path
-            [str(path), "--version"],
+        return subprocess.run(  # noqa: S603  # trusted constructed path
+            [str(path), argument],
             capture_output=True,
             text=True,
             timeout=60,
             env={**os.environ, "DISABLE_AUTOUPDATER": "1"},
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ApplyError(f"patched binary failed to run: {exc}") from exc
-    line = (result.stdout or "").splitlines()[0] if result.stdout else ""
-    if result.returncode != 0 or not _CLAUDE_VERSION_RE.search(line):
+        raise ApplyError(f"patched binary failed to run {argument}: {exc}") from exc
+
+
+def _smoke_test(path: Path) -> str:
+    """Run startup-only CLI commands; return the reported version or raise."""
+    version_result = _run_smoke_command(path, "--version")
+    line = (
+        (version_result.stdout or "").splitlines()[0] if version_result.stdout else ""
+    )
+    if version_result.returncode != 0 or not _CLAUDE_VERSION_RE.search(line):
         raise ApplyError(
             "smoke test failed: binary did not report a Claude version "
-            f"(exit {result.returncode}, output {line!r}). Possible Bun fallback."
+            f"(exit {version_result.returncode}, output {line!r}). Possible Bun fallback."
+        )
+
+    help_result = _run_smoke_command(path, "--help")
+    if help_result.returncode != 0 or "Usage:" not in help_result.stdout:
+        detail = (help_result.stderr or help_result.stdout).strip().splitlines()
+        raise ApplyError(
+            "smoke test failed: binary did not initialize CLI help "
+            f"(exit {help_result.returncode}, output {detail[-1] if detail else ''!r})"
         )
     return line
 
