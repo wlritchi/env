@@ -24,6 +24,7 @@ from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_EXPLICIT_KEYS,
     BACKGROUND_PROVIDER_ENV,
     COMPACT_SESSION,
+    MULTI_PROVIDER_SDK,
     PatchError,
 )
 
@@ -85,7 +86,7 @@ def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
         if explicit:
             pytest.fail("CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174")
         pytest.skip("installed binary is not pristine Claude Code 2.1.174")
-    if "providerEnvVersion:1,providerEnv:AW9()" in source:
+    if "providerEnvVersion:2,providerEnv:AW9()" in source:
         if explicit:
             pytest.fail("CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174")
         pytest.skip("installed Claude Code 2.1.174 binary is already patched")
@@ -100,7 +101,7 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     if not path.is_file():
         pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
     source = _entry_source(path.read_bytes())
-    if 'VERSION:"2.1.174"' not in source or "providerEnvVersion:1" not in source:
+    if 'VERSION:"2.1.174"' not in source or "providerEnvVersion:2" not in source:
         pytest.fail(
             "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174"
         )
@@ -133,9 +134,9 @@ def test_real_source_secures_background_provider_environment(
         key for key in _PROVIDER_ENV_EXPLICIT_KEYS if key.startswith("VERTEX_REGION_")
     }
     assert '"CLAUDE_CODE_CERT_STORE"' in patched
-    assert patched.count("providerEnvVersion:1,providerEnv:AW9()") == 2
-    assert "providerEnvVersion:1,short:" in patched
-    assert patched.count(".providerEnvVersion!==1") == 3
+    assert patched.count("providerEnvVersion:2,providerEnv:AW9()") == 2
+    assert "providerEnvVersion:2,short:" in patched
+    assert patched.count(".providerEnvVersion!==2") == 3
     assert patched.count('code==="EPROVIDERENV"') == 2
     assert 'throw Object.assign(Error(' in patched
     for key in _PROVIDER_ENV_EXPLICIT_KEYS:
@@ -187,29 +188,63 @@ def test_real_source_secures_background_provider_environment(
         in builder
     )
 
-    claimed_start = patched.index("async function pXq")
-    claimed = patched[claimed_start : claimed_start + 1300]
     capture = "_ccProviderWorkerEnv=_ccProviderCaptureTransport("
-    assert (
-        claimed.index(capture)
-        < claimed.index("Object.assign(process.env,")
-        < claimed.index("_ccProviderApplyFinal(_ccProviderWorkerEnv)")
-        < claimed.index("await ")
-    )
+    capture_start = patched.index(capture, patched.index("async function O09"))
+    claimed_start = patched.rfind("async function ", 0, capture_start)
+    claimed = patched[claimed_start : capture_start + 2000]
+    assign = claimed.index("Object.assign(process.env,", claimed.index(capture))
+    final_apply = claimed.index("_ccProviderApplyWorkerFinal()", assign)
+    assert claimed.index(capture) < assign < final_apply
+    assert final_apply < claimed.index("await ", final_apply)
     assert "_ccProviderSnapshotFromEnv" not in patched
 
     delayed_start = patched.index("Vy$().then(async()=>")
     delayed = patched[delayed_start : delayed_start + 500]
     assert (
         delayed.index("Ko()")
-        < delayed.index("_ccProviderApplyFinal(_ccProviderWorkerEnv)")
+        < delayed.index("_ccProviderApplyWorkerFinal()")
         < delayed.index("await vLq()")
     )
     operational_start = patched.index("Ko(),CB$(_ccProviderWorkerEnv)")
     operational = patched[operational_start : operational_start + 250]
     assert operational.index("CB$(_ccProviderWorkerEnv)") < operational.index(
-        "_ccProviderApplyFinal(_ccProviderWorkerEnv)"
+        "_ccProviderApplyWorkerFinal()"
     )
+
+
+def test_real_source_routes_multi_provider_sdk(
+    binary_info: tuple[bytes, bool],
+) -> None:
+    _, provider_patched = _provider_sources(binary_info)
+    patched = MULTI_PROVIDER_SDK.apply(provider_patched)
+
+    assert "const _ccMultiProviderSDK=()=>GC" in patched
+    assert patched.count("_ccMultiProviderRoute(") == 5
+    assert patched.count("let _ccRequest=") >= 2
+    assert "_ccMultiProviderCatalog.find" in patched
+    for model in (
+        "kimi:kimi-k2.7-code",
+        "zai:glm-5.2",
+        "zai:glm-5-turbo",
+        "zai:glm-4.5-air",
+        "minimax:MiniMax-M2.7",
+    ):
+        assert model in patched
+    assert "CC_KIMI_AUTH_TOKEN" in patched
+    assert "CC_ZAI_AUTH_TOKEN" in patched
+    assert "CC_MINIMAX_AUTH_TOKEN" in patched
+    assert "apiKey:null,authToken:_ccToken,maxRetries:0" in patched
+    assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
+    assert "_ccMultiProviderRoute(z,_ccRequest)" in patched
+    assert "_ccClient.beta.messages.countTokens(_ccOutbound)" in patched
+    assert 'K?.code==="EPROVIDERCREDENTIAL"||_ccMultiProviderModelInfo(q)' in patched
+    assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
+    assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
+    verification = patched[
+        patched.index("async function xG9") : patched.index("function p7A")
+    ]
+    assert "_ccMultiProviderRoute" not in verification
+    assert "source:\"verify_api_key\"" in verification
 
 
 # --- runtime shape-completeness of the injected compact_session tool ----------

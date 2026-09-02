@@ -33,6 +33,20 @@ class ModelCosts(TypedDict):
 ModelCostsByModel = dict[str, ModelCosts]
 
 
+class MultiProviderModel(TypedDict):
+    wireModel: str
+    label: str
+    description: str
+
+
+class MultiProviderDefinition(TypedDict):
+    provider: str
+    baseURL: str
+    tokenEnv: str
+    defaultHeaders: dict[str, str]
+    models: tuple[MultiProviderModel, ...]
+
+
 class PatchError(RuntimeError):
     """A patch failed to match, or post-apply verification failed."""
 
@@ -310,7 +324,7 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
 # current provider configuration for each authenticated socket dispatch. Do not
 # store this configuration in job files. A null value removes a value that a
 # cold or prewarmed worker inherited from an earlier process.
-_PROVIDER_ENV_PROTOCOL_VERSION = 1
+_PROVIDER_ENV_PROTOCOL_VERSION = 2
 _PROVIDER_ENV_GROUPS = re.compile(
     rf'(?P<selection>{_ID})=\["CLAUDE_CODE_USE_BEDROCK",'
     rf'(?P<selection_tail>.{{0,1000}}?)\],(?P<base_urls>{_ID})='
@@ -383,7 +397,8 @@ _PROVIDER_ENV_WORKER_FINAL = re.compile(
     rf'return (?P<env>{_ID})\}}'
 )
 _PROVIDER_ENV_PATCHED_SNAPSHOT = re.compile(
-    rf'function _ccProviderKeys\(\).{{0,5000}}?function (?P<snapshot>{_ID})\(\)'
+    rf'function _ccProviderKeys\(\).{{0,7000}}?function (?P<snapshot>{_ID})\(\)'
+    rf'\{{let {_ID}=\{{\}};for\(let {_ID} of _ccProviderKeys\(\)\)'
 )
 _PROVIDER_ENV_MANAGER = re.compile(
     rf'(?P<class_name>{_ID})\{{dispatch;spawnPty;getAuthSnapshot;via;record;'
@@ -543,6 +558,9 @@ _PROVIDER_ENV_EXPLICIT_KEYS = (
     "ANTHROPIC_BEDROCK_SERVICE_TIER",
     "ANTHROPIC_CUSTOM_HEADERS",
     "CLAUDE_CODE_CERT_STORE",
+    "CC_KIMI_AUTH_TOKEN",
+    "CC_ZAI_AUTH_TOKEN",
+    "CC_MINIMAX_AUTH_TOKEN",
     *_PROVIDER_ENV_VERTEX_REGION_KEYS,
 )
 
@@ -611,6 +629,11 @@ def _replace_provider_snapshot(match: re.Match[str]) -> str:
         'transport is invalid; dispatch again from the current Claude Code session"),'
         '{code:"EPROVIDERENV"})}return _ccProviderRetain(_ccProviderEnv)}'
         "let _ccProviderWorkerEnv=_ccProviderCaptureTransport();"
+        "function _ccProviderApplyWorkerFinal(){if(_ccProviderWorkerEnv!==null)"
+        "return _ccProviderApplyFinal(_ccProviderWorkerEnv);if(process.env."
+        'CLAUDE_CODE_SESSION_KIND==="bg")throw Object.assign(Error("Background provider '
+        "environment transient payload is unavailable; dispatch again from the current "
+        'Claude Code session"),{code:"EPROVIDERENV"})}'
         "function _ccProviderApplyFinal(_ccProviderEnv){"
         "_ccProviderEnv=_ccRequireProviderEnv(_ccProviderEnv);"
         "for(let _ccKey of _ccProviderKeys())delete process.env[_ccKey];"
@@ -743,6 +766,8 @@ def _replace_provider_worker_final(match: re.Match[str]) -> str:
 
 
 def _provider_final_apply(payload: str) -> str:
+    if payload == "_ccProviderWorkerEnv":
+        return "_ccProviderApplyWorkerFinal();"
     return f"_ccProviderApplyFinal({payload});"
 
 
@@ -767,17 +792,14 @@ def _replace_provider_preact_start(match: re.Match[str]) -> str:
 
 
 def _replace_provider_preact_initialized(match: re.Match[str]) -> str:
-    return (
-        match.group(0)
-        + ",_ccProviderWorkerEnv&&_ccProviderApplyFinal(_ccProviderWorkerEnv)"
-    )
+    return match.group(0) + ",_ccProviderApplyWorkerFinal()"
 
 
 def _replace_provider_operational_entry(match: re.Match[str]) -> str:
     return (
         match.group("guard")
         + f"{match.group('settings')}(),{match.group('telemetry')}(_ccProviderWorkerEnv);"
-        + "if(_ccProviderWorkerEnv)_ccProviderApplyFinal(_ccProviderWorkerEnv);"
+        + "_ccProviderApplyWorkerFinal();"
         + f"let {match.group('start')}=performance.now(),"
     )
 
@@ -786,8 +808,7 @@ def _replace_provider_delayed_settings(match: re.Match[str]) -> str:
     return (
         f"function {match.group('telemetry')}(_ccProviderWorkerEnv){{{match.group('prefix')}"
         f"{match.group('wait')}().then(async()=>{{{match.group('loaded')}"
-        f"{match.group('settings')}(),_ccProviderWorkerEnv&&"
-        "_ccProviderApplyFinal(_ccProviderWorkerEnv),"
+        f"{match.group('settings')}(),_ccProviderApplyWorkerFinal(),"
         f"await {match.group('initialize')}()"
     )
 
@@ -1023,9 +1044,9 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'function _ccRequireProviderEnv\('),
         re.compile(r'function _ccProviderRetain\('),
         re.compile(r'let _ccProviderWorkerEnv=_ccProviderCaptureTransport\(\)'),
-        re.compile(r'providerEnvVersion:1,providerEnv:[\w$]+\(\),timeoutMs:5000'),
-        re.compile(r'op:[\w$]+,providerEnvVersion:1,short:'),
-        re.compile(r'[\w$]+\.providerEnvVersion!==1'),
+        re.compile(r'providerEnvVersion:2,providerEnv:[\w$]+\(\),timeoutMs:5000'),
+        re.compile(r'op:[\w$]+,providerEnvVersion:2,short:'),
+        re.compile(r'[\w$]+\.providerEnvVersion!==2'),
         re.compile(
             r'throw Object\.assign\(Error\([\w$]+\.error\),\{code:"EPROVIDERENV"\}\)'
         ),
@@ -1044,6 +1065,374 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'\.providerEnv&&\{providerEnv:'),
         re.compile(r'providerEnv:[\w$]+\.record\([\w$]+\.string\(\),[\w$]+\.string'),
         re.compile(r'_ccProviderSnapshotFromEnv'),
+    ),
+    min_version=_V_2_1_174,
+    max_version=(2, 1, 175),
+    requires_version=True,
+)
+
+# --- in-process multi-provider Anthropic SDK routing (2.1.174 only) ----------
+
+_MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
+    {
+        "provider": "kimi",
+        "baseURL": "https://api.kimi.com/coding",
+        "tokenEnv": "CC_KIMI_AUTH_TOKEN",
+        "defaultHeaders": {"User-Agent": "KimiCLI/1.5"},
+        "models": (
+            {
+                "wireModel": "kimi-k2.7-code",
+                "label": "Kimi K2.7 Code",
+                "description": "Kimi coding model",
+            },
+        ),
+    },
+    {
+        "provider": "zai",
+        "baseURL": "https://api.z.ai/api/anthropic",
+        "tokenEnv": "CC_ZAI_AUTH_TOKEN",
+        "defaultHeaders": {},
+        "models": (
+            {
+                "wireModel": "glm-5.2",
+                "label": "GLM 5.2",
+                "description": "Z.ai coding model",
+            },
+            {
+                "wireModel": "glm-5-turbo",
+                "label": "GLM 5 Turbo",
+                "description": "Z.ai coding model",
+            },
+            {
+                "wireModel": "glm-4.5-air",
+                "label": "GLM 4.5 Air",
+                "description": "Z.ai coding model",
+            },
+        ),
+    },
+    {
+        "provider": "minimax",
+        "baseURL": "https://api.minimax.io/anthropic",
+        "tokenEnv": "CC_MINIMAX_AUTH_TOKEN",
+        "defaultHeaders": {},
+        "models": (
+            {
+                "wireModel": "MiniMax-M2.7",
+                "label": "MiniMax M2.7",
+                "description": "MiniMax coding model",
+            },
+        ),
+    },
+)
+_MULTI_PROVIDER_DEFINITIONS = json.dumps(
+    {
+        definition["provider"]: {
+            "baseURL": definition["baseURL"],
+            "tokenEnv": definition["tokenEnv"],
+            "defaultHeaders": definition["defaultHeaders"],
+            "models": [model["wireModel"] for model in definition["models"]],
+        }
+        for definition in _MULTI_PROVIDER_CATALOG_SOURCE
+    },
+    separators=(",", ":"),
+)
+_MULTI_PROVIDER_CATALOG = json.dumps(
+    [
+        {
+            "value": f'{definition["provider"]}:{model["wireModel"]}',
+            "label": model["label"],
+            "description": model["description"],
+        }
+        for definition in _MULTI_PROVIDER_CATALOG_SOURCE
+        for model in definition["models"]
+    ],
+    separators=(",", ":"),
+)
+_MULTI_PROVIDER_HELPER = (
+    f"const _ccMultiProviderDefinitions={_MULTI_PROVIDER_DEFINITIONS};"
+    f"const _ccMultiProviderCatalog={_MULTI_PROVIDER_CATALOG};"
+    'const _ccMultiProviderPrefixes=["kimi","zai","minimax"],'
+    '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"],'
+    '_ccMultiProviderTraceHeaders=["traceparent","tracestate","baggage"],'
+    "_ccMultiProviderClients=new Map;"
+    "function _ccMultiProviderModelError(_ccMessage){return Object.assign(Error("
+    '_ccMessage),{code:"EPROVIDERMODEL"})}'
+    "function _ccMultiProviderModelInfo(_ccModel){if(typeof _ccModel!==\"string\")"
+    "return null;let _ccSeparator=_ccModel.indexOf(\":\"),_ccProvider="
+    "_ccSeparator<0?null:_ccModel.slice(0,_ccSeparator),_ccWireModel="
+    "_ccSeparator<0?_ccModel:_ccModel.slice(_ccSeparator+1),_ccKnownWire="
+    "_ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value.slice("
+    "_ccEntry.value.indexOf(\":\")+1).toLowerCase()===_ccWireModel.toLowerCase()),"
+    "_ccCanonicalProvider=_ccProvider===null?null:_ccMultiProviderPrefixes.find("
+    "(_ccPrefix)=>_ccPrefix===_ccProvider.toLowerCase());if(_ccProvider===null){if("
+    "_ccKnownWire)throw _ccMultiProviderModelError(\"External model requires a "
+    "provider prefix: \"+_ccModel);return null}if(_ccCanonicalProvider&&_ccProvider!=="
+    "_ccCanonicalProvider)throw _ccMultiProviderModelError(\"Provider prefix must be "
+    "lowercase: \"+_ccProvider);if(!_ccCanonicalProvider){if(_ccKnownWire)throw "
+    "_ccMultiProviderModelError(\"External model has an unknown provider prefix: \"+"
+    "_ccModel);return null}if(!_ccWireModel.trim())throw _ccMultiProviderModelError("
+    '"Invalid qualified model: wire model is blank");let _ccDefinition='
+    "_ccMultiProviderDefinitions[_ccCanonicalProvider];if(!_ccDefinition.models.includes("
+    "_ccWireModel))throw _ccMultiProviderModelError(\"Unknown qualified model: \"+"
+    "_ccCanonicalProvider+\":\"+_ccWireModel);return{provider:"
+    "_ccCanonicalProvider,wireModel:_ccWireModel,definition:_ccDefinition}}"
+    "function _ccMultiProviderSafeFetchOptions(_ccOptions){if(!_ccOptions)return "
+    "_ccOptions;let{headers:_ccHeaders,..._ccSafe}=_ccOptions;return _ccSafe}"
+    "function _ccMultiProviderSafeOptions(_ccOptions){let _ccSafe={};if("
+    'Object.hasOwn(_ccOptions,"signal"))_ccSafe.signal=_ccOptions.signal;if('
+    'Object.hasOwn(_ccOptions,"timeout"))_ccSafe.timeout=_ccOptions.timeout;let '
+    "_ccHeaders={};for(let[_ccName,_ccValue]of Object.entries(_ccOptions.headers??{}))"
+    "if(_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase()))"
+    "_ccHeaders[_ccName]=_ccValue;if(Object.keys(_ccHeaders).length)_ccSafe.headers="
+    "_ccHeaders;return _ccSafe}"
+    "function _ccMultiProviderCredential(_ccInfo){let _ccToken=process.env["
+    "_ccInfo.definition.tokenEnv]?.trim();if(!_ccToken){_ccMultiProviderClients.delete("
+    "_ccInfo.provider);throw Object.assign(Error(\"Missing credential: \"+"
+    '_ccInfo.definition.tokenEnv),{code:"EPROVIDERCREDENTIAL"})}return _ccToken}'
+    "function _ccMultiProviderPreflight(_ccModel){let _ccInfo="
+    "_ccMultiProviderModelInfo(_ccModel);if(_ccInfo)_ccMultiProviderCredential(_ccInfo)}"
+    "function _ccMultiProviderInputTokens(_ccModel,_ccResponse){if("
+    "_ccMultiProviderModelInfo(_ccModel)&&typeof _ccResponse?.input_tokens!==\"number\")"
+    "throw Object.assign(Error(\"External provider countTokens response must contain "
+    'numeric input_tokens"),{code:"EPROVIDERINCOMPATIBLE"});return '
+    "_ccResponse?.input_tokens}"
+    "function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={}){let "
+    "_ccInfo=_ccMultiProviderModelInfo(_ccRequest.model);if(!_ccInfo)return["
+    "_ccNativeClient,_ccRequest,_ccOptions];let _ccToken="
+    "_ccMultiProviderCredential(_ccInfo),_ccCached=_ccMultiProviderClients.get("
+    "_ccInfo.provider),_ccTransportChanged=!_ccCached||_ccCached.token!==_ccToken||"
+    "_ccCached.nativeClient!==_ccNativeClient||_ccCached.timeout!=="
+    "_ccNativeClient.timeout||_ccCached.fetchOptions!==_ccNativeClient.fetchOptions||"
+    "_ccCached.fetch!==_ccNativeClient.fetch;if(_ccTransportChanged){let "
+    "_ccConstructor=_ccMultiProviderSDK(),_ccClient=new _ccConstructor({baseURL:"
+    "_ccInfo.definition.baseURL,apiKey:null,authToken:_ccToken,maxRetries:0,"
+    "dangerouslyAllowBrowser:!0,timeout:_ccNativeClient.timeout,fetchOptions:"
+    "_ccMultiProviderSafeFetchOptions(_ccNativeClient.fetchOptions),fetch:"
+    "_ccNativeClient.fetch,defaultHeaders:{..."
+    "_ccInfo.definition.defaultHeaders}});if(_ccClient._options)_ccClient._options={..."
+    "_ccClient._options,defaultHeaders:{..._ccInfo.definition.defaultHeaders}};"
+    "_ccCached={token:_ccToken,nativeClient:_ccNativeClient,timeout:"
+    "_ccNativeClient.timeout,fetchOptions:_ccNativeClient.fetchOptions,fetch:"
+    "_ccNativeClient.fetch,client:_ccClient};_ccMultiProviderClients.set("
+    "_ccInfo.provider,_ccCached)}let _ccOutbound={..._ccRequest,model:"
+    "_ccInfo.wireModel};for(let _ccField of _ccMultiProviderDeniedRequestFields)"
+    "delete _ccOutbound[_ccField];return[_ccCached.client,_ccOutbound,"
+    "_ccMultiProviderSafeOptions(_ccOptions)]}"
+)
+_MULTI_PROVIDER_SDK_TAIL = re.compile(
+    rf'(?P<prefix>let (?P<options>{_ID})=\{{apiKey:.{{0,500}}?\}};return new '
+    rf'(?P<constructor>{_ID})\((?P=options)\)\}})(?P<next>async function {_ID}\()'
+)
+_MULTI_PROVIDER_NONSTREAMING = re.compile(
+    rf'let (?P<response>{_ID})=await (?P<client>{_ID})\.beta\.messages\.create\('
+    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),model:KA\((?P=finalized)\.model\)\}}),'
+    rf'(?P<options>\{{signal:(?P<signal>{_ID})\.signal,timeout:(?P<timeout>{_ID}),'
+    rf'\.\.\.Object\.keys\((?P<headers>{_ID})\)\.length>0&&\{{headers:(?P=headers)\}}\}})'
+)
+_MULTI_PROVIDER_STREAMING = re.compile(
+    rf'let (?P<response>{_ID})=await (?P<client>{_ID})\.beta\.messages\.create\('
+    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),\.\.\.(?P<credit>{_ID})!==void 0&&'
+    rf'\{{fallback_credit_token:(?P=credit)\}},stream:!0\}}),'
+    rf'(?P<options>\{{signal:(?P<signal>{_ID}),\.\.\.Object\.keys\('
+    rf'(?P<headers>{_ID})\)\.length>0&&\{{headers:(?P=headers)\}}\}})'
+)
+_MULTI_PROVIDER_SIDE_QUERY = re.compile(
+    rf'let (?P<started>{_ID})=performance\.now\(\),(?P<response>{_ID})=await '
+    rf'(?P<client>{_ID})\.beta\.messages\.create\((?P<request>{_ID}),'
+    rf'(?P<options>\{{signal:(?P<signal>{_ID}),\.\.\.(?P<timeout>{_ID})!==void 0&&'
+    rf'\{{timeout:(?P=timeout)\}}\}})'
+)
+_MULTI_PROVIDER_COUNT_TOKENS = re.compile(
+    rf'let (?P<client>{_ID})=await LF\(\{{maxRetries:1,model:(?P<model>{_ID}),'
+    rf'source:"count_tokens"\}}\),(?P<betas>{_ID})=(?P<raw_betas>{_ID})\.filter\('
+    rf'\((?P<beta>{_ID})\)=>ij6\.has\((?P=beta)\)\),(?P<response>{_ID})=await '
+    rf'(?P=client)\.beta\.messages\.countTokens\((?P<request>\{{model:KA\('
+    rf'(?P=model)\),messages:.{{0,500}}?\}})\)'
+)
+_MULTI_PROVIDER_COUNT_TOKENS_CATCH = re.compile(
+    rf'(?P<prefix>async function (?P<function>{_ID})\((?P<messages>{_ID}),(?P<tools>{_ID}),'
+    rf'(?P<model_arg>{_ID})\)\{{return .{{0,200}}?async\(\)=>\{{try\{{.{{0,1800}}?return '
+    rf'(?P<response>{_ID})\.input_tokens)\}}catch\((?P<error>{_ID})\)\{{'
+    rf'(?P<body>return N\(`countTokens API call failed:.{{0,200}}?null)\}}\}}\)\}}'
+)
+_MULTI_PROVIDER_PICKER = re.compile(
+    rf'function (?P<function>{_ID})\((?P<flag>{_ID})\)\{{let (?P<options>{_ID})='
+    rf'(?P<native>{_ID})\((?P=flag)\),(?P<custom>{_ID})=process\.env\.'
+    r'ANTHROPIC_CUSTOM_MODEL_OPTION;'
+)
+_MULTI_PROVIDER_RECOGNITION = re.compile(
+    rf'function (?P<function>{_ID})\((?P<model>{_ID})\)\{{let (?P<name>{_ID})='
+    rf'(?P<display>{_ID})\((?P=model)\);if\(!(?P=name)\)return null;let '
+    rf'(?P<normalized>{_ID})=(?P<normalize>{_ID})\((?P=model)\),(?P<alias>{_ID})=null;'
+    r'if\((?P=normalized)\.includes\("fable"\)\)'
+)
+
+
+def _replace_multi_provider_sdk_tail(match: re.Match[str]) -> str:
+    return (
+        match.group("prefix")
+        + f"const _ccMultiProviderSDK=()=>{match.group('constructor')};"
+        + _MULTI_PROVIDER_HELPER
+        + match.group("next")
+    )
+
+
+def _route_multi_provider_request(match: re.Match[str]) -> str:
+    client = match.group("client")
+    request = match.group("request")
+    options = match.group("options")
+    return (
+        f"let _ccRequest={request},_ccOptions={options},"
+        f"[_ccClient,_ccOutbound,_ccOutboundOptions]=_ccMultiProviderRoute({client},"
+        f"_ccRequest,_ccOptions);let {match.group('response')}=await "
+        "_ccClient.beta.messages.create(_ccOutbound,_ccOutboundOptions"
+    )
+
+
+def _route_multi_provider_side_query(match: re.Match[str]) -> str:
+    options = match.group("options")
+    return (
+        f"let {match.group('started')}=performance.now(),_ccRequest="
+        f"{match.group('request')},_ccOptions={options},"
+        f"[_ccClient,_ccOutbound,_ccOutboundOptions]=_ccMultiProviderRoute("
+        f"{match.group('client')},_ccRequest,_ccOptions),{match.group('response')}="
+        "await _ccClient.beta.messages.create(_ccOutbound,_ccOutboundOptions"
+    )
+
+
+def _route_multi_provider_count_tokens(match: re.Match[str]) -> str:
+    request = match.group("request").replace(
+        f"KA({match.group('model')})", "KA(_ccEffectiveModel)", 1
+    )
+    return (
+        "_ccMultiProviderPreflight(_ccEffectiveModel);let "
+        f"{match.group('client')}=await LF({{maxRetries:1,model:"
+        "_ccEffectiveModel,source:\"count_tokens\"}),"
+        f"{match.group('betas')}={match.group('raw_betas')}.filter("
+        f"({match.group('beta')})=>ij6.has({match.group('beta')})),_ccRequest="
+        f"{request},"
+        "[_ccClient,_ccOutbound]="
+        f"_ccMultiProviderRoute({match.group('client')},_ccRequest),"
+        f"{match.group('response')}=await _ccClient.beta.messages.countTokens("
+        "_ccOutbound)"
+    )
+
+
+def _surface_multi_provider_count_tokens_error(match: re.Match[str]) -> str:
+    error = match.group("error")
+    prefix = match.group("prefix")
+    model_arg = match.group("model_arg")
+    model_binding = re.search(
+        rf"let (?P<effective>{_ID})={re.escape(model_arg)}\?\?(?P<default>{_ID})\(\)",
+        prefix,
+    )
+    if model_binding is None:
+        raise PatchError(
+            "multi-provider-sdk: countTokens effective model binding absent"
+        )
+    effective = model_binding.group("effective")
+    callback_try = "async()=>{try{"
+    if callback_try not in prefix:
+        raise PatchError("multi-provider-sdk: countTokens try scope changed")
+    prefix = prefix.replace(
+        callback_try, "async()=>{let _ccEffectiveModel;try{", 1
+    ).replace(
+        model_binding.group(0),
+        f"_ccEffectiveModel={model_arg}??{model_binding.group('default')}()",
+        1,
+    )
+    prefix = re.sub(rf"\b{re.escape(effective)}\b", "_ccEffectiveModel", prefix)
+    response = match.group("response")
+    return_suffix = f"return {response}.input_tokens"
+    if not prefix.endswith(return_suffix):
+        raise PatchError("multi-provider-sdk: countTokens return shape changed")
+    prefix = prefix[: -len(return_suffix)]
+    return (
+        prefix
+        + f"return _ccMultiProviderInputTokens(_ccEffectiveModel,{response})}}"
+        + f'catch({error}){{if(_ccMultiProviderModelInfo(_ccEffectiveModel))throw {error};'
+        + match.group("body")
+        + "}})}"
+    )
+
+
+def _add_multi_provider_picker_models(match: re.Match[str]) -> str:
+    return (
+        match.group(0) + f"{match.group('options')}.push(..._ccMultiProviderCatalog);"
+    )
+
+
+def _recognize_multi_provider_model(match: re.Match[str]) -> str:
+    model = match.group("model")
+    name = match.group("name")
+    return (
+        f"function {match.group('function')}({model}){{let _ccKnown="
+        f"_ccMultiProviderCatalog.find((_ccModel)=>_ccModel.value==={model});"
+        f"if(_ccKnown)return{{..._ccKnown}};let {name}={match.group('display')}({model});"
+        f"if(!{name})return null;let {match.group('normalized')}="
+        f"{match.group('normalize')}({model}),{match.group('alias')}=null;"
+        f'if({match.group("normalized")}.includes("fable"))'
+    )
+
+
+# The router propagates provider compatibility errors. It does not fall back to
+# Anthropic or change the native client's retry policy.
+MULTI_PROVIDER_SDK = PatchSet(
+    name="multi-provider-sdk",
+    patches=(
+        Patch(
+            "capture-generic-anthropic-sdk",
+            _MULTI_PROVIDER_SDK_TAIL,
+            _replace_multi_provider_sdk_tail,
+        ),
+        Patch(
+            "route-nonstreaming-fallback",
+            _MULTI_PROVIDER_NONSTREAMING,
+            _route_multi_provider_request,
+        ),
+        Patch(
+            "route-main-streaming",
+            _MULTI_PROVIDER_STREAMING,
+            _route_multi_provider_request,
+        ),
+        Patch(
+            "route-side-query",
+            _MULTI_PROVIDER_SIDE_QUERY,
+            _route_multi_provider_side_query,
+        ),
+        Patch(
+            "route-count-tokens",
+            _MULTI_PROVIDER_COUNT_TOKENS,
+            _route_multi_provider_count_tokens,
+        ),
+        Patch(
+            "surface-count-tokens-provider-errors",
+            _MULTI_PROVIDER_COUNT_TOKENS_CATCH,
+            _surface_multi_provider_count_tokens_error,
+        ),
+        Patch(
+            "add-model-picker-entries",
+            _MULTI_PROVIDER_PICKER,
+            _add_multi_provider_picker_models,
+        ),
+        Patch(
+            "recognize-qualified-models",
+            _MULTI_PROVIDER_RECOGNITION,
+            _recognize_multi_provider_model,
+        ),
+    ),
+    verify_present=(
+        re.compile(r"const _ccMultiProviderSDK=\(\)=>[\w$]+"),
+        re.compile(r"function _ccMultiProviderRoute\("),
+        re.compile(r'maxRetries:0'),
+        re.compile(r'code:"EPROVIDERCREDENTIAL"'),
+        re.compile(r'_ccMultiProviderDeniedRequestFields'),
+        re.compile(r'beta\.messages\.countTokens\(_ccOutbound\)'),
+        re.compile(r"https://api\.kimi\.com/coding"),
+        re.compile(r"https://api\.z\.ai/api/anthropic"),
+        re.compile(r"https://api\.minimax\.io/anthropic"),
+        re.compile(r"KimiCLI/1\.5"),
+        re.compile(r"_ccMultiProviderCatalog\.find"),
     ),
     min_version=_V_2_1_174,
     max_version=(2, 1, 175),
@@ -1812,6 +2201,7 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
         BACKGROUND_PROVIDER_ENV,
+        MULTI_PROVIDER_SDK,
         CATPPUCCIN_SYNTAX,
         THINKING_SUMMARIES_NONINTERACTIVE,
         COMPACT_SESSION,

@@ -9,11 +9,15 @@ const providerKeys = [
   "ANTHROPIC_DEFAULT_SONNET_MODEL",
   "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_API_KEY",
+  "CC_KIMI_AUTH_TOKEN",
+  "CC_ZAI_AUTH_TOKEN",
+  "CC_MINIMAX_AUTH_TOKEN",
 ];
 const requesterProcessEnv = {
   ANTHROPIC_BASE_URL: "https://requester.example",
   ANTHROPIC_MODEL: "requester-model",
   ANTHROPIC_AUTH_TOKEN: "requester-token",
+  CC_KIMI_AUTH_TOKEN: "requester-a",
 };
 const persistedJobEnv = {};
 const expectedConsumerEnv = {
@@ -22,6 +26,9 @@ const expectedConsumerEnv = {
   ANTHROPIC_DEFAULT_SONNET_MODEL: undefined,
   ANTHROPIC_AUTH_TOKEN: "requester-token",
   ANTHROPIC_API_KEY: undefined,
+  CC_KIMI_AUTH_TOKEN: "requester-a",
+  CC_ZAI_AUTH_TOKEN: undefined,
+  CC_MINIMAX_AUTH_TOKEN: undefined,
 };
 
 function requireProviderEnv(providerEnv) {
@@ -57,8 +64,20 @@ function buildWorkerEnv(processEnv, providerEnv) {
 function captureTransport(workerEnv) {
   const serialized = workerEnv[transportKey];
   delete workerEnv[transportKey];
-  assert.notEqual(serialized, undefined);
+  if (serialized === undefined) return null;
   return retainProviderEnv(JSON.parse(serialized));
+}
+
+function applyWorkerFinal(workerEnv, providerEnv) {
+  if (providerEnv !== null) return applyProviderEnv(workerEnv, providerEnv);
+  if (workerEnv.CLAUDE_CODE_SESSION_KIND === "bg") {
+    throw Object.assign(
+      new Error(
+        "Background provider environment transient payload is unavailable; dispatch again from the current Claude Code session",
+      ),
+      { code: "EPROVIDERENV" },
+    );
+  }
 }
 
 function applyProviderEnv(targetEnv, providerEnv) {
@@ -155,5 +174,34 @@ async function simulateWorkerPath(path) {
 for (const path of ["cold", "claimed", "respawn", "retry"]) {
   await simulateWorkerPath(path);
 }
+
+const foregroundEnv = {};
+assert.equal(captureTransport(foregroundEnv), null);
+assert.doesNotThrow(() => applyWorkerFinal(foregroundEnv, null));
+const missingWorkerEnv = { CLAUDE_CODE_SESSION_KIND: "bg" };
+const missingWorkerPayload = captureTransport(missingWorkerEnv);
+assert.throws(
+  () => applyWorkerFinal(missingWorkerEnv, missingWorkerPayload),
+  (error) =>
+    error.code === "EPROVIDERENV" &&
+    error.message.includes(
+      "dispatch again from the current Claude Code session",
+    ),
+);
+
+const rotatingWorkerEnv = {};
+const requesterA = snapshotRequesterTransport({
+  CC_KIMI_AUTH_TOKEN: "token-a",
+});
+applyProviderEnv(rotatingWorkerEnv, requesterA);
+assert.equal(rotatingWorkerEnv.CC_KIMI_AUTH_TOKEN, "token-a");
+const requesterB = snapshotRequesterTransport({
+  CC_KIMI_AUTH_TOKEN: "token-b",
+});
+applyProviderEnv(rotatingWorkerEnv, requesterB);
+assert.equal(rotatingWorkerEnv.CC_KIMI_AUTH_TOKEN, "token-b");
+const requesterUnset = snapshotRequesterTransport({});
+applyProviderEnv(rotatingWorkerEnv, requesterUnset);
+assert.equal(rotatingWorkerEnv.CC_KIMI_AUTH_TOKEN, undefined);
 
 console.log("provider environment transient transport ordering: ok");

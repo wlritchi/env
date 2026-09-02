@@ -22,6 +22,7 @@ from pathlib import Path
 from wlrenv.ccpatch.bunfmt import BunModule, parse_blob, rebuild_blob
 from wlrenv.ccpatch.container import load_container
 from wlrenv.ccpatch.patches import (
+    _MULTI_PROVIDER_HELPER,
     PatchError,
     brand_patch_sets,
     default_patch_sets,
@@ -206,6 +207,11 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_generate_multi_provider_helper(args: argparse.Namespace) -> int:
+    Path(args.out).write_text(_MULTI_PROVIDER_HELPER, encoding="utf-8")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ccpatch", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -236,6 +242,13 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("input", help="path to the Bun standalone binary")
     ex.add_argument("-o", "--out", required=True, help="output .js path")
     ex.set_defaults(func=_cmd_extract)
+
+    helper = sub.add_parser(
+        "generate-multi-provider-helper",
+        help="write the exact injected multi-provider JavaScript helper",
+    )
+    helper.add_argument("-o", "--out", required=True, help="output .js path")
+    helper.set_defaults(func=_cmd_generate_multi_provider_helper)
 
     return parser
 

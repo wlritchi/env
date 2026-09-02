@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
@@ -25,6 +26,7 @@ from wlrenv.ccpatch.patches import (
     CHANNELS_ENABLED,
     COMPACT_SESSION,
     DEV_CHANNEL_INHERITANCE,
+    MULTI_PROVIDER_SDK,
     THINKING_SUMMARIES_NONINTERACTIVE,
     PatchError,
     PatchSet,
@@ -67,6 +69,27 @@ _DEV_CHANNEL_SRC = (
     "if(!XH){if(U$&&U$.length>0)"
     'Y$=c$(U$,"--dangerously-load-development-channels")}'
     'if(r$.length>0){d("tengu_mcp_channel_flags",{})}'
+)
+
+_MULTI_PROVIDER_SRC = (
+    "let OPT={apiKey:key};return new SDK(OPT)}async function NEXT(){}"
+    "let R1=await N1.beta.messages.create({...REQ1,model:KA(REQ1.model)},"
+    "{signal:SIG1.signal,timeout:TIME1,...Object.keys(HDR1).length>0&&{headers:HDR1}})"
+    "let R2=await N2.beta.messages.create({...REQ2,...CREDIT!==void 0&&"
+    "{fallback_credit_token:CREDIT},stream:!0},{signal:SIG2,...Object.keys(HDR2).length>0&&"
+    "{headers:HDR2}})"
+    "let START=performance.now(),R3=await N3.beta.messages.create(REQ3,"
+    "{signal:SIG3,...TIME3!==void 0&&{timeout:TIME3}})"
+    'async function TOKENS(MSGS,TOOLS,MODEL){return WRAP(MSGS,TOOLS,async()=>{try{'
+    'let EFFECTIVE=MODEL??DEFAULT();let CLIENT=await LF({maxRetries:1,model:EFFECTIVE,'
+    'source:"count_tokens"}),'
+    "BETAS=RAW.filter((BETA)=>ij6.has(BETA)),RESULT=await CLIENT.beta.messages."
+    "countTokens({model:KA(EFFECTIVE),messages:MSGS,tools:TOOLS});return RESULT.input_tokens"
+    "}catch(ERROR){return N(`countTokens API call failed: ${ERROR.message}`),null}})}"
+    "function PICK(FLAG){let OPTIONS=NATIVE(FLAG),CUSTOM=process.env."
+    "ANTHROPIC_CUSTOM_MODEL_OPTION;"
+    "function RECOGNIZE(MODEL){let NAME=DISPLAY(MODEL);if(!NAME)return null;"
+    'let NORMALIZED=NORMALIZE(MODEL),ALIAS=null;if(NORMALIZED.includes("fable"))'
 )
 
 _PROVIDER_ENV_SRC = (
@@ -198,6 +221,7 @@ def test_background_provider_environment_is_version_gated(
     version: tuple[int, ...] | None, expected: bool
 ) -> None:
     assert BACKGROUND_PROVIDER_ENV.applies_to(version) is expected
+    assert MULTI_PROVIDER_SDK.applies_to(version) is expected
 
 
 def test_patch_sets_allow_omitted_version_by_default() -> None:
@@ -220,14 +244,14 @@ def test_background_provider_environment_transforms_complete_fixture() -> None:
     for key in _PROVIDER_ENV_EXPLICIT_KEYS:
         assert f'"{key}"' in patched
     assert "out[key]=value===void 0?null:value" in patched
-    assert patched.count("providerEnvVersion:1,providerEnv:SNAP()") == 2
+    assert patched.count("providerEnvVersion:2,providerEnv:SNAP()") == 2
     assert (
         "z.record(z.enum(_ccProviderKeys()),z.union([z.string(),z.null()]))" in patched
     )
-    assert "req.providerEnvVersion!==1||req.providerEnv===void 0" in patched
-    assert "op:operation,providerEnvVersion:1,short:short" in patched
-    assert "reply.providerEnvVersion!==1" in patched
-    assert "retryReply.providerEnvVersion!==1" in patched
+    assert "req.providerEnvVersion!==2||req.providerEnv===void 0" in patched
+    assert "op:operation,providerEnvVersion:2,short:short" in patched
+    assert "reply.providerEnvVersion!==2" in patched
+    assert "retryReply.providerEnvVersion!==2" in patched
     assert "Restart the stale Claude Code daemon and try again" in patched
     assert 'reply.code==="EPROVIDERENV"' in patched
     assert 'retryReply.code==="EPROVIDERENV"' in patched
@@ -367,8 +391,8 @@ def test_background_provider_environment_threads_current_requester_snapshot(
 ) -> None:
     patched = BACKGROUND_PROVIDER_ENV.apply(_PROVIDER_ENV_SRC)
     markers = {
-        "socket primary": "providerEnvVersion:1,providerEnv:SNAP()",
-        "socket retry/recovery": "providerEnvVersion:1,providerEnv:SNAP()",
+        "socket primary": "providerEnvVersion:2,providerEnv:SNAP()",
+        "socket retry/recovery": "providerEnvVersion:2,providerEnv:SNAP()",
         "claimed spare": "W0q(job,spare,spawn,authObj.getAuthSnapshot,_ccProviderEnv)",
         "cold worker": (
             "Worker.spawn(job,spawn,authObj.getAuthSnapshot,afterUpgrade?"
@@ -424,7 +448,7 @@ def test_background_provider_environment_final_apply_follows_initializers() -> N
     assert (
         claimed.index(capture)
         < claimed.index("It8(),Da8(),lT6(),Yq8(),Wy$()")
-        < claimed.index("_ccProviderApplyFinal(_ccProviderWorkerEnv)")
+        < claimed.index("_ccProviderApplyWorkerFinal()")
         < claimed.index("await workerMain()")
     )
     assert "_ccProviderSnapshotFromEnv" not in claimed
@@ -447,21 +471,21 @@ def test_background_provider_environment_final_apply_follows_initializers() -> N
         patched.index('.hook("preAction"') : patched.index("setTitle()")
     ]
     assert preaction.index("await settingsInit()") < preaction.index(
-        "_ccProviderApplyFinal(_ccProviderWorkerEnv)"
+        "_ccProviderApplyWorkerFinal()"
     )
 
     operational = patched[
         patched.index("if(noninteractive)") : patched.index("operationalStart")
     ]
     assert operational.index("Ko(),CB$(_ccProviderWorkerEnv)") < operational.index(
-        "_ccProviderApplyFinal(_ccProviderWorkerEnv)"
+        "_ccProviderApplyWorkerFinal()"
     )
 
     delayed_start = patched.index("function CB$")
     delayed = patched[delayed_start : delayed_start + 700]
     assert (
         delayed.index("Ko()")
-        < delayed.index("_ccProviderApplyFinal(_ccProviderWorkerEnv)")
+        < delayed.index("_ccProviderApplyWorkerFinal()")
         < delayed.index("await vLq()")
     )
 
@@ -489,10 +513,7 @@ def test_background_provider_environment_mutable_worker_paths_reach_final_apply(
         in patched
     )
     assert "_ccProviderSnapshotFromEnv" not in patched
-    assert (
-        "Ko(),CB$(_ccProviderWorkerEnv);if(_ccProviderWorkerEnv)"
-        "_ccProviderApplyFinal" in patched
-    )
+    assert "Ko(),CB$(_ccProviderWorkerEnv);_ccProviderApplyWorkerFinal()" in patched
 
 
 def test_background_provider_environment_regression_harness() -> None:
@@ -535,7 +556,7 @@ def test_background_provider_environment_strict_receiver_rejects_unknown_keys() 
 
 def test_background_provider_environment_rejects_protocol_skew() -> None:
     patched = BACKGROUND_PROVIDER_ENV.apply(_PROVIDER_ENV_SRC)
-    assert "req.providerEnvVersion!==1" in patched
+    assert "req.providerEnvVersion!==2" in patched
     assert "req.providerEnv===void 0" in patched
     assert 'code:"EPROVIDERENV"' in patched
     assert 'reply.code==="EPROVIDERENV"' in patched
@@ -547,7 +568,7 @@ def test_background_provider_environment_rejects_old_daemon_success() -> None:
         'reply={ok:!0,op:"dispatch"};'
         + patched[patched.index('if(reply.ok&&reply.op==="dispatch")') :]
     )
-    assert "reply.providerEnvVersion!==1" in old_daemon_success
+    assert "reply.providerEnvVersion!==2" in old_daemon_success
     assert 'reply={ok:!1,error:"Background provider environment protocol mismatch.' in (
         old_daemon_success
     )
@@ -560,7 +581,7 @@ def test_background_provider_environment_rejects_old_daemon_redispatch() -> None
         patched.index('if(retryReply.ok&&retryReply.op==="dispatch")') :
     ]
 
-    assert "retryReply.providerEnvVersion!==1" in redispatch
+    assert "retryReply.providerEnvVersion!==2" in redispatch
     assert (
         'retryReply={ok:!1,error:"Background provider environment protocol mismatch.'
         in redispatch
@@ -570,7 +591,7 @@ def test_background_provider_environment_rejects_old_daemon_redispatch() -> None
         'throw Object.assign(Error(retryReply.error),{code:"EPROVIDERENV"})'
         in redispatch
     )
-    assert redispatch.index("retryReply.providerEnvVersion!==1") < redispatch.index(
+    assert redispatch.index("retryReply.providerEnvVersion!==2") < redispatch.index(
         "return log(),await metric()"
     )
 
@@ -586,6 +607,73 @@ def test_background_provider_environment_rejects_partial_source() -> None:
     )
     with pytest.raises(PatchError, match="provider groups absent"):
         BACKGROUND_PROVIDER_ENV.apply(source)
+
+
+def test_multi_provider_sdk_transforms_complete_fixture() -> None:
+    patched = MULTI_PROVIDER_SDK.apply(_MULTI_PROVIDER_SRC)
+
+    assert "const _ccMultiProviderSDK=()=>SDK" in patched
+    assert patched.count("_ccMultiProviderRoute(") == 5
+    assert "_ccMultiProviderRoute(N1,_ccRequest,_ccOptions)" in patched
+    assert "_ccMultiProviderRoute(N2,_ccRequest,_ccOptions)" in patched
+    assert "_ccMultiProviderRoute(N3,_ccRequest,_ccOptions)" in patched
+    assert "_ccMultiProviderRoute(CLIENT,_ccRequest)" in patched
+    assert "countTokens(_ccOutbound)" in patched
+    assert "model:KA(_ccEffectiveModel)" in patched
+    assert "_ccEffectiveModelA(_ccEffectiveModel)" not in patched
+    assert (
+        "return _ccMultiProviderInputTokens(_ccEffectiveModel,RESULT)}catch(ERROR)"
+        in patched
+    )
+    assert "if(_ccMultiProviderModelInfo(_ccEffectiveModel))throw ERROR" in patched
+    assert 'code:"EPROVIDERINCOMPATIBLE"' in patched
+    assert "model:KA(REQ1.model)" in patched
+    assert "OPTIONS.push(..._ccMultiProviderCatalog)" in patched
+    assert "_ccMultiProviderCatalog.find" in patched
+    assert "CC_KIMI_AUTH_TOKEN" in patched
+    assert "CC_ZAI_AUTH_TOKEN" in patched
+    assert "CC_MINIMAX_AUTH_TOKEN" in patched
+    assert "apiKey:null,authToken:_ccToken,maxRetries:0" in patched
+    assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
+    assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
+    assert 'code:"EPROVIDERCREDENTIAL"' in patched
+    assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
+
+
+def test_multi_provider_sdk_required_no_op_fails() -> None:
+    with pytest.raises(PatchError, match="multi-provider-sdk"):
+        MULTI_PROVIDER_SDK.apply("unrelated source")
+
+
+def test_multi_provider_sdk_regression_harness(tmp_path: Path) -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("no node/bun to run the multi-provider regression harness")
+    harness = Path(__file__).with_name("multi_provider_regression.mjs")
+    helper = tmp_path / "multi_provider_helper.js"
+    generated = subprocess.run(  # noqa: S603 - current Python interpreter
+        [
+            sys.executable,
+            "-m",
+            "wlrenv.ccpatch.cli",
+            "generate-multi-provider-helper",
+            "-o",
+            str(helper),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert generated.returncode == 0, generated.stderr
+    proc = subprocess.run(  # noqa: S603 - runtime is which()-resolved node/bun
+        [runtime, str(harness), str(helper)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "multi-provider SDK routing: ok"
 
 
 def test_thinking_summaries_ungated_for_noninteractive() -> None:
