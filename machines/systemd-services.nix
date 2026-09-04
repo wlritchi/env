@@ -5,8 +5,24 @@
   ...
 }:
 
+let
+  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
+in
 {
   systemd.user = {
+    services.cc-openai-proxy = {
+      Unit.Description = "Claude Code OpenAI proxy";
+      Service = {
+        Type = "simple";
+        ExecStart = "${cc-openai-proxy}/bin/cc-openai-proxy --host 127.0.0.1 --port 17780";
+        # Anonymous access is temporary and limited to this loopback listener.
+        Environment = [ "CC_OPENAI_PROXY_ALLOW_ANON=1" ];
+        Restart = "on-failure";
+        RestartSec = 1;
+      };
+      Install.WantedBy = [ "default.target" ];
+    };
+
     # Rclone copy service + timer
     services.rclone-copy = {
       Unit = {

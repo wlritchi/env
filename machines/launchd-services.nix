@@ -5,8 +5,32 @@
   ...
 }:
 
+let
+  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
+in
 {
   launchd.agents = {
+    cc-openai-proxy = {
+      enable = true;
+      config = {
+        ProgramArguments = [
+          "${cc-openai-proxy}/bin/cc-openai-proxy"
+          "--host"
+          "127.0.0.1"
+          "--port"
+          "17780"
+        ];
+        # Anonymous access is temporary and limited to this loopback listener.
+        EnvironmentVariables.CC_OPENAI_PROXY_ALLOW_ANON = "1";
+        RunAtLoad = true;
+        KeepAlive = true;
+        ProcessType = "Background";
+        ThrottleInterval = 1;
+        StandardOutPath = "${config.home.homeDirectory}/Library/Logs/cc-openai-proxy.log";
+        StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/cc-openai-proxy.log";
+      };
+    };
+
     # Git sync - runs every hour
     git-sync = {
       enable = true;

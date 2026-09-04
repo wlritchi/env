@@ -9,11 +9,9 @@
 
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
-  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
   claude-code = pkgs.callPackage ./pkgs/claude-code.nix { };
   claude-code-variant = pkgs.callPackage ./pkgs/claude-code-variant.nix { };
   claude-code-openai = pkgs.callPackage ./pkgs/claude-code-openai.nix {
-    inherit cc-openai-proxy;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
       brand = "openai";
       brandSplash = ./pkgs/cc-openai-splash.txt;
