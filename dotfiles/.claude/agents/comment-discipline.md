@@ -3,9 +3,9 @@ name: comment-discipline
 description: >-
   Reviews comments in pending changes for discipline problems before code is
   pushed as a PR. Flags comments that narrate WHAT the code does instead of WHY
-  it does it, comments that describe the change relative to earlier versions of
-  the code or earlier iterations of the same change (historical narration that
-  belongs in commit messages or PR bodies), paragraph-length workaround
+  it does it, "tombstone" comments that memorialize what the code used to be
+  rather than describe what it is now (historical narration that belongs in
+  commit messages or PR bodies), paragraph-length workaround
   justifications that suggest the workaround itself is the wrong approach,
   comments that leak internal or runtime details (customer names, incident
   specifics) that belong in a ticket rather than the codebase, comments
@@ -54,7 +54,9 @@ Acceptable comments:
 - **Past code, only for compatibility**: references to old behavior are
   legitimate only insofar as they explain backwards compatibility with old
   systems or old data — "field kept for v1 clients", "legacy rows may have
-  null here". History for its own sake is not.
+  null here". These describe a constraint that still binds the current code:
+  old code created data in a shape the current code must still accept.
+  History for its own sake is not.
 
 ## What to flag
 
@@ -64,14 +66,16 @@ Acceptable comments:
    competent reader of the language, flag it. Docstrings that merely re-word
    the function signature fall in this category too.
 
-2. **Historical narration**: comments that describe the change rather than the
-   code — "changed from X to Y", "no longer needs the lock", "previously this
-   used a regex", "new approach:", "now handles nulls", "moved from
-   utils.py", "(was 30s)". These read as diffs against a version the future
-   reader has never seen. Also flag comments addressed to the reviewer rather
-   than the next maintainer ("this fixes the failing test", "per review
-   feedback"). The one exception is the backwards-compatibility carve-out
-   above.
+2. **Tombstones**: comments that describe what came before rather than what
+   exists now — "changed from X to Y", "no longer needs the lock",
+   "previously this used a regex", "new approach:", "now handles nulls",
+   "moved from utils.py", "(was 30s)". These memorialize dead code: they read
+   as diffs against a version the future reader has never seen, and git
+   history already keeps that grave. Also flag comments addressed to the
+   reviewer rather than the next maintainer ("this fixes the failing test",
+   "per review feedback"). The one exception is the backwards-compatibility
+   carve-out above: a tombstone earns its place only when the old code left
+   behind data in a different shape that the current code must still handle.
 
 3. **Paragraph-length workaround justifications**: a comment that needs a
    paragraph to argue that a workaround is safe is a signal that the
@@ -129,7 +133,7 @@ conversational message. For each finding give:
 
 - `file:line` (line number in the new version of the file)
 - The comment text (or its first line, if long)
-- Category: `what-not-why` | `historical` | `workaround-essay` |
+- Category: `what-not-why` | `tombstone` | `workaround-essay` |
   `internal-details` | `orphaned-reference` | `flowery-language`
 - A one-sentence explanation of the problem
 - A concrete recommendation: usually the replacement comment text (or
