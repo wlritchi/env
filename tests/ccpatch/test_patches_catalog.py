@@ -73,6 +73,8 @@ _DEV_CHANNEL_SRC = (
 
 _MULTI_PROVIDER_SRC = (
     "let OPT={apiKey:key};return new SDK(OPT)}async function NEXT(){}"
+    "function FILTER(MSGS,MODEL){return STRIP(MSGS,(MESSAGE)=>"
+    "MESSAGE.message.model!==SYNTHETIC&&MESSAGE.message.model!==MODEL)}"
     "let R1=await N1.beta.messages.create({...REQ1,model:KA(REQ1.model)},"
     "{signal:SIG1.signal,timeout:TIME1,...Object.keys(HDR1).length>0&&{headers:HDR1}})"
     "let R2=await N2.beta.messages.create({...REQ2,...CREDIT!==void 0&&"
@@ -618,6 +620,11 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert "_ccMultiProviderRoute(N2,_ccRequest,_ccOptions)" in patched
     assert "_ccMultiProviderRoute(N3,_ccRequest,_ccOptions)" in patched
     assert "_ccMultiProviderRoute(CLIENT,_ccRequest)" in patched
+    assert "MESSAGE.message.model!==MODEL" not in patched
+    assert "MESSAGE.message.model!==SYNTHETIC" in patched
+    assert (
+        "_ccMultiProviderModelProvider(MESSAGE.message.model)!==_ccProvider" in patched
+    )
     assert "countTokens(_ccOutbound)" in patched
     assert "model:KA(_ccEffectiveModel)" in patched
     assert "_ccEffectiveModelA(_ccEffectiveModel)" not in patched

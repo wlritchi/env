@@ -52,7 +52,7 @@ const context = vm.createContext({
   process: fakeProcess,
 });
 const script = new vm.Script(
-  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,inputTokens:_ccMultiProviderInputTokens,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog};`,
+  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog};`,
   { filename: helperPath },
 );
 script.runInContext(context);
@@ -226,6 +226,28 @@ for (const model of [
   );
 }
 assert.equal(api.catalog.length, 5);
+for (const model of [
+  "opus",
+  "claude-opus-4-8",
+  "fable",
+  "claude-fable-5",
+  "future-native-model",
+  "gateway:model",
+]) {
+  assert.equal(api.modelProvider(model), "anthropic", model);
+}
+for (const [model, provider] of [
+  ["kimi:kimi-k2.7-code", "kimi"],
+  ["kimi-k2.7-code", "kimi"],
+  ["zai:glm-5.2", "zai"],
+  ["glm-5.2", "zai"],
+  ["zai:glm-5-turbo", "zai"],
+  ["glm-5-turbo", "zai"],
+  ["minimax:MiniMax-M2.7", "minimax"],
+  ["MiniMax-M2.7", "minimax"],
+]) {
+  assert.equal(api.modelProvider(model), provider, model);
+}
 
 credentials.CC_ZAI_AUTH_TOKEN = "zai-token";
 const [countClient, countRequest, countOptions] = api.route(

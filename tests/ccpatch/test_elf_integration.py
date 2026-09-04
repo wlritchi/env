@@ -240,6 +240,12 @@ def test_real_source_routes_multi_provider_sdk(
     assert 'K?.code==="EPROVIDERCREDENTIAL"||_ccMultiProviderModelInfo(q)' in patched
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
+    assert "function _ccMultiProviderModelProvider(" in patched
+    assert (
+        patched.count("_ccMultiProviderModelProvider(q.message.model)!==_ccProvider")
+        == 1
+    )
+    assert "q.message.model!==L0&&q.message.model!==$" not in patched
     verification = patched[
         patched.index("async function xG9") : patched.index("function p7A")
     ]

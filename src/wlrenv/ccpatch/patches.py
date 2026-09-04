@@ -1155,6 +1155,13 @@ _MULTI_PROVIDER_HELPER = (
     '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"],'
     '_ccMultiProviderTraceHeaders=["traceparent","tracestate","baggage"],'
     "_ccMultiProviderClients=new Map;"
+    "function _ccMultiProviderModelProvider(_ccModel){if(typeof _ccModel!==\"string\")"
+    'return"anthropic";let _ccSeparator=_ccModel.indexOf(":"),_ccPrefix='
+    "_ccSeparator<0?null:_ccModel.slice(0,_ccSeparator).toLowerCase();if(_ccPrefix&&"
+    "_ccMultiProviderPrefixes.includes(_ccPrefix))return _ccPrefix;let _ccKnown="
+    "_ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value.slice("
+    "_ccEntry.value.indexOf(\":\")+1).toLowerCase()===_ccModel.toLowerCase());return "
+    '_ccKnown?_ccKnown.value.slice(0,_ccKnown.value.indexOf(":")):"anthropic"}'
     "function _ccMultiProviderModelError(_ccMessage){return Object.assign(Error("
     '_ccMessage),{code:"EPROVIDERMODEL"})}'
     "function _ccMultiProviderModelInfo(_ccModel){if(typeof _ccModel!==\"string\")"
@@ -1223,6 +1230,12 @@ _MULTI_PROVIDER_SDK_TAIL = re.compile(
     rf'(?P<prefix>let (?P<options>{_ID})=\{{apiKey:.{{0,500}}?\}};return new '
     rf'(?P<constructor>{_ID})\((?P=options)\)\}})(?P<next>async function {_ID}\()'
 )
+_MULTI_PROVIDER_THINKING_FILTER = re.compile(
+    rf"function (?P<function>{_ID})\((?P<messages>{_ID}),(?P<model>{_ID})\)"
+    rf"\{{return (?P<filter>{_ID})\((?P=messages),\((?P<message>{_ID})\)=>"
+    rf"(?P=message)\.message\.model!==(?P<synthetic>{_ID})&&"
+    rf"(?P=message)\.message\.model!==(?P=model)\)\}}"
+)
 _MULTI_PROVIDER_NONSTREAMING = re.compile(
     rf'let (?P<response>{_ID})=await (?P<client>{_ID})\.beta\.messages\.create\('
     rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),model:KA\((?P=finalized)\.model\)\}}),'
@@ -1274,6 +1287,19 @@ def _replace_multi_provider_sdk_tail(match: re.Match[str]) -> str:
         + f"const _ccMultiProviderSDK=()=>{match.group('constructor')};"
         + _MULTI_PROVIDER_HELPER
         + match.group("next")
+    )
+
+
+def _replace_multi_provider_thinking_filter(match: re.Match[str]) -> str:
+    messages = match.group("messages")
+    model = match.group("model")
+    message = match.group("message")
+    return (
+        f"function {match.group('function')}({messages},{model}){{let _ccProvider="
+        f"_ccMultiProviderModelProvider({model});return {match.group('filter')}("
+        f"{messages},({message})=>{message}.message.model!=="
+        f"{match.group('synthetic')}&&_ccMultiProviderModelProvider("
+        f"{message}.message.model)!==_ccProvider)}}"
     )
 
 
@@ -1384,6 +1410,11 @@ MULTI_PROVIDER_SDK = PatchSet(
             "capture-generic-anthropic-sdk",
             _MULTI_PROVIDER_SDK_TAIL,
             _replace_multi_provider_sdk_tail,
+        ),
+        Patch(
+            "retain-same-provider-thinking",
+            _MULTI_PROVIDER_THINKING_FILTER,
+            _replace_multi_provider_thinking_filter,
         ),
         Patch(
             "route-nonstreaming-fallback",
