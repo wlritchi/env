@@ -52,11 +52,40 @@ const context = vm.createContext({
   process: fakeProcess,
 });
 const script = new vm.Script(
-  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog};`,
+  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog,pickerCatalog:_ccMultiProviderPickerCatalog};`,
   { filename: helperPath },
 );
 script.runInContext(context);
 const api = context.__api;
+
+assert.equal(api.catalog.length, 8);
+assert.deepEqual(
+  Array.from(api.pickerCatalog(), ({ value }) => value),
+  [],
+);
+credentials.CC_KIMI_AUTH_TOKEN = "   ";
+credentials.CC_ZAI_AUTH_TOKEN = "zai-picker-token";
+credentials.CC_MINIMAX_AUTH_TOKEN = "minimax-picker-token";
+credentials.CC_OPENAI_PROXY_AUTH_TOKEN = "openai-picker-token";
+credentials.CC_OPENAI_PROXY_EFFECTIVE_URL = "http://127.0.0.1:17780";
+credentials.CC_OPENAI_AVAILABLE = "0";
+assert.deepEqual(
+  Array.from(api.pickerCatalog(), ({ value }) => value),
+  ["zai:glm-5.2", "zai:glm-5-turbo", "zai:glm-4.5-air", "minimax:MiniMax-M2.7"],
+);
+credentials.CC_KIMI_AUTH_TOKEN = "kimi-picker-token";
+credentials.CC_OPENAI_AVAILABLE = "1";
+assert.equal(api.pickerCatalog().length, 8);
+delete credentials.CC_ZAI_AUTH_TOKEN;
+delete credentials.CC_MINIMAX_AUTH_TOKEN;
+delete credentials.CC_OPENAI_PROXY_AUTH_TOKEN;
+assert.deepEqual(
+  Array.from(api.pickerCatalog(), ({ value }) => value),
+  ["kimi:kimi-k2.7-code"],
+);
+delete credentials.CC_KIMI_AUTH_TOKEN;
+delete credentials.CC_OPENAI_AVAILABLE;
+reads.length = 0;
 
 const fetchOptions = Object.freeze({
   dispatcher: "proxy-and-ca",
@@ -227,7 +256,6 @@ for (const model of [
     model,
   );
 }
-assert.equal(api.catalog.length, 8);
 for (const model of [
   "opus",
   "claude-opus-4-8",
@@ -257,6 +285,30 @@ for (const [model, provider] of [
   assert.equal(api.modelProvider(model), provider, model);
 }
 
+credentials.CC_OPENAI_PROXY_EFFECTIVE_URL = "http://127.0.0.1:17780";
+for (const [unavailable, missing] of [
+  [{}, "CC_OPENAI_PROXY_AUTH_TOKEN"],
+  [{ CC_OPENAI_PROXY_AUTH_TOKEN: "openai-token" }, "CC_OPENAI_AVAILABLE"],
+  [{ CC_OPENAI_AVAILABLE: "1" }, "CC_OPENAI_PROXY_AUTH_TOKEN"],
+  [
+    {
+      CC_OPENAI_PROXY_AUTH_TOKEN: "   ",
+      CC_OPENAI_AVAILABLE: "1",
+    },
+    "CC_OPENAI_PROXY_AUTH_TOKEN",
+  ],
+]) {
+  Object.assign(credentials, unavailable);
+  assert.throws(
+    () => api.route(nativeClient, { model: "openai:gpt-5.6-sol" }),
+    (error) =>
+      error.code === "EPROVIDERCREDENTIAL" && error.message.includes(missing),
+  );
+  delete credentials.CC_OPENAI_PROXY_AUTH_TOKEN;
+  delete credentials.CC_OPENAI_AVAILABLE;
+}
+credentials.CC_OPENAI_PROXY_AUTH_TOKEN = " openai-runtime-token ";
+credentials.CC_OPENAI_AVAILABLE = "1";
 const [openAIClient, openAIRequest, openAIOptions] = api.route(
   nativeClient,
   Object.freeze({
@@ -269,7 +321,21 @@ const [openAIClient, openAIRequest, openAIOptions] = api.route(
 assert.equal(openAIRequest.model, "gpt-5.6-sol");
 assert.ok(!("fallback_credit_token" in openAIRequest));
 assert.equal(openAIClient.options.baseURL, "http://127.0.0.1:17780");
-assert.equal(openAIClient.options.authToken, "cc-openai-local");
+assert.equal(openAIClient.options.authToken, "openai-runtime-token");
+credentials.CC_OPENAI_PROXY_EFFECTIVE_URL = "https://proxy.example.test";
+const [customOpenAIClient] = api.route(nativeClient, {
+  model: "openai:gpt-5.6-sol",
+});
+assert.notEqual(customOpenAIClient, openAIClient);
+assert.equal(customOpenAIClient.options.baseURL, "https://proxy.example.test");
+credentials.CC_OPENAI_PROXY_EFFECTIVE_URL = "http://127.0.0.1:17780";
+credentials.CC_OPENAI_AVAILABLE = "0";
+assert.throws(
+  () => api.route(nativeClient, { model: "openai:gpt-5.6-sol" }),
+  (error) => error.code === "EPROVIDERCREDENTIAL",
+);
+assert.equal(api.clients.has("openai"), false);
+credentials.CC_OPENAI_AVAILABLE = "1";
 assert.equal(JSON.stringify(openAIClient._options.defaultHeaders), "{}");
 assert.equal(
   JSON.stringify(openAIOptions.headers),

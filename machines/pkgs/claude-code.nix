@@ -25,6 +25,8 @@
   fetchurl,
   python3,
   makeWrapper,
+  cc-openai-proxy,
+  cc-openai-proxy-launcher,
   # Optional provider brand baked into the binary (e.g. "kimi" -> startup label,
   # thinking verbs, identity/attribution rebrand, onboarding skip). null = the
   # plain personal build used for `claude`.
@@ -114,6 +116,11 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     mkdir -p "$out/bin"
     cat > "$out/bin/claude" <<EOF
     #!/usr/bin/env bash
+    source ${cc-openai-proxy-launcher}
+    if ! cc_openai_proxy_configure optional claude && [ "\''${CC_OPENAI_PROXY_URL+x}" = x ]; then
+      exit 1
+    fi
+
     # Lift Claude's tmux 256-color cap when the terminal advertises truecolor.
     if [ -z "\''${CLAUDE_CODE_TMUX_TRUECOLOR:-}" ] && { [ "\''${COLORTERM:-}" = truecolor ] || [ "\''${COLORTERM:-}" = 24bit ]; }; then
       export CLAUDE_CODE_TMUX_TRUECOLOR=1

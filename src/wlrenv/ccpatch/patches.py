@@ -42,8 +42,9 @@ class MultiProviderModel(TypedDict):
 class MultiProviderDefinition(TypedDict):
     provider: str
     baseURL: str
-    tokenEnv: NotRequired[str]
-    authToken: NotRequired[str]
+    tokenEnv: str
+    availabilityEnv: NotRequired[str]
+    baseURLEnv: NotRequired[str]
     defaultHeaders: dict[str, str]
     models: tuple[MultiProviderModel, ...]
 
@@ -325,7 +326,7 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
 # current provider configuration for each authenticated socket dispatch. Do not
 # store this configuration in job files. A null value removes a value that a
 # cold or prewarmed worker inherited from an earlier process.
-_PROVIDER_ENV_PROTOCOL_VERSION = 2
+_PROVIDER_ENV_PROTOCOL_VERSION = 3
 _PROVIDER_ENV_GROUPS = re.compile(
     rf'(?P<selection>{_ID})=\["CLAUDE_CODE_USE_BEDROCK",'
     rf'(?P<selection_tail>.{{0,1000}}?)\],(?P<base_urls>{_ID})='
@@ -562,6 +563,9 @@ _PROVIDER_ENV_EXPLICIT_KEYS = (
     "CC_KIMI_AUTH_TOKEN",
     "CC_ZAI_AUTH_TOKEN",
     "CC_MINIMAX_AUTH_TOKEN",
+    "CC_OPENAI_PROXY_AUTH_TOKEN",
+    "CC_OPENAI_PROXY_EFFECTIVE_URL",
+    "CC_OPENAI_AVAILABLE",
     *_PROVIDER_ENV_VERTEX_REGION_KEYS,
 )
 
@@ -1045,9 +1049,9 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'function _ccRequireProviderEnv\('),
         re.compile(r'function _ccProviderRetain\('),
         re.compile(r'let _ccProviderWorkerEnv=_ccProviderCaptureTransport\(\)'),
-        re.compile(r'providerEnvVersion:2,providerEnv:[\w$]+\(\),timeoutMs:5000'),
-        re.compile(r'op:[\w$]+,providerEnvVersion:2,short:'),
-        re.compile(r'[\w$]+\.providerEnvVersion!==2'),
+        re.compile(r'providerEnvVersion:3,providerEnv:[\w$]+\(\),timeoutMs:5000'),
+        re.compile(r'op:[\w$]+,providerEnvVersion:3,short:'),
+        re.compile(r'[\w$]+\.providerEnvVersion!==3'),
         re.compile(
             r'throw Object\.assign\(Error\([\w$]+\.error\),\{code:"EPROVIDERENV"\}\)'
         ),
@@ -1127,7 +1131,9 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
     {
         "provider": "openai",
         "baseURL": "http://127.0.0.1:17780",
-        "authToken": "cc-openai-local",
+        "baseURLEnv": "CC_OPENAI_PROXY_EFFECTIVE_URL",
+        "tokenEnv": "CC_OPENAI_PROXY_AUTH_TOKEN",
+        "availabilityEnv": "CC_OPENAI_AVAILABLE",
         "defaultHeaders": {},
         "models": (
             {
@@ -1152,10 +1158,16 @@ _MULTI_PROVIDER_DEFINITIONS = json.dumps(
     {
         definition["provider"]: {
             "baseURL": definition["baseURL"],
+            "tokenEnv": definition["tokenEnv"],
             **(
-                {"tokenEnv": definition["tokenEnv"]}
-                if "tokenEnv" in definition
-                else {"authToken": definition["authToken"]}
+                {"availabilityEnv": definition["availabilityEnv"]}
+                if "availabilityEnv" in definition
+                else {}
+            ),
+            **(
+                {"baseURLEnv": definition["baseURLEnv"]}
+                if "baseURLEnv" in definition
+                else {}
             ),
             "defaultHeaders": definition["defaultHeaders"],
             "models": [model["wireModel"] for model in definition["models"]],
@@ -1215,6 +1227,15 @@ _MULTI_PROVIDER_HELPER = (
     "_ccWireModel))throw _ccMultiProviderModelError(\"Unknown qualified model: \"+"
     "_ccCanonicalProvider+\":\"+_ccWireModel);return{provider:"
     "_ccCanonicalProvider,wireModel:_ccWireModel,definition:_ccDefinition}}"
+    "function _ccMultiProviderAvailable(_ccProvider){let _ccDefinition="
+    "_ccMultiProviderDefinitions[_ccProvider],_ccToken=process.env["
+    "_ccDefinition.tokenEnv]?.trim(),_ccBaseURL=_ccDefinition.baseURLEnv?process.env["
+    "_ccDefinition.baseURLEnv]?.trim():_ccDefinition.baseURL;return!!_ccToken&&"
+    "!!_ccBaseURL&&(!_ccDefinition.availabilityEnv||process.env["
+    '_ccDefinition.availabilityEnv]==="1")}function '
+    "_ccMultiProviderPickerCatalog(){return _ccMultiProviderCatalog.filter("
+    "(_ccEntry)=>_ccMultiProviderAvailable(_ccEntry.value.slice(0,"
+    '_ccEntry.value.indexOf(":"))))}'
     "function _ccMultiProviderSafeFetchOptions(_ccOptions){if(!_ccOptions)return "
     "_ccOptions;let{headers:_ccHeaders,..._ccSafe}=_ccOptions;return _ccSafe}"
     "function _ccMultiProviderSafeOptions(_ccOptions){let _ccSafe={};if("
@@ -1224,11 +1245,15 @@ _MULTI_PROVIDER_HELPER = (
     "if(_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase()))"
     "_ccHeaders[_ccName]=_ccValue;if(Object.keys(_ccHeaders).length)_ccSafe.headers="
     "_ccHeaders;return _ccSafe}"
-    "function _ccMultiProviderCredential(_ccInfo){let _ccToken="
-    "_ccInfo.definition.authToken??process.env[_ccInfo.definition.tokenEnv]?.trim();if("
-    "!_ccToken){_ccMultiProviderClients.delete(_ccInfo.provider);throw Object.assign("
-    "Error(\"Missing credential: \"+_ccInfo.definition.tokenEnv),"
-    '{code:"EPROVIDERCREDENTIAL"})}return _ccToken}'
+    "function _ccMultiProviderCredential(_ccInfo){let _ccToken=process.env["
+    "_ccInfo.definition.tokenEnv]?.trim(),_ccBaseURL=_ccInfo.definition.baseURLEnv?"
+    "process.env[_ccInfo.definition.baseURLEnv]?.trim():_ccInfo.definition.baseURL;if("
+    "!_ccToken||!_ccBaseURL||(_ccInfo.definition.availabilityEnv&&process.env["
+    "_ccInfo.definition.availabilityEnv]!==\"1\")){_ccMultiProviderClients.delete("
+    "_ccInfo.provider);let _ccMissing=!_ccToken?_ccInfo.definition.tokenEnv:!_ccBaseURL?"
+    "_ccInfo.definition.baseURLEnv:_ccInfo.definition.availabilityEnv;throw Object.assign("
+    "Error(\"Missing provider configuration: \"+_ccMissing),"
+    '{code:"EPROVIDERCREDENTIAL"})}return{token:_ccToken,baseURL:_ccBaseURL}}'
     "function _ccMultiProviderPreflight(_ccModel){let _ccInfo="
     "_ccMultiProviderModelInfo(_ccModel);if(_ccInfo)_ccMultiProviderCredential(_ccInfo)}"
     "function _ccMultiProviderInputTokens(_ccModel,_ccResponse){if("
@@ -1238,20 +1263,21 @@ _MULTI_PROVIDER_HELPER = (
     "_ccResponse?.input_tokens}"
     "function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={}){let "
     "_ccInfo=_ccMultiProviderModelInfo(_ccRequest.model);if(!_ccInfo)return["
-    "_ccNativeClient,_ccRequest,_ccOptions];let _ccToken="
+    "_ccNativeClient,_ccRequest,_ccOptions];let{token:_ccToken,baseURL:_ccBaseURL}="
     "_ccMultiProviderCredential(_ccInfo),_ccCached=_ccMultiProviderClients.get("
     "_ccInfo.provider),_ccTransportChanged=!_ccCached||_ccCached.token!==_ccToken||"
+    "_ccCached.baseURL!==_ccBaseURL||"
     "_ccCached.nativeClient!==_ccNativeClient||_ccCached.timeout!=="
     "_ccNativeClient.timeout||_ccCached.fetchOptions!==_ccNativeClient.fetchOptions||"
     "_ccCached.fetch!==_ccNativeClient.fetch;if(_ccTransportChanged){let "
     "_ccConstructor=_ccMultiProviderSDK(),_ccClient=new _ccConstructor({baseURL:"
-    "_ccInfo.definition.baseURL,apiKey:null,authToken:_ccToken,maxRetries:0,"
+    "_ccBaseURL,apiKey:null,authToken:_ccToken,maxRetries:0,"
     "dangerouslyAllowBrowser:!0,timeout:_ccNativeClient.timeout,fetchOptions:"
     "_ccMultiProviderSafeFetchOptions(_ccNativeClient.fetchOptions),fetch:"
     "_ccNativeClient.fetch,defaultHeaders:{..."
     "_ccInfo.definition.defaultHeaders}});if(_ccClient._options)_ccClient._options={..."
     "_ccClient._options,defaultHeaders:{..._ccInfo.definition.defaultHeaders}};"
-    "_ccCached={token:_ccToken,nativeClient:_ccNativeClient,timeout:"
+    "_ccCached={token:_ccToken,baseURL:_ccBaseURL,nativeClient:_ccNativeClient,timeout:"
     "_ccNativeClient.timeout,fetchOptions:_ccNativeClient.fetchOptions,fetch:"
     "_ccNativeClient.fetch,client:_ccClient};_ccMultiProviderClients.set("
     "_ccInfo.provider,_ccCached)}let _ccOutbound={..._ccRequest,model:"
@@ -1417,7 +1443,8 @@ def _surface_multi_provider_count_tokens_error(match: re.Match[str]) -> str:
 
 def _add_multi_provider_picker_models(match: re.Match[str]) -> str:
     return (
-        match.group(0) + f"{match.group('options')}.push(..._ccMultiProviderCatalog);"
+        match.group(0)
+        + f"{match.group('options')}.push(..._ccMultiProviderPickerCatalog());"
     )
 
 
@@ -1497,6 +1524,9 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r"https://api\.minimax\.io/anthropic"),
         re.compile(r"KimiCLI/1\.5"),
         re.compile(r"_ccMultiProviderCatalog\.find"),
+        re.compile(r"_ccMultiProviderPickerCatalog\(\)"),
+        re.compile(r'CC_OPENAI_AVAILABLE'),
+        re.compile(r'CC_OPENAI_PROXY_AUTH_TOKEN'),
     ),
     min_version=_V_2_1_174,
     max_version=(2, 1, 175),

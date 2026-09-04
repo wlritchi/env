@@ -12,12 +12,16 @@ const providerKeys = [
   "CC_KIMI_AUTH_TOKEN",
   "CC_ZAI_AUTH_TOKEN",
   "CC_MINIMAX_AUTH_TOKEN",
+  "CC_OPENAI_PROXY_AUTH_TOKEN",
+  "CC_OPENAI_AVAILABLE",
 ];
 const requesterProcessEnv = {
   ANTHROPIC_BASE_URL: "https://requester.example",
   ANTHROPIC_MODEL: "requester-model",
   ANTHROPIC_AUTH_TOKEN: "requester-token",
   CC_KIMI_AUTH_TOKEN: "requester-a",
+  CC_OPENAI_PROXY_AUTH_TOKEN: "openai-requester-token",
+  CC_OPENAI_AVAILABLE: "1",
 };
 const persistedJobEnv = {};
 const expectedConsumerEnv = {
@@ -29,6 +33,8 @@ const expectedConsumerEnv = {
   CC_KIMI_AUTH_TOKEN: "requester-a",
   CC_ZAI_AUTH_TOKEN: undefined,
   CC_MINIMAX_AUTH_TOKEN: undefined,
+  CC_OPENAI_PROXY_AUTH_TOKEN: "openai-requester-token",
+  CC_OPENAI_AVAILABLE: "1",
 };
 
 function requireProviderEnv(providerEnv) {
@@ -200,8 +206,23 @@ const requesterB = snapshotRequesterTransport({
 });
 applyProviderEnv(rotatingWorkerEnv, requesterB);
 assert.equal(rotatingWorkerEnv.CC_KIMI_AUTH_TOKEN, "token-b");
+const requesterOpenAI = snapshotRequesterTransport({
+  CC_OPENAI_PROXY_AUTH_TOKEN: "openai-token-a",
+  CC_OPENAI_AVAILABLE: "1",
+});
+applyProviderEnv(rotatingWorkerEnv, requesterOpenAI);
+assert.equal(rotatingWorkerEnv.CC_OPENAI_PROXY_AUTH_TOKEN, "openai-token-a");
+assert.equal(rotatingWorkerEnv.CC_OPENAI_AVAILABLE, "1");
+const requesterOpenAIRotated = snapshotRequesterTransport({
+  CC_OPENAI_PROXY_AUTH_TOKEN: "openai-token-b",
+});
+applyProviderEnv(rotatingWorkerEnv, requesterOpenAIRotated);
+assert.equal(rotatingWorkerEnv.CC_OPENAI_PROXY_AUTH_TOKEN, "openai-token-b");
+assert.equal(rotatingWorkerEnv.CC_OPENAI_AVAILABLE, undefined);
 const requesterUnset = snapshotRequesterTransport({});
 applyProviderEnv(rotatingWorkerEnv, requesterUnset);
 assert.equal(rotatingWorkerEnv.CC_KIMI_AUTH_TOKEN, undefined);
+assert.equal(rotatingWorkerEnv.CC_OPENAI_PROXY_AUTH_TOKEN, undefined);
+assert.equal(rotatingWorkerEnv.CC_OPENAI_AVAILABLE, undefined);
 
 console.log("provider environment transient transport ordering: ok");

@@ -246,14 +246,14 @@ def test_background_provider_environment_transforms_complete_fixture() -> None:
     for key in _PROVIDER_ENV_EXPLICIT_KEYS:
         assert f'"{key}"' in patched
     assert "out[key]=value===void 0?null:value" in patched
-    assert patched.count("providerEnvVersion:2,providerEnv:SNAP()") == 2
+    assert patched.count("providerEnvVersion:3,providerEnv:SNAP()") == 2
     assert (
         "z.record(z.enum(_ccProviderKeys()),z.union([z.string(),z.null()]))" in patched
     )
-    assert "req.providerEnvVersion!==2||req.providerEnv===void 0" in patched
-    assert "op:operation,providerEnvVersion:2,short:short" in patched
-    assert "reply.providerEnvVersion!==2" in patched
-    assert "retryReply.providerEnvVersion!==2" in patched
+    assert "req.providerEnvVersion!==3||req.providerEnv===void 0" in patched
+    assert "op:operation,providerEnvVersion:3,short:short" in patched
+    assert "reply.providerEnvVersion!==3" in patched
+    assert "retryReply.providerEnvVersion!==3" in patched
     assert "Restart the stale Claude Code daemon and try again" in patched
     assert 'reply.code==="EPROVIDERENV"' in patched
     assert 'retryReply.code==="EPROVIDERENV"' in patched
@@ -393,8 +393,8 @@ def test_background_provider_environment_threads_current_requester_snapshot(
 ) -> None:
     patched = BACKGROUND_PROVIDER_ENV.apply(_PROVIDER_ENV_SRC)
     markers = {
-        "socket primary": "providerEnvVersion:2,providerEnv:SNAP()",
-        "socket retry/recovery": "providerEnvVersion:2,providerEnv:SNAP()",
+        "socket primary": "providerEnvVersion:3,providerEnv:SNAP()",
+        "socket retry/recovery": "providerEnvVersion:3,providerEnv:SNAP()",
         "claimed spare": "W0q(job,spare,spawn,authObj.getAuthSnapshot,_ccProviderEnv)",
         "cold worker": (
             "Worker.spawn(job,spawn,authObj.getAuthSnapshot,afterUpgrade?"
@@ -558,7 +558,7 @@ def test_background_provider_environment_strict_receiver_rejects_unknown_keys() 
 
 def test_background_provider_environment_rejects_protocol_skew() -> None:
     patched = BACKGROUND_PROVIDER_ENV.apply(_PROVIDER_ENV_SRC)
-    assert "req.providerEnvVersion!==2" in patched
+    assert "req.providerEnvVersion!==3" in patched
     assert "req.providerEnv===void 0" in patched
     assert 'code:"EPROVIDERENV"' in patched
     assert 'reply.code==="EPROVIDERENV"' in patched
@@ -570,7 +570,7 @@ def test_background_provider_environment_rejects_old_daemon_success() -> None:
         'reply={ok:!0,op:"dispatch"};'
         + patched[patched.index('if(reply.ok&&reply.op==="dispatch")') :]
     )
-    assert "reply.providerEnvVersion!==2" in old_daemon_success
+    assert "reply.providerEnvVersion!==3" in old_daemon_success
     assert 'reply={ok:!1,error:"Background provider environment protocol mismatch.' in (
         old_daemon_success
     )
@@ -583,7 +583,7 @@ def test_background_provider_environment_rejects_old_daemon_redispatch() -> None
         patched.index('if(retryReply.ok&&retryReply.op==="dispatch")') :
     ]
 
-    assert "retryReply.providerEnvVersion!==2" in redispatch
+    assert "retryReply.providerEnvVersion!==3" in redispatch
     assert (
         'retryReply={ok:!1,error:"Background provider environment protocol mismatch.'
         in redispatch
@@ -593,7 +593,7 @@ def test_background_provider_environment_rejects_old_daemon_redispatch() -> None
         'throw Object.assign(Error(retryReply.error),{code:"EPROVIDERENV"})'
         in redispatch
     )
-    assert redispatch.index("retryReply.providerEnvVersion!==2") < redispatch.index(
+    assert redispatch.index("retryReply.providerEnvVersion!==3") < redispatch.index(
         "return log(),await metric()"
     )
 
@@ -635,13 +635,18 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert "if(_ccMultiProviderModelInfo(_ccEffectiveModel))throw ERROR" in patched
     assert 'code:"EPROVIDERINCOMPATIBLE"' in patched
     assert "model:KA(REQ1.model)" in patched
-    assert "OPTIONS.push(..._ccMultiProviderCatalog)" in patched
+    assert "OPTIONS.push(..._ccMultiProviderPickerCatalog())" in patched
     assert "_ccMultiProviderCatalog.find" in patched
+    assert "_ccMultiProviderCatalog.filter" in patched
     assert "CC_KIMI_AUTH_TOKEN" in patched
     assert "CC_ZAI_AUTH_TOKEN" in patched
     assert "CC_MINIMAX_AUTH_TOKEN" in patched
+    assert "CC_OPENAI_PROXY_AUTH_TOKEN" in patched
+    assert "CC_OPENAI_AVAILABLE" in patched
     assert '"baseURL":"http://127.0.0.1:17780"' in patched
-    assert '"authToken":"cc-openai-local"' in patched
+    assert '"tokenEnv":"CC_OPENAI_PROXY_AUTH_TOKEN"' in patched
+    assert '"availabilityEnv":"CC_OPENAI_AVAILABLE"' in patched
+    assert "cc-openai-local" not in patched
     assert "openai:gpt-5.6-sol" in patched
     assert "openai:gpt-5.6-terra" in patched
     assert "openai:gpt-5.6-luna" in patched

@@ -29,6 +29,18 @@ from wlrenv.ccpatch.patches import (
 )
 
 
+def test_legacy_variant_uses_branded_proxy_aware_launcher() -> None:
+    root = Path(__file__).parents[2]
+    variant = (root / "machines/pkgs/claude-code-variant.nix").read_text()
+    launcher = (root / "machines/pkgs/claude-code.nix").read_text()
+
+    assert "exec ${binary}/bin/claude --settings ${brandSettings}" in variant
+    assert "${binary}/libexec/claude-code/claude" not in variant
+    assert "cc_openai_proxy_configure optional claude" in launcher
+    assert "CC_OPENAI_PROXY_URL+x" in launcher
+    assert "exit 1" in launcher
+
+
 def _find_binary() -> tuple[Path | None, bool]:
     env = os.environ.get("CCPATCH_TEST_BINARY")
     if env and Path(env).is_file():
@@ -86,7 +98,7 @@ def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
         if explicit:
             pytest.fail("CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174")
         pytest.skip("installed binary is not pristine Claude Code 2.1.174")
-    if "providerEnvVersion:2,providerEnv:AW9()" in source:
+    if re.search(r"providerEnvVersion:\d+,providerEnv:AW9\(\)", source):
         if explicit:
             pytest.fail("CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174")
         pytest.skip("installed Claude Code 2.1.174 binary is already patched")
@@ -101,7 +113,7 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     if not path.is_file():
         pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
     source = _entry_source(path.read_bytes())
-    if 'VERSION:"2.1.174"' not in source or "providerEnvVersion:2" not in source:
+    if 'VERSION:"2.1.174"' not in source or "providerEnvVersion:3" not in source:
         pytest.fail(
             "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174"
         )
@@ -134,9 +146,9 @@ def test_real_source_secures_background_provider_environment(
         key for key in _PROVIDER_ENV_EXPLICIT_KEYS if key.startswith("VERTEX_REGION_")
     }
     assert '"CLAUDE_CODE_CERT_STORE"' in patched
-    assert patched.count("providerEnvVersion:2,providerEnv:AW9()") == 2
-    assert "providerEnvVersion:2,short:" in patched
-    assert patched.count(".providerEnvVersion!==2") == 3
+    assert patched.count("providerEnvVersion:3,providerEnv:AW9()") == 2
+    assert "providerEnvVersion:3,short:" in patched
+    assert patched.count(".providerEnvVersion!==3") == 3
     assert patched.count('code==="EPROVIDERENV"') == 2
     assert 'throw Object.assign(Error(' in patched
     for key in _PROVIDER_ENV_EXPLICIT_KEYS:
@@ -236,8 +248,12 @@ def test_real_source_routes_multi_provider_sdk(
     assert "CC_KIMI_AUTH_TOKEN" in patched
     assert "CC_ZAI_AUTH_TOKEN" in patched
     assert "CC_MINIMAX_AUTH_TOKEN" in patched
+    assert "CC_OPENAI_PROXY_AUTH_TOKEN" in patched
+    assert "CC_OPENAI_AVAILABLE" in patched
     assert '"baseURL":"http://127.0.0.1:17780"' in patched
-    assert '"authToken":"cc-openai-local"' in patched
+    assert '"tokenEnv":"CC_OPENAI_PROXY_AUTH_TOKEN"' in patched
+    assert '"availabilityEnv":"CC_OPENAI_AVAILABLE"' in patched
+    assert "cc-openai-local" not in patched
     assert "apiKey:null,authToken:_ccToken,maxRetries:0" in patched
     assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
     assert "_ccMultiProviderRoute(z,_ccRequest)" in patched

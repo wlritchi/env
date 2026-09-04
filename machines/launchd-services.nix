@@ -19,9 +19,10 @@ in
           "127.0.0.1"
           "--port"
           "17780"
+          "--auth-token-file"
+          "${config.home.homeDirectory}/Library/Application Support/cc-openai-proxy/auth-token"
         ];
-        # Anonymous access is temporary and limited to this loopback listener.
-        EnvironmentVariables.CC_OPENAI_PROXY_ALLOW_ANON = "1";
+        Umask = 63;
         RunAtLoad = true;
         KeepAlive = true;
         ProcessType = "Background";

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "cc-openai-proxy": "./bin/cc-openai-proxy.js"
+    "cc-openai-proxy": "./bin/cc-openai-proxy.js",
+    "cc-openai-proxy-auth": "./bin/cc-openai-proxy-auth.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js"

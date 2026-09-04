@@ -9,10 +9,18 @@
 
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
-  claude-code = pkgs.callPackage ./pkgs/claude-code.nix { };
+  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
+  cc-openai-proxy-launcher = pkgs.callPackage ./pkgs/cc-openai-proxy-launcher.nix {
+    inherit cc-openai-proxy;
+  };
+  claude-code = pkgs.callPackage ./pkgs/claude-code.nix {
+    inherit cc-openai-proxy cc-openai-proxy-launcher;
+  };
   claude-code-variant = pkgs.callPackage ./pkgs/claude-code-variant.nix { };
   claude-code-openai = pkgs.callPackage ./pkgs/claude-code-openai.nix {
+    inherit cc-openai-proxy-launcher;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      inherit cc-openai-proxy cc-openai-proxy-launcher;
       brand = "openai";
       brandSplash = ./pkgs/cc-openai-splash.txt;
     };
@@ -20,6 +28,7 @@ let
   claude-code-kimi = pkgs.callPackage ./pkgs/claude-code-kimi.nix {
     inherit claude-code-variant;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      inherit cc-openai-proxy cc-openai-proxy-launcher;
       brand = "kimi";
       brandSplash = ./pkgs/cc-kimi-splash.txt;
     };
@@ -27,6 +36,7 @@ let
   claude-code-zai = pkgs.callPackage ./pkgs/claude-code-zai.nix {
     inherit claude-code-variant;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      inherit cc-openai-proxy cc-openai-proxy-launcher;
       brand = "zai";
       brandSplash = ./pkgs/cc-zai-splash.txt;
     };
@@ -34,6 +44,7 @@ let
   claude-code-minimax = pkgs.callPackage ./pkgs/claude-code-minimax.nix {
     inherit claude-code-variant;
     claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
+      inherit cc-openai-proxy cc-openai-proxy-launcher;
       brand = "minimax";
       brandSplash = ./pkgs/cc-minimax-splash.txt;
     };

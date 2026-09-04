@@ -10,7 +10,7 @@ buildNpmPackage {
   version = "0.1.0";
 
   src = ../../src/cc-openai-proxy;
-  npmDepsHash = "sha256-WgH+AqtlN/DuHT8B2LwsNWugWtFABREz/hSF5muWTnU=";
+  npmDepsHash = "sha256-4BFMjEKlx+lq+KQ+UyptS43HAc9Z0CIhL4ofmz5uSdg=";
   nodejs = nodejs_24;
 
   dontNpmBuild = true;
@@ -23,6 +23,8 @@ buildNpmPackage {
     cp -R bin package.json node_modules "$out/libexec/cc-openai-proxy/"
     makeWrapper ${nodejs_24}/bin/node "$out/bin/cc-openai-proxy" \
       --add-flags "$out/libexec/cc-openai-proxy/bin/cc-openai-proxy.js"
+    makeWrapper ${nodejs_24}/bin/node "$out/bin/cc-openai-proxy-auth" \
+      --add-flags "$out/libexec/cc-openai-proxy/bin/cc-openai-proxy-auth.js"
 
     runHook postInstall
   '';

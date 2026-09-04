@@ -25,7 +25,7 @@
 
 {
   command, # e.g. "cc-kimi"; config dir defaults to ~/.<command>, override via <COMMAND>_CONFIG_DIR
-  binary, # brand-patched claude-code derivation (uses its libexec binary)
+  binary, # brand-patched claude-code derivation (uses its launcher)
   env, # attrset of provider env vars (string values)
   themeFile, # path to a {name,base,overrides} custom-theme JSON
   themeSlug, # theme file is installed as <slug>.json and selected as custom:<slug>
@@ -78,8 +78,9 @@ let
       echo "${command}: ANTHROPIC_AUTH_TOKEN is unset; requests will fail until you set it." >&2
     fi
 
-    # --settings first so a user-supplied --settings later in argv still wins.
-    exec ${binary}/libexec/claude-code/claude --settings ${brandSettings} "$@"
+    # Use the branded launcher so its optional OpenAI proxy configuration and
+    # terminal setup also apply. --settings stays first so a later user setting wins.
+    exec ${binary}/bin/claude --settings ${brandSettings} "$@"
   '';
 in
 # The wrapper derivation, plus the theme-definition home.file. `command` is

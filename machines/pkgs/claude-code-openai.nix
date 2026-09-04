@@ -8,8 +8,7 @@
   lib,
   writeShellScriptBin,
   writeText,
-  curl,
-  coreutils,
+  cc-openai-proxy-launcher,
   claude-code-bin,
 }:
 
@@ -30,70 +29,24 @@ let
 
     export CLAUDE_CONFIG_DIR="''${CC_OPENAI_CONFIG_DIR:-$HOME/.${command}}"
 
-    default_base_url="http://127.0.0.1:17780"
-    base_url="''${CC_OPENAI_PROXY_URL:-$default_base_url}"
-    autostart="''${CC_OPENAI_PROXY_AUTOSTART:-1}"
-    health_url="$base_url/health"
+    source ${cc-openai-proxy-launcher}
+    cc_openai_proxy_configure required ${command} || exit 1
 
-    is_healthy() {
-      ${curl}/bin/curl -fsS --max-time 1 "$health_url" >/dev/null 2>&1
-    }
+    selected_model="$(cc_openai_qualify_model "''${CC_OPENAI_MODEL:-''${CC_OPENAI_DEFAULT_MODEL:-gpt-5.6-sol}}")"
+    sonnet_model="$(cc_openai_qualify_model "''${CC_OPENAI_SONNET_MODEL:-''${CC_OPENAI_MODEL:-gpt-5.6-terra}}")"
+    haiku_model="$(cc_openai_qualify_model "''${CC_OPENAI_HAIKU_MODEL:-''${CC_OPENAI_MODEL:-gpt-5.6-luna}}")"
 
-    start_managed_proxy() {
-      case "$(${coreutils}/bin/uname -s)" in
-        Linux)
-          if ! command -v systemctl >/dev/null 2>&1; then
-            echo "${command}: systemctl is unavailable" >&2
-            return 1
-          fi
-          systemctl --user start cc-openai-proxy.service
-          ;;
-        Darwin)
-          /bin/launchctl kickstart \
-            "gui/$(${coreutils}/bin/id -u)/org.nix-community.home.cc-openai-proxy"
-          ;;
-        *)
-          echo "${command}: unsupported service manager" >&2
-          return 1
-          ;;
-      esac
-    }
-
-    if [ "$autostart" = "1" ] && [ -z "''${CC_OPENAI_PROXY_URL:-}" ] && ! is_healthy; then
-      start_managed_proxy
-      for _ in {1..50}; do
-        if is_healthy; then
-          break
-        fi
-        sleep 0.1
-      done
-
-      if ! is_healthy; then
-        echo "${command}: managed proxy did not become healthy at $health_url" >&2
-        echo "${command}: inspect the cc-openai-proxy user service logs" >&2
-        exit 1
-      fi
-    elif ! is_healthy; then
-      echo "${command}: proxy is not healthy at $health_url" >&2
-      echo "${command}: set CC_OPENAI_PROXY_AUTOSTART=1 or start the configured proxy" >&2
-      exit 1
-    fi
-
-    default_model="''${CC_OPENAI_DEFAULT_MODEL:-gpt-5.6-sol}"
-    sonnet_model="''${CC_OPENAI_SONNET_MODEL:-''${CC_OPENAI_MODEL:-gpt-5.6-terra}}"
-    haiku_model="''${CC_OPENAI_HAIKU_MODEL:-''${CC_OPENAI_MODEL:-gpt-5.6-luna}}"
-
-    export ANTHROPIC_BASE_URL="$base_url"
-    export ANTHROPIC_AUTH_TOKEN="''${ANTHROPIC_AUTH_TOKEN:-cc-openai-local}"
+    export ANTHROPIC_BASE_URL="$CC_OPENAI_PROXY_EFFECTIVE_URL"
+    export ANTHROPIC_AUTH_TOKEN="$CC_OPENAI_PROXY_AUTH_TOKEN"
     unset ANTHROPIC_API_KEY
 
-    export ANTHROPIC_MODEL="''${CC_OPENAI_MODEL:-$default_model}"
-    export ANTHROPIC_DEFAULT_OPUS_MODEL="''${CC_OPENAI_OPUS_MODEL:-''${CC_OPENAI_MODEL:-$default_model}}"
+    export ANTHROPIC_MODEL="$selected_model"
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="$(cc_openai_qualify_model "''${CC_OPENAI_OPUS_MODEL:-''${CC_OPENAI_MODEL:-''${CC_OPENAI_DEFAULT_MODEL:-gpt-5.6-sol}}}")"
     export ANTHROPIC_DEFAULT_SONNET_MODEL="$sonnet_model"
     export ANTHROPIC_DEFAULT_HAIKU_MODEL="$haiku_model"
-    export ANTHROPIC_DEFAULT_FABLE_MODEL="''${CC_OPENAI_FABLE_MODEL:-''${CC_OPENAI_MODEL:-$default_model}}"
+    export ANTHROPIC_DEFAULT_FABLE_MODEL="$(cc_openai_qualify_model "''${CC_OPENAI_FABLE_MODEL:-''${CC_OPENAI_MODEL:-''${CC_OPENAI_DEFAULT_MODEL:-gpt-5.6-sol}}}")"
     export ANTHROPIC_SMALL_FAST_MODEL="$haiku_model"
-    export CLAUDE_CODE_SUBAGENT_MODEL="''${CC_OPENAI_MODEL:-$default_model}"
+    export CLAUDE_CODE_SUBAGENT_MODEL="$selected_model"
     export API_TIMEOUT_MS="''${API_TIMEOUT_MS:-3000000}"
     export BASH_DEFAULT_TIMEOUT_MS="''${BASH_DEFAULT_TIMEOUT_MS:-3600000}"
     export DISABLE_INSTALLATION_CHECKS=1
