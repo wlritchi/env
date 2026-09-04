@@ -17,7 +17,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 Version = tuple[int, ...]
 
@@ -42,7 +42,8 @@ class MultiProviderModel(TypedDict):
 class MultiProviderDefinition(TypedDict):
     provider: str
     baseURL: str
-    tokenEnv: str
+    tokenEnv: NotRequired[str]
+    authToken: NotRequired[str]
     defaultHeaders: dict[str, str]
     models: tuple[MultiProviderModel, ...]
 
@@ -1123,17 +1124,48 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
             },
         ),
     },
+    {
+        "provider": "openai",
+        "baseURL": "http://127.0.0.1:17780",
+        "authToken": "cc-openai-local",
+        "defaultHeaders": {},
+        "models": (
+            {
+                "wireModel": "gpt-5.6-sol",
+                "label": "GPT-5.6 Sol",
+                "description": "OpenAI Codex model",
+            },
+            {
+                "wireModel": "gpt-5.6-terra",
+                "label": "GPT-5.6 Terra",
+                "description": "OpenAI Codex model",
+            },
+            {
+                "wireModel": "gpt-5.6-luna",
+                "label": "GPT-5.6 Luna",
+                "description": "OpenAI Codex model",
+            },
+        ),
+    },
 )
 _MULTI_PROVIDER_DEFINITIONS = json.dumps(
     {
         definition["provider"]: {
             "baseURL": definition["baseURL"],
-            "tokenEnv": definition["tokenEnv"],
+            **(
+                {"tokenEnv": definition["tokenEnv"]}
+                if "tokenEnv" in definition
+                else {"authToken": definition["authToken"]}
+            ),
             "defaultHeaders": definition["defaultHeaders"],
             "models": [model["wireModel"] for model in definition["models"]],
         }
         for definition in _MULTI_PROVIDER_CATALOG_SOURCE
     },
+    separators=(",", ":"),
+)
+_MULTI_PROVIDER_PREFIXES = json.dumps(
+    [definition["provider"] for definition in _MULTI_PROVIDER_CATALOG_SOURCE],
     separators=(",", ":"),
 )
 _MULTI_PROVIDER_CATALOG = json.dumps(
@@ -1151,7 +1183,7 @@ _MULTI_PROVIDER_CATALOG = json.dumps(
 _MULTI_PROVIDER_HELPER = (
     f"const _ccMultiProviderDefinitions={_MULTI_PROVIDER_DEFINITIONS};"
     f"const _ccMultiProviderCatalog={_MULTI_PROVIDER_CATALOG};"
-    'const _ccMultiProviderPrefixes=["kimi","zai","minimax"],'
+    f"const _ccMultiProviderPrefixes={_MULTI_PROVIDER_PREFIXES},"
     '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"],'
     '_ccMultiProviderTraceHeaders=["traceparent","tracestate","baggage"],'
     "_ccMultiProviderClients=new Map;"
@@ -1192,10 +1224,11 @@ _MULTI_PROVIDER_HELPER = (
     "if(_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase()))"
     "_ccHeaders[_ccName]=_ccValue;if(Object.keys(_ccHeaders).length)_ccSafe.headers="
     "_ccHeaders;return _ccSafe}"
-    "function _ccMultiProviderCredential(_ccInfo){let _ccToken=process.env["
-    "_ccInfo.definition.tokenEnv]?.trim();if(!_ccToken){_ccMultiProviderClients.delete("
-    "_ccInfo.provider);throw Object.assign(Error(\"Missing credential: \"+"
-    '_ccInfo.definition.tokenEnv),{code:"EPROVIDERCREDENTIAL"})}return _ccToken}'
+    "function _ccMultiProviderCredential(_ccInfo){let _ccToken="
+    "_ccInfo.definition.authToken??process.env[_ccInfo.definition.tokenEnv]?.trim();if("
+    "!_ccToken){_ccMultiProviderClients.delete(_ccInfo.provider);throw Object.assign("
+    "Error(\"Missing credential: \"+_ccInfo.definition.tokenEnv),"
+    '{code:"EPROVIDERCREDENTIAL"})}return _ccToken}'
     "function _ccMultiProviderPreflight(_ccModel){let _ccInfo="
     "_ccMultiProviderModelInfo(_ccModel);if(_ccInfo)_ccMultiProviderCredential(_ccInfo)}"
     "function _ccMultiProviderInputTokens(_ccModel,_ccResponse){if("

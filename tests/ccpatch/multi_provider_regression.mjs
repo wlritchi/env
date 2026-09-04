@@ -210,7 +210,9 @@ for (const model of [
   "kimi:",
   "zai:",
   "minimax:",
+  "openai:",
   "zai:unknown",
+  "openai:unknown",
   "Kimi:kimi-k2.7-code",
   "KIMI:kimi-k2.7-code",
   "kim:kimi-k2.7-code",
@@ -225,7 +227,7 @@ for (const model of [
     model,
   );
 }
-assert.equal(api.catalog.length, 5);
+assert.equal(api.catalog.length, 8);
 for (const model of [
   "opus",
   "claude-opus-4-8",
@@ -245,9 +247,35 @@ for (const [model, provider] of [
   ["glm-5-turbo", "zai"],
   ["minimax:MiniMax-M2.7", "minimax"],
   ["MiniMax-M2.7", "minimax"],
+  ["openai:gpt-5.6-sol", "openai"],
+  ["gpt-5.6-sol", "openai"],
+  ["openai:gpt-5.6-terra", "openai"],
+  ["gpt-5.6-terra", "openai"],
+  ["openai:gpt-5.6-luna", "openai"],
+  ["gpt-5.6-luna", "openai"],
 ]) {
   assert.equal(api.modelProvider(model), provider, model);
 }
+
+const [openAIClient, openAIRequest, openAIOptions] = api.route(
+  nativeClient,
+  Object.freeze({
+    model: "openai:gpt-5.6-sol",
+    messages: [],
+    fallback_credit_token: "never-forward",
+  }),
+  options,
+);
+assert.equal(openAIRequest.model, "gpt-5.6-sol");
+assert.ok(!("fallback_credit_token" in openAIRequest));
+assert.equal(openAIClient.options.baseURL, "http://127.0.0.1:17780");
+assert.equal(openAIClient.options.authToken, "cc-openai-local");
+assert.equal(JSON.stringify(openAIClient._options.defaultHeaders), "{}");
+assert.equal(
+  JSON.stringify(openAIOptions.headers),
+  JSON.stringify({ traceparent: "00-trace", TraceState: "state" }),
+);
+assert.ok(!reads.includes(undefined));
 
 credentials.CC_ZAI_AUTH_TOKEN = "zai-token";
 const [countClient, countRequest, countOptions] = api.route(

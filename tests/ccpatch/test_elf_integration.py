@@ -228,11 +228,16 @@ def test_real_source_routes_multi_provider_sdk(
         "zai:glm-5-turbo",
         "zai:glm-4.5-air",
         "minimax:MiniMax-M2.7",
+        "openai:gpt-5.6-sol",
+        "openai:gpt-5.6-terra",
+        "openai:gpt-5.6-luna",
     ):
         assert model in patched
     assert "CC_KIMI_AUTH_TOKEN" in patched
     assert "CC_ZAI_AUTH_TOKEN" in patched
     assert "CC_MINIMAX_AUTH_TOKEN" in patched
+    assert '"baseURL":"http://127.0.0.1:17780"' in patched
+    assert '"authToken":"cc-openai-local"' in patched
     assert "apiKey:null,authToken:_ccToken,maxRetries:0" in patched
     assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
     assert "_ccMultiProviderRoute(z,_ccRequest)" in patched

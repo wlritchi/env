@@ -640,6 +640,11 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert "CC_KIMI_AUTH_TOKEN" in patched
     assert "CC_ZAI_AUTH_TOKEN" in patched
     assert "CC_MINIMAX_AUTH_TOKEN" in patched
+    assert '"baseURL":"http://127.0.0.1:17780"' in patched
+    assert '"authToken":"cc-openai-local"' in patched
+    assert "openai:gpt-5.6-sol" in patched
+    assert "openai:gpt-5.6-terra" in patched
+    assert "openai:gpt-5.6-luna" in patched
     assert "apiKey:null,authToken:_ccToken,maxRetries:0" in patched
     assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
