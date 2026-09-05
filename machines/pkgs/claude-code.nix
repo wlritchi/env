@@ -24,18 +24,7 @@
   stdenvNoCC,
   fetchurl,
   python3,
-  makeWrapper,
-  cc-openai-proxy,
   cc-openai-proxy-launcher,
-  # Optional provider brand baked into the binary (e.g. "kimi" -> startup label,
-  # thinking verbs, identity/attribution rebrand, onboarding skip). null = the
-  # plain personal build used for `claude`.
-  brand ? null,
-  # Optional splash art (a path) embedded into the interactive startup for a
-  # branded build; printed on TTY launch in place of the old wrapper `cat`. NOT
-  # named `splash`: callPackage would auto-fill that from nixpkgs' `splash`
-  # package (shadowing the null default) on the unbranded build.
-  brandSplash ? null,
 }:
 
 let
@@ -78,15 +67,13 @@ let
   };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
-  pname = "claude-code-patched" + lib.optionalString (brand != null) "-${brand}";
+  pname = "claude-code-patched";
   inherit version;
 
   src = fetchurl {
     url = "https://registry.npmjs.org/@anthropic-ai/claude-code-${source.platform}/-/claude-code-${source.platform}-${version}.tgz";
     inherit (source) hash;
   };
-
-  nativeBuildInputs = [ makeWrapper ];
 
   # npm tarball unpacks into ./package (entered automatically by stdenv).
   dontConfigure = true;
@@ -96,9 +83,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     export PYTHONDONTWRITEBYTECODE=1
     PYTHONPATH=${ccpatchSrc} ${pythonEnv}/bin/python -m wlrenv.ccpatch.cli apply \
-      ./claude -o ./claude-patched --version ${version} --no-smoke \
-      ${lib.optionalString (brand != null) "--brand ${brand}"} \
-      ${lib.optionalString (brandSplash != null) "--splash ${brandSplash}"}
+      ./claude -o ./claude-patched --version ${version} --no-smoke
 
     runHook postBuild
   '';

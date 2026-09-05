@@ -211,12 +211,4 @@ writeText "cc-openai-proxy-launcher.sh" ''
     export CC_OPENAI_AVAILABLE=1
     export CC_OPENAI_PROXY_EFFECTIVE_URL="$cc_openai_proxy_base_url"
   }
-
-  cc_openai_qualify_model() {
-    cc_openai_model="$1"
-    while [ "''${cc_openai_model#openai:}" != "$cc_openai_model" ]; do
-      cc_openai_model="''${cc_openai_model#openai:}"
-    done
-    printf 'openai:%s\n' "$cc_openai_model"
-  }
 ''

@@ -52,13 +52,30 @@ const context = vm.createContext({
   process: fakeProcess,
 });
 const script = new vm.Script(
-  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog,pickerCatalog:_ccMultiProviderPickerCatalog};`,
+  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,toolAllowed:_ccMultiProviderToolAllowed,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog,pickerCatalog:_ccMultiProviderPickerCatalog};`,
   { filename: helperPath },
 );
 script.runInContext(context);
 const api = context.__api;
 
-assert.equal(api.catalog.length, 8);
+const ordinaryTools = [
+  { name: "WebSearch" },
+  { name: "WebFetch" },
+  { name: "Read" },
+  { name: "mcp__docs__search", isMcp: true },
+];
+const allowedTools = (model) =>
+  ordinaryTools.filter((tool) => api.toolAllowed(model, tool));
+assert.deepEqual(
+  Array.from(allowedTools("claude-sonnet-4-6"), ({ name }) => name),
+  ["WebSearch", "WebFetch", "Read", "mcp__docs__search"],
+);
+assert.deepEqual(
+  Array.from(allowedTools("zai:glm-5.3"), ({ name }) => name),
+  ["WebFetch", "Read", "mcp__docs__search"],
+);
+
+assert.equal(api.catalog.length, 13);
 assert.deepEqual(
   Array.from(api.pickerCatalog(), ({ value }) => value),
   [],
@@ -71,17 +88,26 @@ credentials.CC_OPENAI_PROXY_EFFECTIVE_URL = "http://127.0.0.1:17780";
 credentials.CC_OPENAI_AVAILABLE = "0";
 assert.deepEqual(
   Array.from(api.pickerCatalog(), ({ value }) => value),
-  ["zai:glm-5.2", "zai:glm-5-turbo", "zai:glm-4.5-air", "minimax:MiniMax-M2.7"],
+  [
+    "zai:glm-5.3",
+    "zai:glm-5.3-flash",
+    "zai:glm-5.2",
+    "zai:glm-5-turbo",
+    "zai:glm-4.7",
+    "zai:glm-4.5-air",
+    "minimax:MiniMax-M3",
+    "minimax:MiniMax-M2.7",
+  ],
 );
 credentials.CC_KIMI_AUTH_TOKEN = "kimi-picker-token";
 credentials.CC_OPENAI_AVAILABLE = "1";
-assert.equal(api.pickerCatalog().length, 8);
+assert.equal(api.pickerCatalog().length, 13);
 delete credentials.CC_ZAI_AUTH_TOKEN;
 delete credentials.CC_MINIMAX_AUTH_TOKEN;
 delete credentials.CC_OPENAI_PROXY_AUTH_TOKEN;
 assert.deepEqual(
   Array.from(api.pickerCatalog(), ({ value }) => value),
-  ["kimi:kimi-k2.7-code"],
+  ["kimi:kimi-k3", "kimi:kimi-k2.7-code"],
 );
 delete credentials.CC_KIMI_AUTH_TOKEN;
 delete credentials.CC_OPENAI_AVAILABLE;

@@ -37,6 +37,7 @@ class MultiProviderModel(TypedDict):
     wireModel: str
     label: str
     description: str
+    costs: ModelCosts
 
 
 class MultiProviderDefinition(TypedDict):
@@ -1078,6 +1079,30 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
 
 # --- in-process multi-provider Anthropic SDK routing (2.1.174 only) ----------
 
+_MODEL_COSTS_RE = re.compile(
+    r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
+)
+
+
+def _model_costs_patch(model_costs: ModelCostsByModel) -> Patch:
+    # Claude Code computes statusline/session cost from its own per-model table.
+    # Claude Code lowercases model IDs before cost lookup. Use normalized qualified IDs.
+    table = ",".join(
+        f"{json.dumps(model.lower(), separators=(',', ':'))}:"
+        f"{{inputTokens:{costs['inputTokens']},"
+        f"outputTokens:{costs['outputTokens']},"
+        f"promptCacheWriteTokens:{costs['promptCacheWriteTokens']},"
+        f"promptCacheReadTokens:{costs['promptCacheReadTokens']},"
+        f"webSearchRequests:{costs['webSearchRequests']}}}"
+        for model, costs in model_costs.items()
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        return f"{match.group(1)}{table},{match.group(2)}"
+
+    return Patch(name="model-costs", pattern=_MODEL_COSTS_RE, replacement=repl)
+
+
 _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
     {
         "provider": "kimi",
@@ -1086,9 +1111,32 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
         "defaultHeaders": {"User-Agent": "KimiCLI/1.5"},
         "models": (
             {
+                "wireModel": "kimi-k3",
+                "label": "Kimi K3",
+                "description": "Kimi general-purpose model",
+                "costs": {
+                    "inputTokens": 3,
+                    "outputTokens": 15,
+                    # Accounting assumption: charge cache writes at the ordinary
+                    # input-token rate because Kimi publishes cache-hit/cache-miss
+                    # prices rather than a separate cache-write price.
+                    # Source: https://platform.kimi.ai/docs/pricing/chat-k3.md
+                    "promptCacheWriteTokens": 3,
+                    "promptCacheReadTokens": 0.3,
+                    "webSearchRequests": 0,
+                },
+            },
+            {
                 "wireModel": "kimi-k2.7-code",
                 "label": "Kimi K2.7 Code",
                 "description": "Kimi coding model",
+                "costs": {
+                    "inputTokens": 0.95,
+                    "outputTokens": 4,
+                    "promptCacheWriteTokens": 0.95,
+                    "promptCacheReadTokens": 0.19,
+                    "webSearchRequests": 0,
+                },
             },
         ),
     },
@@ -1099,19 +1147,78 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
         "defaultHeaders": {},
         "models": (
             {
+                "wireModel": "glm-5.3",
+                "label": "GLM 5.3",
+                "description": "Z.ai flagship model",
+                "costs": {
+                    "inputTokens": 1.4,
+                    "outputTokens": 4.4,
+                    "promptCacheWriteTokens": 1.4,
+                    "promptCacheReadTokens": 0.26,
+                    "webSearchRequests": 0,
+                },
+            },
+            {
+                "wireModel": "glm-5.3-flash",
+                "label": "GLM 5.3 Flash",
+                "description": "Z.ai fast model",
+                # Use the standard rate effective on 2026-09-10, after the launch
+                # promotion ends. Source: https://docs.z.ai/guides/overview/pricing
+                "costs": {
+                    "inputTokens": 0.15,
+                    "outputTokens": 0.5,
+                    "promptCacheWriteTokens": 0.15,
+                    "promptCacheReadTokens": 0.03,
+                    "webSearchRequests": 0,
+                },
+            },
+            {
                 "wireModel": "glm-5.2",
                 "label": "GLM 5.2",
                 "description": "Z.ai coding model",
+                "costs": {
+                    "inputTokens": 1.4,
+                    "outputTokens": 4.4,
+                    "promptCacheWriteTokens": 1.4,
+                    "promptCacheReadTokens": 0.26,
+                    "webSearchRequests": 0,
+                },
             },
             {
                 "wireModel": "glm-5-turbo",
                 "label": "GLM 5 Turbo",
                 "description": "Z.ai coding model",
+                "costs": {
+                    "inputTokens": 1.2,
+                    "outputTokens": 4,
+                    "promptCacheWriteTokens": 1.2,
+                    "promptCacheReadTokens": 0.2,
+                    "webSearchRequests": 0,
+                },
+            },
+            {
+                "wireModel": "glm-4.7",
+                "label": "GLM 4.7",
+                "description": "Z.ai coding model",
+                "costs": {
+                    "inputTokens": 0.6,
+                    "outputTokens": 2.2,
+                    "promptCacheWriteTokens": 0.6,
+                    "promptCacheReadTokens": 0.11,
+                    "webSearchRequests": 0,
+                },
             },
             {
                 "wireModel": "glm-4.5-air",
                 "label": "GLM 4.5 Air",
                 "description": "Z.ai coding model",
+                "costs": {
+                    "inputTokens": 0.2,
+                    "outputTokens": 1.1,
+                    "promptCacheWriteTokens": 0.2,
+                    "promptCacheReadTokens": 0.03,
+                    "webSearchRequests": 0,
+                },
             },
         ),
     },
@@ -1122,9 +1229,28 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
         "defaultHeaders": {},
         "models": (
             {
+                "wireModel": "MiniMax-M3",
+                "label": "MiniMax M3",
+                "description": "MiniMax coding model",
+                "costs": {
+                    "inputTokens": 0.3,
+                    "outputTokens": 1.2,
+                    "promptCacheWriteTokens": 0.375,
+                    "promptCacheReadTokens": 0.06,
+                    "webSearchRequests": 0,
+                },
+            },
+            {
                 "wireModel": "MiniMax-M2.7",
                 "label": "MiniMax M2.7",
                 "description": "MiniMax coding model",
+                "costs": {
+                    "inputTokens": 0.3,
+                    "outputTokens": 1.2,
+                    "promptCacheWriteTokens": 0.375,
+                    "promptCacheReadTokens": 0.06,
+                    "webSearchRequests": 0,
+                },
             },
         ),
     },
@@ -1140,16 +1266,37 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "gpt-5.6-sol",
                 "label": "GPT-5.6 Sol",
                 "description": "OpenAI Codex model",
+                "costs": {
+                    "inputTokens": 4,
+                    "outputTokens": 20,
+                    "promptCacheWriteTokens": 5,
+                    "promptCacheReadTokens": 0.4,
+                    "webSearchRequests": 0.01,
+                },
             },
             {
                 "wireModel": "gpt-5.6-terra",
                 "label": "GPT-5.6 Terra",
                 "description": "OpenAI Codex model",
+                "costs": {
+                    "inputTokens": 2,
+                    "outputTokens": 12,
+                    "promptCacheWriteTokens": 2.5,
+                    "promptCacheReadTokens": 0.2,
+                    "webSearchRequests": 0.01,
+                },
             },
             {
                 "wireModel": "gpt-5.6-luna",
                 "label": "GPT-5.6 Luna",
                 "description": "OpenAI Codex model",
+                "costs": {
+                    "inputTokens": 0.2,
+                    "outputTokens": 1.2,
+                    "promptCacheWriteTokens": 0.25,
+                    "promptCacheReadTokens": 0.02,
+                    "webSearchRequests": 0.01,
+                },
             },
         ),
     },
@@ -1192,6 +1339,11 @@ _MULTI_PROVIDER_CATALOG = json.dumps(
     ],
     separators=(",", ":"),
 )
+_MULTI_PROVIDER_MODEL_COSTS: ModelCostsByModel = {
+    f'{definition["provider"]}:{model["wireModel"]}': model["costs"]
+    for definition in _MULTI_PROVIDER_CATALOG_SOURCE
+    for model in definition["models"]
+}
 _MULTI_PROVIDER_HELPER = (
     f"const _ccMultiProviderDefinitions={_MULTI_PROVIDER_DEFINITIONS};"
     f"const _ccMultiProviderCatalog={_MULTI_PROVIDER_CATALOG};"
@@ -1236,6 +1388,8 @@ _MULTI_PROVIDER_HELPER = (
     "_ccMultiProviderPickerCatalog(){return _ccMultiProviderCatalog.filter("
     "(_ccEntry)=>_ccMultiProviderAvailable(_ccEntry.value.slice(0,"
     '_ccEntry.value.indexOf(":"))))}'
+    "function _ccMultiProviderToolAllowed(_ccModel,_ccTool){return _ccTool.isMcp===!0||"
+    '_ccTool.name!=="WebSearch"||_ccMultiProviderModelProvider(_ccModel)==="anthropic"}'
     "function _ccMultiProviderSafeFetchOptions(_ccOptions){if(!_ccOptions)return "
     "_ccOptions;let{headers:_ccHeaders,..._ccSafe}=_ccOptions;return _ccSafe}"
     "function _ccMultiProviderSafeOptions(_ccOptions){let _ccSafe={};if("
@@ -1337,6 +1491,14 @@ _MULTI_PROVIDER_RECOGNITION = re.compile(
     rf'(?P<display>{_ID})\((?P=model)\);if\(!(?P=name)\)return null;let '
     rf'(?P<normalized>{_ID})=(?P<normalize>{_ID})\((?P=model)\),(?P<alias>{_ID})=null;'
     r'if\((?P=normalized)\.includes\("fable"\)\)'
+)
+_MULTI_PROVIDER_TOOL_SCHEMA = re.compile(
+    rf'(?P<schemas>{_ID})=await Promise\.all\((?P<tools>{_ID})\.map\('
+    rf'\((?P<tool>{_ID})\)=>(?P<serialize>{_ID})\((?P=tool),\{{'
+    rf'getToolPermissionContext:(?P<context>{_ID})\.getToolPermissionContext,'
+    rf'tools:(?P<all_tools>{_ID}),agents:(?P=context)\.agents,'
+    rf'allowedAgentTypes:(?P=context)\.allowedAgentTypes,model:(?P<model>{_ID}),'
+    rf'deferLoading:(?P<deferred>{_ID})\((?P=tool)\)\}}\)\)\);'
 )
 
 
@@ -1461,11 +1623,23 @@ def _recognize_multi_provider_model(match: re.Match[str]) -> str:
     )
 
 
+def _filter_multi_provider_tool_schemas(match: re.Match[str]) -> str:
+    tools = match.group("tools")
+    tool = match.group("tool")
+    return match.group(0).replace(
+        f"{tools}.map(({tool})=>",
+        f"{tools}.filter(({tool})=>_ccMultiProviderToolAllowed("
+        f"{match.group('model')},{tool})).map(({tool})=>",
+        1,
+    )
+
+
 # The router propagates provider compatibility errors. It does not fall back to
 # Anthropic or change the native client's retry policy.
 MULTI_PROVIDER_SDK = PatchSet(
     name="multi-provider-sdk",
     patches=(
+        _model_costs_patch(_MULTI_PROVIDER_MODEL_COSTS),
         Patch(
             "capture-generic-anthropic-sdk",
             _MULTI_PROVIDER_SDK_TAIL,
@@ -1511,6 +1685,11 @@ MULTI_PROVIDER_SDK = PatchSet(
             _MULTI_PROVIDER_RECOGNITION,
             _recognize_multi_provider_model,
         ),
+        Patch(
+            "allow-web-search-only-for-anthropic-models",
+            _MULTI_PROVIDER_TOOL_SCHEMA,
+            _filter_multi_provider_tool_schemas,
+        ),
     ),
     verify_present=(
         re.compile(r"const _ccMultiProviderSDK=\(\)=>[\w$]+"),
@@ -1527,11 +1706,20 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r"_ccMultiProviderPickerCatalog\(\)"),
         re.compile(r'CC_OPENAI_AVAILABLE'),
         re.compile(r'CC_OPENAI_PROXY_AUTH_TOKEN'),
+        re.compile(r'"kimi:kimi-k3":\{inputTokens:3,outputTokens:15'),
+        re.compile(r'"zai:glm-5\.3-flash":\{inputTokens:0\.15,outputTokens:0\.5'),
+        re.compile(r'"minimax:minimax-m3":\{inputTokens:0\.3,outputTokens:1\.2'),
+        re.compile(r'function _ccMultiProviderToolAllowed\('),
+        re.compile(
+            r'\.filter\(\([\w$]+\)=>_ccMultiProviderToolAllowed\('
+            r'[\w$]+,[\w$]+\)\)\.map\('
+        ),
     ),
     min_version=_V_2_1_174,
     max_version=(2, 1, 175),
     requires_version=True,
 )
+
 
 # --- Catppuccin Macchiato syntax highlighting (2.1.151+) ---------------------
 #
@@ -1625,6 +1813,7 @@ CATPPUCCIN_SYNTAX = PatchSet(
     verify_present=(re.compile(r'new Map\(\[\["keyword",[\w$]+\(198,160,246\)'),),
     min_version=_V_2_1_151,
 )
+
 
 # --- thinking summaries in non-interactive sessions (2.1.151+) ---------------
 #
@@ -1789,503 +1978,6 @@ COMPACT_SESSION = PatchSet(
     ),
     min_version=(2, 1, 170),
 )
-
-
-# --- provider brand patch sets ----------------------------------------------
-#
-# Applied additively on top of the defaults when `ccpatch apply --brand <name>`
-# is given. A brand bakes provider identity into the binary (startup label, and
-# later theme/thinking-verbs/thinker-symbol). Brand patterns are written as raw
-# strings with inline [\w$]+ (no f-string) to keep the regex braces readable.
-
-# Collapse the startup-title ternary so it always renders the brand label
-# instead of "Claude Code" (ports cc-mirror's native-ui-hardening
-# startup-title-brand). The label is baked per brand.
-_LABEL_PATTERN = re.compile(
-    r'([\w$]+)=([\w$]+)\?([\w$]+)\.createElement\(\2\.Title,null\):'
-    r'\3\.createElement\(([\w$]+),\{bold:!0\},"Claude Code"\)'
-)
-
-
-def _startup_label_patch(label: str) -> Patch:
-    return Patch(
-        name="startup-title-brand",
-        pattern=_LABEL_PATTERN,
-        replacement=rf'\g<1>=\g<3>.createElement(\g<4>,{{bold:!0}},"{label}")',
-    )
-
-
-# Thinking-spinner verbs and glyphs (ports tweakcc thinkingVerbs /
-# thinkerSymbolChars). thinker-symbol-speed is skipped (fixed upstream in
-# >=2.1.27), and thinker-symbol-{width,mirror} have ambiguous anchors on 2.1.170
-# (7 and 2 matches, one of which is the verbs mirror), so they're omitted.
-# Verbs may carry \xNN escapes (e.g. Flamb\xE9ing), hence the char class.
-_VERB_CHAR = r"[A-Z][a-z'é\-\\xA-F0-9]+"
-_PRESENT_VERBS = re.compile(rf'''\[("{_VERB_CHAR}in[g']",?){{50,}}\]''')
-_PAST_VERBS = re.compile(rf'''\[("{_VERB_CHAR}ed",?){{5,}}\]''')
-_SYM = (
-    r"(?:[·✢*✳✶✻✽]|\\u00b7|\\xb7|\\u2722|\\x2a|\\u002a"
-    r"|\\u2733|\\u2736|\\u273b|\\u273d)"
-)
-_THINKER_SYMBOLS = re.compile(rf'''\["{_SYM}",\s*(?:"{_SYM}",?\s*)+\]''', re.IGNORECASE)
-
-
-def _json_array(items: list[str]) -> str:
-    return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
-
-
-def _verb_symbol_patches(verbs: list[str], symbols: list[str]) -> tuple[Patch, ...]:
-    present = _json_array(verbs)
-    past = _json_array([re.sub(r"ing$", "ed", v) for v in verbs])
-    glyphs = _json_array(symbols)
-    return (
-        Patch("thinking-verbs-present", _PRESENT_VERBS, lambda _m: present),
-        Patch("thinking-verbs-past", _PAST_VERBS, lambda _m: past),
-        Patch("thinker-symbol-chars", _THINKER_SYMBOLS, lambda _m: glyphs),
-    )
-
-
-_KIMI_VERBS = [
-    "Sparking",
-    "Glinting",
-    "Flowing",
-    "Weaving",
-    "Indexing",
-    "Synthesizing",
-    "Refining",
-    "Composing",
-    "Routing",
-    "Resolving",
-    "Calibrating",
-    "Compiling",
-]
-_KIMI_SYMBOLS = ["·", "•", "◦", "•"]
-
-
-# Commit/PR co-author. Versions 2.1.170-2.1.173 use "Claude Fable 5" or
-# "Claude" as the fallback name. Version 2.1.174 first handles Fable with a
-# first-party model constant. Replace both expression forms with a brand-specific
-# lookup. Map keys must be lowercase because the lookup normalizes the model ID.
-# Apply this patch only to branded builds. The plain build keeps the Claude name.
-_ATTRIBUTION_RE = re.compile(
-    rf"(?P<var>{_ID})={_ID}\((?P<model>{_ID})\)"
-    rf'(?:!==null\?{_ID}\((?P=model)\):"(?:Claude Fable 5|Claude)"'
-    rf'|\?(?P<format>{_ID})\({_ID}\.firstParty\):{_ID}\((?P=model)\)'
-    r'\?(?P=format)\((?P=model)\):"Claude")'
-)
-
-
-def _attribution_patch(model_map: dict[str, str]) -> Patch:
-    table = json.dumps(model_map, ensure_ascii=False, separators=(",", ":"))
-
-    def replace_attribution(match: re.Match[str]) -> str:
-        var = match.group("var")
-        model = match.group("model")
-        return f"{var}=({table})[(''+{model}).toLowerCase()]??{model}"
-
-    return Patch(
-        name="attribution-model",
-        pattern=_ATTRIBUTION_RE,
-        replacement=replace_attribution,
-    )
-
-
-_ZAI_VERBS = [
-    "Calibrating",
-    "Indexing",
-    "Synthesizing",
-    "Optimizing",
-    "Routing",
-    "Vectorizing",
-    "Mapping",
-    "Compiling",
-    "Refining",
-    "Auditing",
-    "Aligning",
-    "Balancing",
-    "Forecasting",
-    "Resolving",
-    "Validating",
-    "Benchmarking",
-    "Assembling",
-    "Delivering",
-]
-_ZAI_SYMBOLS = [".", "o", "O", "0", "O", "o"]
-
-_MINIMAX_VERBS = [
-    "Warping",
-    "Nebulizing",
-    "Phasing",
-    "Refracting",
-    "Tunneling",
-    "Ionizing",
-    "Polarizing",
-    "Cascading",
-    "Crystallizing",
-    "Entangling",
-    "Diffracting",
-    "Converging",
-    "Pulsing",
-    "Transcoding",
-]
-_MINIMAX_SYMBOLS = ["⟡", "◈", "⬡", "◇", "⬡", "◈"]
-
-_OPENAI_VERBS = [
-    "Reasoning",
-    "Planning",
-    "Inspecting",
-    "Synthesizing",
-    "Refining",
-    "Tracing",
-    "Reviewing",
-    "Composing",
-    "Testing",
-    "Patching",
-    "Checking",
-    "Resolving",
-    "Caching",
-    "Streaming",
-]
-_OPENAI_SYMBOLS = [".", "o", "O", "0", "O", "o"]
-
-
-_IDENTITY_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude"
-
-
-def _identity_patch(model_name: str) -> Patch:
-    # "You are Claude Code, ..." -> "You are <model> running in Claude Code, ..."
-    return Patch(
-        name="identity-model",
-        pattern=re.compile(re.escape(_IDENTITY_PREFIX)),
-        replacement=lambda _m: (
-            f"You are {model_name} running in {_IDENTITY_PREFIX[8:]}"
-        ),
-    )
-
-
-def _email_patch(domain: str) -> Patch:
-    return Patch(
-        name="attribution-email",
-        pattern=re.compile(re.escape("noreply@anthropic.com")),
-        replacement=lambda _m: f"noreply@{domain}",
-    )
-
-
-_MODEL_COSTS_RE = re.compile(
-    r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
-)
-
-
-def _model_costs_patch(model_costs: ModelCostsByModel) -> Patch:
-    # Claude Code computes statusline/session cost from its own per-model table.
-    # Provider-branded builds can add provider model IDs to that table so unknown
-    # models don't fall back to the default Claude rate.
-    table = ",".join(
-        f"{json.dumps(model, separators=(',', ':'))}:"
-        f"{{inputTokens:{costs['inputTokens']},"
-        f"outputTokens:{costs['outputTokens']},"
-        f"promptCacheWriteTokens:{costs['promptCacheWriteTokens']},"
-        f"promptCacheReadTokens:{costs['promptCacheReadTokens']},"
-        f"webSearchRequests:{costs['webSearchRequests']}}}"
-        for model, costs in model_costs.items()
-    )
-
-    def repl(m: re.Match[str]) -> str:
-        return f"{m.group(1)}{table},{m.group(2)}"
-
-    return Patch(name="model-costs", pattern=_MODEL_COSTS_RE, replacement=repl)
-
-
-# Skip the first-run onboarding flow (theme picker / login walkthrough). The
-# wrapper used to seed .claude.json with hasCompletedOnboarding:true; baking the
-# skip into the binary lets the variant ship no seeded config. Only the first-run
-# trigger is neutralized -- the CLAUDE_CODE_TEAM_ONBOARDING env override
-# (banner/step) still fires. Brand-only; the plain `claude` build keeps onboarding.
-_SKIP_ONBOARDING = Patch(
-    name="skip-onboarding",
-    pattern=re.compile(
-        r"!([\w$]+)\.hasCompletedOnboarding\|\|"
-        r"\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"
-    ),
-    replacement="!1||(process.env.CLAUDE_CODE_TEAM_ONBOARDING",
-)
-
-
-# Print the provider splash on interactive startup, replacing the wrapper's
-# `cat splash` step. Injected just past the print-mode early returns (so it only
-# runs in the TUI), guarded on isTTY so piped output stays clean. The art (ANSI
-# included) is embedded as a JSON string literal -- valid JS, control chars
-# escaped as \uXXXX -- so there is no template-literal/backtick wrinkle.
-_SPLASH_RE = re.compile(
-    r"(mcpApprovalSkipWarning:[\w$]+\};)(let [\w$]+=[\w$]+\(\),[\w$]+=!1;)"
-)
-
-
-def _splash_patch(splash: str) -> Patch:
-    text = splash if splash.endswith("\n") else splash + "\n"
-    literal = json.dumps(text, ensure_ascii=False)
-    inject = f"if(process.stdout.isTTY)process.stdout.write({literal});"
-
-    def repl(m: re.Match[str]) -> str:
-        return m.group(1) + inject + m.group(2)
-
-    return Patch(name="startup-splash", pattern=_SPLASH_RE, replacement=repl)
-
-
-def _provider_brand(
-    *,
-    name: str,
-    label: str,
-    verbs: list[str],
-    symbols: list[str],
-    identity_name: str,
-    model_map: dict[str, str],
-    email_domain: str,
-    model_costs: ModelCostsByModel | None = None,
-    splash: str | None = None,
-) -> PatchSet:
-    # Prefix the identity preamble with the flagship model, map the commit
-    # co-author from the runtime model id to a clean display name, point the
-    # attribution email at the provider's domain, skip first-run onboarding, and
-    # (when art is supplied) print the splash on interactive startup. (The
-    # "Generated with Claude Code" footer is the product name and is left alone.)
-    patches: tuple[Patch, ...] = (
-        _startup_label_patch(label),
-        *_verb_symbol_patches(verbs, symbols),
-        _attribution_patch(model_map),
-        _identity_patch(identity_name),
-        _email_patch(email_domain),
-    )
-    if model_costs is not None:
-        patches = (*patches, _model_costs_patch(model_costs))
-    patches = (*patches, _SKIP_ONBOARDING)
-
-    present: tuple[re.Pattern[str], ...] = (
-        re.compile(rf'createElement\([\w$]+,\{{bold:!0\}},"{re.escape(label)}"\)'),
-        re.compile(re.escape(f'"{verbs[0]}","{verbs[1]}"')),
-        re.compile(re.escape(_json_array(symbols))),
-        re.compile(re.escape(f"You are {identity_name} running in Claude Code")),
-        re.compile(re.escape(f"noreply@{email_domain}")),
-        re.compile(r"!1\|\|\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"),
-    )
-    if model_costs is not None:
-        present = (
-            *present,
-            *(
-                re.compile(re.escape(f'"{model}":{{inputTokens:'))
-                for model in model_costs
-            ),
-        )
-    if splash is not None:
-        patches = (*patches, _splash_patch(splash))
-        present = (
-            *present,
-            re.compile(r"\};if\(process\.stdout\.isTTY\)process\.stdout\.write\("),
-        )
-    return PatchSet(
-        name=f"{name}-brand",
-        patches=patches,
-        verify_present=present,
-        verify_absent=(
-            _ATTRIBUTION_RE,
-            re.compile(
-                r"\.hasCompletedOnboarding\|\|\(process\.env\.CLAUDE_CODE_TEAM_ONBOARDING"
-            ),
-        ),
-    )
-
-
-_KIMI_MODEL_COSTS: ModelCostsByModel = {
-    "kimi-k2.7-code": {
-        "inputTokens": 0.95,
-        "outputTokens": 4,
-        "promptCacheWriteTokens": 0.95,
-        "promptCacheReadTokens": 0.19,
-        "webSearchRequests": 0,
-    },
-}
-
-
-def kimi_brand(splash: str | None = None) -> PatchSet:
-    return _provider_brand(
-        name="kimi",
-        label="Kimi Code",
-        verbs=_KIMI_VERBS,
-        symbols=_KIMI_SYMBOLS,
-        identity_name="Kimi K2.7 Code",
-        model_map={"kimi-k2.7-code": "Kimi K2.7 Code"},
-        email_domain="kimi.com",
-        model_costs=_KIMI_MODEL_COSTS,
-        splash=splash,
-    )
-
-
-_ZAI_MODEL_COSTS: ModelCostsByModel = {
-    "glm-5.2": {
-        "inputTokens": 1.4,
-        "outputTokens": 4.4,
-        "promptCacheWriteTokens": 1.4,
-        "promptCacheReadTokens": 0.26,
-        "webSearchRequests": 0,
-    },
-    "glm-5-turbo": {
-        "inputTokens": 1.2,
-        "outputTokens": 4.0,
-        "promptCacheWriteTokens": 1.2,
-        "promptCacheReadTokens": 0.2,
-        "webSearchRequests": 0,
-    },
-    "glm-4.5-air": {
-        "inputTokens": 0.2,
-        "outputTokens": 1.1,
-        "promptCacheWriteTokens": 0.2,
-        "promptCacheReadTokens": 0.03,
-        "webSearchRequests": 0,
-    },
-}
-
-
-def zai_brand(splash: str | None = None) -> PatchSet:
-    return _provider_brand(
-        name="zai",
-        label="Zai Cloud",
-        verbs=_ZAI_VERBS,
-        symbols=_ZAI_SYMBOLS,
-        identity_name="GLM 5.2",
-        model_map={
-            "glm-5.2": "GLM 5.2",
-            "glm-5-turbo": "GLM 5 Turbo",
-            "glm-4.5-air": "GLM 4.5 Air",
-            "glm-4.7": "GLM 4.7",
-        },
-        email_domain="z.ai",
-        model_costs=_ZAI_MODEL_COSTS,
-        splash=splash,
-    )
-
-
-_MINIMAX_MODEL_COSTS: ModelCostsByModel = {
-    "minimax-m2.7": {
-        "inputTokens": 0.3,
-        "outputTokens": 1.2,
-        "promptCacheWriteTokens": 0.375,
-        "promptCacheReadTokens": 0.06,
-        "webSearchRequests": 0,
-    },
-    "MiniMax-M2.7": {
-        "inputTokens": 0.3,
-        "outputTokens": 1.2,
-        "promptCacheWriteTokens": 0.375,
-        "promptCacheReadTokens": 0.06,
-        "webSearchRequests": 0,
-    },
-}
-
-
-def minimax_brand(splash: str | None = None) -> PatchSet:
-    return _provider_brand(
-        name="minimax",
-        label="MiniMax Cloud",
-        verbs=_MINIMAX_VERBS,
-        symbols=_MINIMAX_SYMBOLS,
-        identity_name="MiniMax M2.7",
-        model_map={"minimax-m2.7": "MiniMax M2.7"},
-        email_domain="minimax.io",
-        model_costs=_MINIMAX_MODEL_COSTS,
-        splash=splash,
-    )
-
-
-_OPENAI_MODEL_COSTS: ModelCostsByModel = {
-    "gpt-5.4": {
-        "inputTokens": 2.5,
-        "outputTokens": 15,
-        "promptCacheWriteTokens": 0,
-        "promptCacheReadTokens": 0.25,
-        "webSearchRequests": 0.01,
-    },
-    "gpt-5.5": {
-        "inputTokens": 5,
-        "outputTokens": 30,
-        "promptCacheWriteTokens": 0,
-        "promptCacheReadTokens": 0.5,
-        "webSearchRequests": 0.01,
-    },
-    "gpt-5.4-mini": {
-        "inputTokens": 0.75,
-        "outputTokens": 4.5,
-        "promptCacheWriteTokens": 0,
-        "promptCacheReadTokens": 0.075,
-        "webSearchRequests": 0.01,
-    },
-    "gpt-5.6-sol": {
-        "inputTokens": 4,
-        "outputTokens": 20,
-        "promptCacheWriteTokens": 5,
-        "promptCacheReadTokens": 0.4,
-        "webSearchRequests": 0.01,
-    },
-    "gpt-5.6-terra": {
-        "inputTokens": 2,
-        "outputTokens": 12,
-        "promptCacheWriteTokens": 2.5,
-        "promptCacheReadTokens": 0.2,
-        "webSearchRequests": 0.01,
-    },
-    "gpt-5.6-luna": {
-        "inputTokens": 0.2,
-        "outputTokens": 1.2,
-        "promptCacheWriteTokens": 0.25,
-        "promptCacheReadTokens": 0.02,
-        "webSearchRequests": 0.01,
-    },
-}
-
-
-def openai_brand(splash: str | None = None) -> PatchSet:
-    return _provider_brand(
-        name="openai",
-        label="OpenAI Codex",
-        verbs=_OPENAI_VERBS,
-        symbols=_OPENAI_SYMBOLS,
-        identity_name="GPT-5.5",
-        model_map={
-            "gpt-5.3-codex-spark": "GPT-5.3 Codex Spark",
-            "gpt-5.4": "GPT-5.4",
-            "gpt-5.4-mini": "GPT-5.4 Mini",
-            "gpt-5.5": "GPT-5.5",
-            "gpt-5.5-pro": "GPT-5.5 Pro",
-            "gpt-5.6-luna": "GPT-5.6 Luna",
-            "gpt-5.6-sol": "GPT-5.6 Sol",
-            "gpt-5.6-terra": "GPT-5.6 Terra",
-        },
-        email_domain="openai.com",
-        model_costs=_OPENAI_MODEL_COSTS,
-        splash=splash,
-    )
-
-
-_BRANDS: dict[str, Callable[[str | None], PatchSet]] = {
-    "kimi": kimi_brand,
-    "minimax": minimax_brand,
-    "openai": openai_brand,
-    "zai": zai_brand,
-}
-
-
-def brand_patch_sets(brand: str | None, splash: str | None = None) -> list[PatchSet]:
-    """Patch sets for ``--brand <name>`` (empty when no brand requested).
-
-    ``splash`` is the optional startup-splash art embedded into the interactive
-    entry. Version gating, if a brand patch needs it, is handled per-PatchSet via
-    ``min_version``/``applies_to`` like the defaults.
-    """
-    if brand is None:
-        return []
-    builder = _BRANDS.get(brand)
-    if builder is None:
-        raise PatchError(f"unknown brand {brand!r}; known: {sorted(_BRANDS)}")
-    return [builder(splash)]
 
 
 def default_patch_sets(version: Version | None) -> list[PatchSet]:

@@ -15,11 +15,8 @@ from typing import NamedTuple
 import pytest
 
 from wlrenv.ccpatch.patches import (
-    _KIMI_SYMBOLS,
-    _KIMI_VERBS,
     _PROVIDER_ENV_EXPLICIT_KEYS,
     _PROVIDER_ENV_VERTEX_REGION_KEYS,
-    _SKIP_ONBOARDING,
     _SYNTAX_DARK_MAP,
     BACKGROUND_PROVIDER_ENV,
     CATPPUCCIN_SYNTAX,
@@ -30,29 +27,7 @@ from wlrenv.ccpatch.patches import (
     THINKING_SUMMARIES_NONINTERACTIVE,
     PatchError,
     PatchSet,
-    _attribution_patch,
-    _email_patch,
-    _identity_patch,
     _model_costs_patch,
-    _splash_patch,
-    _startup_label_patch,
-    _verb_symbol_patches,
-    brand_patch_sets,
-)
-
-# Real 2.1.170 interactive-entry anchor: the point just past the print-mode early
-# returns where onboarding is gated and (now) the splash is injected.
-_ENTRY_SRC = (
-    "if($$(!1)||process.env.IS_DEMO)"
-    "return{onboardingShown:!1,mcpApprovalSkipWarning:A};"
-    "let z=S$(),Y=!1;if(!z.hasCompletedOnboarding||"
-    '(process.env.CLAUDE_CODE_TEAM_ONBOARDING==="banner"'
-    '||process.env.CLAUDE_CODE_TEAM_ONBOARDING==="step")){Y=!0}'
-)
-
-# Real 2.1.170 startup-title anchor.
-_LABEL_SRC = (
-    'l=eu8?w1.createElement(eu8.Title,null):w1.createElement(y,{bold:!0},"Claude Code")'
 )
 
 _DEV_CHANNEL_SRC = (
@@ -72,6 +47,7 @@ _DEV_CHANNEL_SRC = (
 )
 
 _MULTI_PROVIDER_SRC = (
+    "},COST_HELPER=READY;COSTS={[modelKey(NATIVE.firstParty)]:NATIVE_COST};"
     "let OPT={apiKey:key};return new SDK(OPT)}async function NEXT(){}"
     "function FILTER(MSGS,MODEL){return STRIP(MSGS,(MESSAGE)=>"
     "MESSAGE.message.model!==SYNTHETIC&&MESSAGE.message.model!==MODEL)}"
@@ -92,6 +68,9 @@ _MULTI_PROVIDER_SRC = (
     "ANTHROPIC_CUSTOM_MODEL_OPTION;"
     "function RECOGNIZE(MODEL){let NAME=DISPLAY(MODEL);if(!NAME)return null;"
     'let NORMALIZED=NORMALIZE(MODEL),ALIAS=null;if(NORMALIZED.includes("fable"))'
+    "SCHEMAS=await Promise.all(TOOLS.map((TOOL)=>SERIALIZE(TOOL,{"
+    "getToolPermissionContext:CTX.getToolPermissionContext,tools:ALLTOOLS,agents:CTX.agents,"
+    "allowedAgentTypes:CTX.allowedAgentTypes,model:MODELID,deferLoading:DEFER(TOOL)})));"
 )
 
 _PROVIDER_ENV_SRC = (
@@ -650,6 +629,21 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert "openai:gpt-5.6-sol" in patched
     assert "openai:gpt-5.6-terra" in patched
     assert "openai:gpt-5.6-luna" in patched
+    for priced_model in (
+        '"kimi:kimi-k3":{inputTokens:3,outputTokens:15,promptCacheWriteTokens:3,',
+        '"kimi:kimi-k2.7-code":{inputTokens:0.95,outputTokens:4,',
+        '"zai:glm-5.3":{inputTokens:1.4,outputTokens:4.4,',
+        '"zai:glm-5.3-flash":{inputTokens:0.15,outputTokens:0.5,',
+        '"zai:glm-4.7":{inputTokens:0.6,outputTokens:2.2,',
+        '"minimax:minimax-m3":{inputTokens:0.3,outputTokens:1.2,',
+        '"openai:gpt-5.6-sol":{inputTokens:4,outputTokens:20,',
+    ):
+        assert priced_model in patched
+    assert '"kimi-k3":{inputTokens:' not in patched
+    assert '"glm-5.3":{inputTokens:' not in patched
+    assert "_ccMultiProviderToolAllowed(MODELID,TOOL)" in patched
+    assert '_ccTool.name!=="WebSearch"' in patched
+    assert "TOOLS.filter((TOOL)=>" in patched
     assert "apiKey:null,authToken:_ccToken,maxRetries:0" in patched
     assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
@@ -729,69 +723,6 @@ def test_version_gating_skips_below_2_1_151() -> None:
     assert CATPPUCCIN_SYNTAX.applies_to((2, 1, 170))
 
 
-def test_kimi_brand_relabels_startup_title() -> None:
-    out = PatchSet(name="l", patches=(_startup_label_patch("Kimi Code"),)).apply(
-        _LABEL_SRC
-    )
-    assert out == 'l=w1.createElement(y,{bold:!0},"Kimi Code")'
-
-
-@pytest.mark.parametrize(
-    "attribution",
-    (
-        'k_H(H)!==null?Tw6(H):"Claude Fable 5"',
-        'f5H(H)!==null?_j6(H):"Claude"',
-        'PyH(H)?IK8(bDH.firstParty):fU4(H)?IK8(H):"Claude"',
-    ),
-)
-def test_attribution_maps_runtime_model(attribution: str) -> None:
-    src = (
-        f"let H=w7(),$={attribution},"
-        'q={FABLE_ID:"claude-fable-5",FABLE_NAME:"Claude Fable 5"}'
-    )
-    out = PatchSet(
-        name="a",
-        patches=(
-            _attribution_patch({"glm-5.2": "GLM 5.2", "glm-5-turbo": "GLM 5 Turbo"}),
-        ),
-    ).apply(src)
-    # The co-author uses a lowercased runtime model ID lookup with a raw-ID fallback.
-    assert '$=({"glm-5.2":"GLM 5.2","glm-5-turbo":"GLM 5 Turbo"})[' in out
-    assert "[(''+H).toLowerCase()]??H," in out
-    assert attribution not in out
-    assert 'FABLE_NAME:"Claude Fable 5"' in out
-
-
-def test_attribution_required_no_op_fails() -> None:
-    with pytest.raises(PatchError, match="patch 'attribution-model' matched nothing"):
-        PatchSet(name="a", patches=(_attribution_patch({"gpt-5.6": "GPT-5.6"}),)).apply(
-            'let H=w7(),$="Claude"'
-        )
-
-
-def test_identity_and_email_rebrand() -> None:
-    src = (
-        'a="You are Claude Code, Anthropic\'s official CLI for Claude.";'
-        'b="Co-Authored-By: x <noreply@anthropic.com>"'
-    )
-    out = PatchSet(
-        name="ie", patches=(_identity_patch("GLM 5.2"), _email_patch("z.ai"))
-    ).apply(src)
-    assert (
-        "You are GLM 5.2 running in Claude Code, Anthropic's official CLI for Claude"
-        in out
-    )
-    assert "noreply@z.ai" in out
-    assert "noreply@anthropic.com" not in out
-
-
-def test_skip_onboarding_neutralizes_first_run() -> None:
-    out = PatchSet(name="o", patches=(_SKIP_ONBOARDING,)).apply(_ENTRY_SRC)
-    assert "!1||(process.env.CLAUDE_CODE_TEAM_ONBOARDING" in out
-    assert "hasCompletedOnboarding||(process.env" not in out  # first-run gate gone
-    assert 'CLAUDE_CODE_TEAM_ONBOARDING==="step"' in out  # env override preserved
-
-
 def test_model_costs_prepends_provider_models() -> None:
     src = "},Xz_=v8H;ej$={[sJ(FY6.firstParty)]:Xw6,[sJ(UY6.firstParty)]:V_H}"
     out = PatchSet(
@@ -815,59 +746,6 @@ def test_model_costs_prepends_provider_models() -> None:
     assert ',[sJ(FY6.firstParty)]:Xw6' in out
 
 
-def test_splash_injects_on_interactive_tty() -> None:
-    out = PatchSet(name="s", patches=(_splash_patch("\x1b[1mHI\x1b[0m\n"),)).apply(
-        _ENTRY_SRC
-    )
-    assert (
-        "mcpApprovalSkipWarning:A};if(process.stdout.isTTY)process.stdout.write(" in out
-    )
-    assert "\\u001b[1mHI" in out  # ANSI escaped into the JS string literal
-    assert "let z=S$(),Y=!1;" in out  # original code preserved after the inject
-
-
-def test_splash_patch_appends_trailing_newline() -> None:
-    out = PatchSet(name="s", patches=(_splash_patch("HI"),)).apply(_ENTRY_SRC)
-    assert 'process.stdout.write("HI\\n")' in out
-
-
-def test_brand_patch_sets_dispatch() -> None:
-    assert brand_patch_sets(None) == []
-    assert len(brand_patch_sets("kimi")) == 1
-    assert len(brand_patch_sets("zai")) == 1
-    assert len(brand_patch_sets("minimax")) == 1
-    assert len(brand_patch_sets("openai")) == 1
-    # label + 3 verb/symbol + attribution + identity + email + model-costs
-    # + onboarding = 9; passing splash adds the startup-splash patch.
-    assert len(brand_patch_sets("kimi")[0].patches) == 9
-    assert len(brand_patch_sets("kimi", "ART")[0].patches) == 10
-    with pytest.raises(PatchError, match="unknown brand"):
-        brand_patch_sets("nope")
-
-
-def test_kimi_verbs_and_symbols() -> None:
-    present = "[" + ",".join(f'"Word{i}ing"' for i in range(55)) + "]"
-    past = "[" + ",".join(f'"Word{i}ed"' for i in range(8)) + "]"
-    symbols = r'["\xB7","✢","✶","*"]'  # escaped, like the real binary
-    src = f"a={present};b={past};c={symbols};"
-
-    out = PatchSet(
-        name="vs", patches=_verb_symbol_patches(_KIMI_VERBS, _KIMI_SYMBOLS)
-    ).apply(src)
-
-    assert '"Sparking","Glinting"' in out  # present tense
-    assert '"Sparked","Glinted"' in out  # ing -> ed
-    assert '["·","•","◦","•"]' in out  # spinner glyphs
-    assert "Word0ing" not in out  # defaults replaced
-
-
-# Real 2.1.170 shape: the TodoWrite build tail (todo-schema before/after strings +
-# the tool constructor), the tool-registry function head, and the auto-compact
-# verdict — the three compact_session anchors in one synthetic snippet (no binary
-# needed). Every identifier here is minifier-assigned and differs per platform, so
-# the snippet is rendered for each build's real IDs (captured from the linux-x64 and
-# darwin-arm64 2.1.170 bundles) to prove the anchors derive them structurally rather
-# than by literal.
 class _CompactFlavor(NamedTuple):
     label: str
     schema_ns: str  # zod-like namespace (N on linux-x64, k on darwin-arm64)

@@ -29,13 +29,10 @@ from wlrenv.ccpatch.patches import (
 )
 
 
-def test_legacy_variant_uses_branded_proxy_aware_launcher() -> None:
+def test_unified_claude_uses_proxy_aware_launcher() -> None:
     root = Path(__file__).parents[2]
-    variant = (root / "machines/pkgs/claude-code-variant.nix").read_text()
     launcher = (root / "machines/pkgs/claude-code.nix").read_text()
 
-    assert "exec ${binary}/bin/claude --settings ${brandSettings}" in variant
-    assert "${binary}/libexec/claude-code/claude" not in variant
     assert "cc_openai_proxy_configure optional claude" in launcher
     assert "CC_OPENAI_PROXY_URL+x" in launcher
     assert "exit 1" in launcher
@@ -235,10 +232,15 @@ def test_real_source_routes_multi_provider_sdk(
     assert patched.count("let _ccRequest=") >= 2
     assert "_ccMultiProviderCatalog.find" in patched
     for model in (
+        "kimi:kimi-k3",
         "kimi:kimi-k2.7-code",
+        "zai:glm-5.3",
+        "zai:glm-5.3-flash",
         "zai:glm-5.2",
         "zai:glm-5-turbo",
+        "zai:glm-4.7",
         "zai:glm-4.5-air",
+        "minimax:MiniMax-M3",
         "minimax:MiniMax-M2.7",
         "openai:gpt-5.6-sol",
         "openai:gpt-5.6-terra",
@@ -258,7 +260,6 @@ def test_real_source_routes_multi_provider_sdk(
     assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
     assert "_ccMultiProviderRoute(z,_ccRequest)" in patched
     assert "_ccClient.beta.messages.countTokens(_ccOutbound)" in patched
-    assert 'K?.code==="EPROVIDERCREDENTIAL"||_ccMultiProviderModelInfo(q)' in patched
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
     assert "function _ccMultiProviderModelProvider(" in patched
@@ -267,6 +268,12 @@ def test_real_source_routes_multi_provider_sdk(
         == 1
     )
     assert "q.message.model!==L0&&q.message.model!==$" not in patched
+    assert "Z.filter((m$)=>_ccMultiProviderToolAllowed(J,m$)).map((m$)=>qx8" in patched
+    assert '_ccTool.isMcp===!0||_ccTool.name!=="WebSearch"' in patched
+    assert '"kimi:kimi-k3":{inputTokens:3,outputTokens:15' in patched
+    assert '"zai:glm-5.3-flash":{inputTokens:0.15,outputTokens:0.5' in patched
+    assert '"minimax:minimax-m3":{inputTokens:0.3,outputTokens:1.2' in patched
+    assert '"kimi-k3":{inputTokens:' not in patched
     verification = patched[
         patched.index("async function xG9") : patched.index("function p7A")
     ]
