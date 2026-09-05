@@ -84,14 +84,10 @@ function parseArgs(argv) {
 }
 
 async function loadModels() {
-  // pi-ai's public API is the Models collection (createModels + provider
-  // factories). We register just the openai-codex provider -- it is static,
-  // and its generated catalog is what gives us the gpt-5.6 sol/terra/luna
-  // models natively, with upstream cost data. Since 0.84.x the auth layer
-  // only serves credentials from a CredentialStore (options.apiKey cannot
-  // reach an oauth-only provider), so we back the store with pi's auth.json:
-  // pi-ai runs token refresh under the store's modify() lock and persists the
-  // rotated credential through it.
+  // Register only openai-codex to use its generated catalog and OAuth support.
+  // This provider gets credentials from a CredentialStore, so back the store
+  // with pi's auth.json. pi-ai refreshes and persists OAuth tokens through the
+  // store's modify() operation.
   modelsPromise ??= (async () => {
     const { createModels } = await import("@earendil-works/pi-ai");
     const { openaiCodexProvider } =

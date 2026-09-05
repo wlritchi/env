@@ -626,6 +626,10 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert '"tokenEnv":"CC_OPENAI_PROXY_AUTH_TOKEN"' in patched
     assert '"availabilityEnv":"CC_OPENAI_AVAILABLE"' in patched
     assert "cc-openai-local" not in patched
+    assert (
+        '"value":"openai:gpt-6-astra","label":"GPT-6 Astra",'
+        '"description":"OpenAI Codex model"' in patched
+    )
     assert "openai:gpt-5.6-sol" in patched
     assert "openai:gpt-5.6-terra" in patched
     assert "openai:gpt-5.6-luna" in patched
@@ -636,6 +640,7 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
         '"zai:glm-5.3-flash":{inputTokens:0.15,outputTokens:0.5,',
         '"zai:glm-4.7":{inputTokens:0.6,outputTokens:2.2,',
         '"minimax:minimax-m3":{inputTokens:0.3,outputTokens:1.2,',
+        '"openai:gpt-6-astra":{inputTokens:10,outputTokens:50,promptCacheWriteTokens:12.5,promptCacheReadTokens:1,',
         '"openai:gpt-5.6-sol":{inputTokens:4,outputTokens:20,',
     ):
         assert priced_model in patched

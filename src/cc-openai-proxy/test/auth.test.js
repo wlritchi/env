@@ -195,6 +195,24 @@ test("probeOpenAiAuth accepts the installed pi-ai Models API shape", async () =>
   const model = models.getModel("openai-codex", "gpt-5.6-sol");
   assert.equal(model?.provider, "openai-codex");
   assert.equal(await models.getAuth(model), undefined);
+
+  const astra = models.getModel("openai-codex", "gpt-6-astra");
+  assert.equal(astra?.contextWindow, 272000);
+  assert.deepEqual(astra?.cost, {
+    input: 10,
+    output: 50,
+    cacheRead: 1,
+    cacheWrite: 12.5,
+    tiers: [
+      {
+        inputTokensAbove: 272000,
+        input: 20,
+        output: 75,
+        cacheRead: 2,
+        cacheWrite: 25,
+      },
+    ],
+  });
 });
 
 test("capability route sanitizes operational probe failures", async (t) => {

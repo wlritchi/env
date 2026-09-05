@@ -75,7 +75,7 @@ assert.deepEqual(
   ["WebFetch", "Read", "mcp__docs__search"],
 );
 
-assert.equal(api.catalog.length, 13);
+assert.equal(api.catalog.length, 14);
 assert.deepEqual(
   Array.from(api.pickerCatalog(), ({ value }) => value),
   [],
@@ -101,7 +101,7 @@ assert.deepEqual(
 );
 credentials.CC_KIMI_AUTH_TOKEN = "kimi-picker-token";
 credentials.CC_OPENAI_AVAILABLE = "1";
-assert.equal(api.pickerCatalog().length, 13);
+assert.equal(api.pickerCatalog().length, 14);
 delete credentials.CC_ZAI_AUTH_TOKEN;
 delete credentials.CC_MINIMAX_AUTH_TOKEN;
 delete credentials.CC_OPENAI_PROXY_AUTH_TOKEN;
@@ -301,6 +301,8 @@ for (const [model, provider] of [
   ["glm-5-turbo", "zai"],
   ["minimax:MiniMax-M2.7", "minimax"],
   ["MiniMax-M2.7", "minimax"],
+  ["openai:gpt-6-astra", "openai"],
+  ["gpt-6-astra", "openai"],
   ["openai:gpt-5.6-sol", "openai"],
   ["gpt-5.6-sol", "openai"],
   ["openai:gpt-5.6-terra", "openai"],

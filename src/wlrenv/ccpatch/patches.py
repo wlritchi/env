@@ -1263,6 +1263,18 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
         "defaultHeaders": {},
         "models": (
             {
+                "wireModel": "gpt-6-astra",
+                "label": "GPT-6 Astra",
+                "description": "OpenAI Codex model",
+                "costs": {
+                    "inputTokens": 10,
+                    "outputTokens": 50,
+                    "promptCacheWriteTokens": 12.5,
+                    "promptCacheReadTokens": 1,
+                    "webSearchRequests": 0.01,
+                },
+            },
+            {
                 "wireModel": "gpt-5.6-sol",
                 "label": "GPT-5.6 Sol",
                 "description": "OpenAI Codex model",
