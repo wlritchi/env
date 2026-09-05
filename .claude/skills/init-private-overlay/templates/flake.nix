@@ -1,12 +1,13 @@
 {
   description = "wlrenv private overlay";
 
-  # The ONLY input is the public wlrenv flake, and its name MUST be `wlrenv`:
-  # wlr-nix-rebuild builds this overlay with
-  #   --override-input wlrenv path:$WLR_ENV_PATH
-  # so at rebuild time `wlrenv` always resolves to your LOCAL ~/.wlrenv checkout
-  # (no `nix flake update` needed after editing the public repo). The pinned rev
-  # in flake.lock only matters for standalone `nix build` / `nix flake show`.
+  # The public input must be named `wlrenv`. wlr-nix-rebuild overrides it with
+  #   --override-input wlrenv "git+file://$WLR_ENV_PATH?rev=$public_rev"
+  # where public_rev is the local public repository's committed HEAD.
+  # Commit public changes before rebuilding. No private lock update or commit
+  # is required for a new public revision. Private working-tree edits still apply.
+  # The override does not write flake.lock. Its pinned revision applies only to
+  # standalone commands such as `nix build` and `nix flake show`.
   inputs.wlrenv.url = "github:wlritchi/env";
 
   outputs =

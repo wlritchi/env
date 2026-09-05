@@ -13,7 +13,7 @@ pointers to secrets — that can't live in the public repo. The public `flake.ni
 exports `lib.mkHomeConfiguration` and `lib.overlays` specifically so an overlay
 can extend it.
 
-**Critical:** the orchestration scripts key off the *directory existing*, not off
+**Critical:** the orchestration scripts key off the _directory existing_, not off
 it being complete. If `~/.wlrenv-private` exists but lacks a working `flake.nix`,
 `wlr-nix-rebuild` switches its flake root to `~/.wlrenv-private#default` and
 **fails** — a half-initialized overlay is worse than none. Land every REQUIRED
@@ -51,7 +51,7 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
    `wlr-check-update` reads `origin` to fetch overlay updates; without it the
    overlay simply isn't auto-updated.
 3. **Add `.allowed_signers`** with the public half of the key you sign the
-   *private* repo's commits with — same format as the public repo's
+   _private_ repo's commits with — same format as the public repo's
    `.allowed_signers`; it may be a different key. Without it, `wlr-check-update`
    refuses to update the overlay.
 4. **Copy the templates** from this skill (`templates/`) and edit:
@@ -61,17 +61,22 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
    (matches the public repo — fsmonitor's `.ipc` socket breaks Nix `path:`
    evaluation of the flake).
 6. **`git add` everything.** Nix ignores files not tracked by git in a directory
-   flake, so an untracked `flake.nix`/`private.nix` is *invisible* and rebuild
+   flake, so an untracked `flake.nix`/`private.nix` is _invisible_ and rebuild
    fails as if it were missing. Staging is enough — you don't have to commit yet.
 7. **Generate the lock:** `nix flake lock`, then `git add flake.lock`. Heads-up:
    plain `nix flake lock` fetches the pinned `wlrenv` rev from GitHub — it does
    NOT honor the rebuild's input override, so it needs network and the rev
-   pushed. To lock against your local checkout (and work offline) use
-   `nix flake lock --override-input wlrenv path:$WLR_ENV_PATH`.
-8. **Build:** `wlr-nix-rebuild`. It auto-detects the overlay and passes
-   `--override-input wlrenv path:$WLR_ENV_PATH`, so you never need
-   `nix flake update` after editing the public repo. Two warnings are expected
-   while the new files are staged-but-uncommitted — `Git tree … is dirty` and
+   pushed. Do not use `nix flake lock --override-input` to generate a persistent
+   lock: `--override-input` implies `--no-write-lock-file`.
+8. **Build:** `wlr-nix-rebuild`. It resolves the public checkout's committed HEAD
+   once and uses `git+file://$WLR_ENV_PATH?rev=$public_rev` for both tool launchers
+   and `--override-input wlrenv`. **Commit public changes before rebuilding**;
+   public working-tree edits are excluded. No private input bump, lock update,
+   or commit is required when the public revision changes. Private tracked
+   working-tree edits still apply; stage new private files first. The override
+   permits in-memory lock updates without writing the private lock file; do not
+   add `--no-update-lock-file`. Two warnings are expected while private files
+   are staged-but-uncommitted — `Git tree … is dirty` and
    `not writing modified lock file` — both harmless. Success is **exit code 0**;
    a trailing "systemd session is degraded / failed services" block printed by
    Home Manager activation may just be pre-existing, unrelated units, so judge
@@ -83,7 +88,7 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
 ## Templates
 
 - `templates/flake.nix` — overlay flake. Input named `wlrenv` (the name is
-  required; rebuild overrides it to the local checkout). Output
+  required; rebuild overrides it to the local committed public HEAD). Output
   `homeConfigurations.default = wlrenv.lib.mkHomeConfiguration { extraModules = [ ./private.nix ]; }`.
   Darwin config is passed through unextended.
 - `templates/private.nix` — example module: extra packages, `home.uvTools.<name>`,
@@ -94,18 +99,18 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
 > **Stale doc warning:** `docs/plans/2025-12-24-private-config-design.md` shows an
 > older flake using `extendModules` / `homeConfigurations."<user>"`. That form is
 > **out of date** — the current public flake exposes `homeConfigurations.default`
-> + `lib.mkHomeConfiguration`. Use the template, not that doc's snippet.
+> and `lib.mkHomeConfiguration`. Use the template, not that doc's snippet.
 
 ## Overlay surfaces (how the environment consumes the overlay)
 
-| Surface | Mechanism |
-|---|---|
-| Nix | `wlr-nix-rebuild` uses the overlay as flake root, builds `#default`, overrides input `wlrenv`→local checkout. Add config via `private.nix`. |
-| Dotfiles | `wlr-sync-dotfiles`: `dotfiles/$path` shadows public; `patches/uname/$(uname)/…` then `patches/host/$HOSTNAME/…` layer onto public files; output goes to `rendered/`. |
-| PATH | `env.bash` adds each *immediate subdir* of `bin/` to PATH. Scripts directly in `bin/` are NOT added — use `bin/<category>/`. |
-| uv tools | `private.nix` sets `home.uvTools.<name> = { … }` to add/override; `.disabled = true` suppresses a public tool. |
-| Updates | `wlr-check-update` fetches `origin`, verifies the new HEAD against the overlay's own `.allowed_signers` (read *before* fetch), then runs `hooks/post-upgrade` if present. |
-| Secrets | NOT in the repo — `secwrap` + pass/passage. See `docs/plans/2025-12-24-private-config-design.md`. |
+| Surface  | Mechanism                                                                                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nix      | `wlr-nix-rebuild` uses the overlay as flake root, builds `#default`, overrides input `wlrenv`→local committed public HEAD. Add config via `private.nix`.                  |
+| Dotfiles | `wlr-sync-dotfiles`: `dotfiles/$path` shadows public; `patches/uname/$(uname)/…` then `patches/host/$HOSTNAME/…` layer onto public files; output goes to `rendered/`.     |
+| PATH     | `env.bash` adds each _immediate subdir_ of `bin/` to PATH. Scripts directly in `bin/` are NOT added — use `bin/<category>/`.                                              |
+| uv tools | `private.nix` sets `home.uvTools.<name> = { … }` to add/override; `.disabled = true` suppresses a public tool.                                                            |
+| Updates  | `wlr-check-update` fetches `origin`, verifies the new HEAD against the overlay's own `.allowed_signers` (read _before_ fetch), then runs `hooks/post-upgrade` if present. |
+| Secrets  | NOT in the repo — `secwrap` + pass/passage. See `docs/plans/2025-12-24-private-config-design.md`.                                                                         |
 
 ## Gotchas
 
@@ -115,8 +120,8 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
 - **Input must be named `wlrenv`.** Rebuild's `--override-input wlrenv …` depends
   on the exact name.
 - **bin scripts need a subdir** to land on PATH.
-- **macOS:** private *home* config applies (via `homeConfigurations.default`);
-  private *system* config does not (darwin is passed through). Extending darwin
+- **macOS:** private _home_ config applies (via `homeConfigurations.default`);
+  private _system_ config does not (darwin is passed through). Extending darwin
   system config needs more than the current public `lib` exposes.
 - **fsmonitor off** on the overlay repo, or Nix `path:` evaluation can choke on
   the daemon socket.
