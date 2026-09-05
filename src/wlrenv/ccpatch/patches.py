@@ -1496,6 +1496,48 @@ _MULTI_PROVIDER_HELPER = (
     "delete _ccOutbound[_ccField];return[_ccCached.client,_ccOutbound,"
     "_ccMultiProviderSafeOptions(_ccOptions)]}"
 )
+_MULTI_PROVIDER_RESUME = re.compile(
+    rf'let (?P<model>{_ID})=(?P<message>{_ID})\.message\.model,'
+    rf'(?P<setting>{_ID})=(?P<current>{_ID})\(\);if\('
+    rf'(?P<dependent>{_ID})\((?P=setting)\)&&!(?P<eap>{_ID})\((?P=model)\)&&'
+    rf'(?P<compatible>{_ID})\((?P=setting),(?P<normalize>{_ID})\((?P=model)\)\)\)'
+    r'return\{kind:"mode_dependent_setting"\};'
+)
+_MULTI_PROVIDER_AGENT_MODEL = re.compile(
+    r'model:(?P<schema>[\w$]+)\.enum\(\["sonnet","opus","haiku","fable"\]\)'
+    r'(?=\.optional\(\)\.describe\("Optional model override for this agent\.)'
+)
+
+
+def _restore_multi_provider_model(match: re.Match[str]) -> str:
+    model = match.group("model")
+    # Only restore bare wire IDs when the catalogue has one matching provider.
+    return (
+        f"let {model}={match.group('message')}.message.model;"
+        f"let _ccCandidates=_ccMultiProviderCatalog.filter((_ccEntry)=>"
+        f"_ccEntry.value==={model}||_ccEntry.value.slice("
+        f'_ccEntry.value.indexOf(":")+1)==={model});'
+        "if(_ccCandidates.length===1){let _ccRestored=_ccCandidates[0].value;"
+        'return Ew(_ccRestored)?{kind:"ok",model:_ccRestored}:'
+        '{kind:"declined",model:_ccRestored,reason:"not_allowed"}}'
+        f"let {match.group('setting')}={match.group('current')}();if("
+        f"{match.group('dependent')}({match.group('setting')})&&!"
+        f"{match.group('eap')}({model})&&{match.group('compatible')}("
+        f"{match.group('setting')},{match.group('normalize')}({model})))"
+        'return{kind:"mode_dependent_setting"};'
+    )
+
+
+def _expand_multi_provider_agent_model(match: re.Match[str]) -> str:
+    # These native catalogue bindings are specific to Claude Code 2.1.174.
+    return (
+        f"model:{match.group('schema')}.enum([...new Set([...LyH,...wPK,"
+        "...Object.values(N5()),...UX$().filter((_ccEntry)=>"
+        'typeof _ccEntry.value==="string").map((_ccEntry)=>_ccEntry.value),'
+        "..._ccMultiProviderCatalog.map((_ccEntry)=>_ccEntry.value)])])"
+    )
+
+
 _MULTI_PROVIDER_SDK_TAIL = re.compile(
     rf'(?P<prefix>let (?P<options>{_ID})=\{{apiKey:.{{0,500}}?\}};return new '
     rf'(?P<constructor>{_ID})\((?P=options)\)\}})(?P<next>async function {_ID}\()'
@@ -1839,6 +1881,16 @@ MULTI_PROVIDER_SDK = PatchSet(
             _add_multi_provider_picker_models,
         ),
         Patch(
+            "restore-provider-qualified-session-model",
+            _MULTI_PROVIDER_RESUME,
+            _restore_multi_provider_model,
+        ),
+        Patch(
+            "expand-agent-model-catalogue",
+            _MULTI_PROVIDER_AGENT_MODEL,
+            _expand_multi_provider_agent_model,
+        ),
+        Patch(
             "recognize-qualified-models",
             _MULTI_PROVIDER_RECOGNITION,
             _recognize_multi_provider_model,
@@ -1861,6 +1913,8 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r"https://api\.minimax\.io/anthropic"),
         re.compile(r"KimiCLI/1\.5"),
         re.compile(r"function _ccMultiProviderCatalogInfo\("),
+        re.compile(r'if\(_ccCandidates\.length===1\)'),
+        re.compile(r'model:[\w$]+\.enum\(\[\.\.\.new Set\('),
         re.compile(
             r"\{label:[\w$]+,domain:_ccAttributionDomain\}="
             r"_ccMultiProviderAttribution\([\w$]+,_ccNativeAttributionLabel\)"

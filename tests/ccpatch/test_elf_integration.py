@@ -322,6 +322,63 @@ def test_real_source_routes_multi_provider_sdk(
     assert "source:\"verify_api_key\"" in verification
 
 
+def test_provider_resume_and_agent_catalogue_runtime(
+    binary_info: tuple[bytes, bool],
+) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    _, source = _provider_sources(binary_info)
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    resume = patched[patched.index("function lR9(") : patched.index("function gOA(")]
+    resolver = patched[patched.index("function Xe(") : patched.index("function E28(")]
+    schema_start = patched.index("model:k.enum([...new Set(")
+    schema_end = patched.index(".optional()", schema_start)
+    schema = patched[schema_start + len("model:k.enum(") : schema_end - 1]
+    catalogue_start = patched.index("const _ccMultiProviderCatalog=")
+    catalogue = patched[catalogue_start : patched.index(";", catalogue_start) + 1]
+    script = (
+        'const assert=require("node:assert/strict");'
+        + catalogue
+        + 'let allowed=true;const Ew=()=>allowed,L0="synthetic",'
+        'wPK=["claude-opus-4-8"],LyH=["sonnet","opus","haiku","fable","best"],'
+        'N5=()=>({opus48:"provider-native-opus"}),UX$=()=>[{value:null},'
+        '{value:"custom-model"}],qK=(m)=>m,Yl=()=>"opus",YD6=()=>false,'
+        'N5H=()=>false,aM9=()=>false,Nj=()=>false,rU=()=>false,VL=()=>false,'
+        'G7=(m)=>m,KA=(m)=>m,s68=()=>null,tO=()=>"firstParty",'
+        'gd6=()=>"inherit",bV=({mainLoopModel:m})=>m;'
+        + resume
+        + resolver
+        + f"const models={schema};"
+        'const message=(model)=>({type:"assistant",message:{model}});'
+        'delete process.env.CLAUDE_CODE_SUBAGENT_MODEL;'
+        'for(const entry of _ccMultiProviderCatalog){'
+        'for(const model of [entry.value,entry.value.split(":")[1]])'
+        'assert.deepEqual(lR9([message(model)]),{kind:"ok",model:entry.value});'
+        'assert(models.includes(entry.value));'
+        'assert.equal(Xe(undefined,"claude-opus-4-8",entry.value),entry.value);}'
+        'for(const model of [...LyH,...wPK,"provider-native-opus","custom-model"])'
+        'assert(models.includes(model));'
+        'assert(!models.includes("openai:not-a-model"));'
+        'assert(!models.includes("gpt-6-astra"));'
+        'assert.deepEqual(lR9([message("claude-opus-4-8")]),'
+        '{kind:"ok",model:"claude-opus-4-8"});'
+        'assert.equal(lR9([message("unknown")]).reason,"unknown_family");'
+        'assert.equal(lR9([message("synthetic")]).kind,"none");'
+        'assert.equal(lR9([message("gpt-6-astra"),{...message("unknown"),isMeta:true}]).model,'
+        '"openai:gpt-6-astra");'
+        'allowed=false;assert.deepEqual(lR9([message("gpt-6-astra")]),'
+        '{kind:"declined",model:"openai:gpt-6-astra",reason:"not_allowed"});'
+        'allowed=true;_ccMultiProviderCatalog.push({value:"other:gpt-6-astra"});'
+        'assert.equal(lR9([message("gpt-6-astra")]).reason,"unknown_family");'
+        'assert.equal(lR9([message("openai:gpt-6-astra")]).model,"openai:gpt-6-astra");'
+    )
+    result = subprocess.run(  # noqa: S603 - local runtime regression
+        [node, "-e", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
 # --- runtime shape-completeness of the injected compact_session tool ----------
 #
 # The static catalog test (test_compact_session_tool_shape_complete) pins a member

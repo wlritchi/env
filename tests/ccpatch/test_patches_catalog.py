@@ -46,8 +46,18 @@ _DEV_CHANNEL_SRC = (
     'if(r$.length>0){d("tengu_mcp_channel_flags",{})}'
 )
 
+_MULTI_PROVIDER_RESUME_SRC = (
+    'let f=_.message.model,A=Yl();if(YD6(A)&&!N5H(f)&&QOA(A,qK(f)))'
+    'return{kind:"mode_dependent_setting"};'
+)
+_MULTI_PROVIDER_AGENT_SRC = (
+    'model:k.enum(["sonnet","opus","haiku","fable"]).optional().describe('
+    '"Optional model override for this agent. Takes precedence over frontmatter.")'
+)
 _MULTI_PROVIDER_SRC = (
-    "},COST_HELPER=READY;COSTS={[modelKey(NATIVE.firstParty)]:NATIVE_COST};"
+    _MULTI_PROVIDER_RESUME_SRC
+    + _MULTI_PROVIDER_AGENT_SRC
+    + "},COST_HELPER=READY;COSTS={[modelKey(NATIVE.firstParty)]:NATIVE_COST};"
     "let OPT={apiKey:key};return new SDK(OPT)}async function NEXT(){}"
     "function TOP_WINDOW(MODEL,HEADERS){let OVERRIDE=DEBUG_WINDOW();if(OVERRIDE!==void 0)"
     "return OVERRIDE;if(EXTENDED(MODEL,HEADERS))return EXTENDED_WINDOW;return "
