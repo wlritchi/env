@@ -52,7 +52,7 @@ const context = vm.createContext({
   process: fakeProcess,
 });
 const script = new vm.Script(
-  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,catalogInfo:_ccMultiProviderCatalogInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,toolAllowed:_ccMultiProviderToolAllowed,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog,pickerCatalog:_ccMultiProviderPickerCatalog};`,
+  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,catalogInfo:_ccMultiProviderCatalogInfo,modelProvider:_ccMultiProviderModelProvider,attribution:_ccMultiProviderAttribution,inputTokens:_ccMultiProviderInputTokens,toolAllowed:_ccMultiProviderToolAllowed,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog,pickerCatalog:_ccMultiProviderPickerCatalog};`,
   { filename: helperPath },
 );
 script.runInContext(context);
@@ -76,6 +76,31 @@ assert.deepEqual(
 );
 
 assert.equal(api.catalog.length, 14);
+for (const [model, label, domain] of [
+  ["openai:gpt-5.6-sol", "GPT-5.6 Sol", "openai.com"],
+  ["openai:gpt-6-astra", "GPT-6 Astra", "openai.com"],
+  ["kimi:kimi-k3", "Kimi K3", "kimi.com"],
+  ["zai:glm-5.3", "GLM 5.3", "z.ai"],
+  ["minimax:MiniMax-M3", "MiniMax M3", "minimax.io"],
+]) {
+  assert.deepEqual(
+    { ...api.attribution(model, "Claude") },
+    { label, domain },
+    model,
+  );
+}
+for (const model of [
+  "claude-sonnet-4-6",
+  "future-native-model",
+  "gateway:model",
+  undefined,
+]) {
+  assert.deepEqual(
+    { ...api.attribution(model, "Claude Opus 4.8") },
+    { label: "Claude Opus 4.8", domain: "anthropic.com" },
+    String(model),
+  );
+}
 const expectedLimits = new Map([
   ["kimi:kimi-k3", [1048576, 131072]],
   ["kimi:kimi-k2.7-code", [262144, 32768]],

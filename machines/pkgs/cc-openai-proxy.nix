@@ -10,7 +10,7 @@ buildNpmPackage {
   version = "0.1.0";
 
   src = ../../src/cc-openai-proxy;
-  npmDepsHash = "sha256-tZId6cBj5/pitHcx4g4U5gJL/WLMbt1TUPW6QiwOyGk=";
+  npmDepsHash = "sha256-AWO1IOwLHMQPiFyr/a+CIEqfAEEa0teobEv7jhG71PE=";
   nodejs = nodejs_24;
 
   dontNpmBuild = true;

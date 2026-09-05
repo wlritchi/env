@@ -382,18 +382,27 @@ test("server creates a bearer before listen and gates all routes except health",
     model: "gpt-5.6-sol",
     messages: [{ role: "user", content: "x".repeat(1024 * 1024) }],
   });
-  const countTokens = await post(
+  const countTokensPromise = post(
     port,
     "/v1/messages/count_tokens",
     "localhost",
     { authorization: `Bearer ${token}` },
     longCountBody,
   );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const healthWhileCounting = await Promise.race([
+    get(port, "/health", "localhost"),
+    new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error("health blocked by tokenization")),
+        1000,
+      ),
+    ),
+  ]);
+  assert.equal(healthWhileCounting.status, 200);
+  const countTokens = await countTokensPromise;
   assert.equal(countTokens.status, 200, countTokens.body);
-  assert.equal(
-    JSON.parse(countTokens.body).input_tokens,
-    Math.ceil(Buffer.byteLength(longCountBody) / 4),
-  );
+  assert.ok(JSON.parse(countTokens.body).input_tokens > 100_000);
   assert.equal(child.exitCode, null);
   assert.equal(output.includes(malformedHost), false);
   assert.equal(output.includes(querySecret), false);

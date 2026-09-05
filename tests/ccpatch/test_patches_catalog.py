@@ -76,6 +76,7 @@ _MULTI_PROVIDER_SRC = (
     "BETAS=RAW.filter((BETA)=>ij6.has(BETA)),RESULT=await CLIENT.beta.messages."
     "countTokens({model:KA(EFFECTIVE),messages:MSGS,tools:TOOLS});return RESULT.input_tokens"
     "}catch(ERROR){return N(`countTokens API call failed: ${ERROR.message}`),null}})}"
+    'function ATTR(){if(MODE()==="remote"){if(ENV.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION)return{commit:"",pr:""};return REMOTE()}let H=CURRENT(),$=ISFIRST(H)?DISPLAY(FIRST.firstParty):ISNATIVE(H)?DISPLAY(H):"Claude",q=`\\uD83E\\uDD16 Generated with [Claude Code](${URL})`,K=`Co-Authored-By: ${$} <noreply@anthropic.com>`,_=SETTINGS();if(_.attribution)return{commit:_.attribution.commit??K,pr:_.attribution.pr??q};if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""};return{commit:K,pr:q}}'
     "function PICK(FLAG){let OPTIONS=NATIVE(FLAG),CUSTOM=process.env."
     "ANTHROPIC_CUSTOM_MODEL_OPTION;"
     "function RECOGNIZE(MODEL){let NAME=DISPLAY(MODEL);if(!NAME)return null;"
@@ -656,9 +657,23 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert '"tokenEnv":"CC_OPENAI_PROXY_AUTH_TOKEN"' in patched
     assert '"availabilityEnv":"CC_OPENAI_AVAILABLE"' in patched
     assert "cc-openai-local" not in patched
+    for provider, domain in (
+        ("kimi", "kimi.com"),
+        ("zai", "z.ai"),
+        ("minimax", "minimax.io"),
+        ("openai", "openai.com"),
+    ):
+        assert f'"{provider}":{{"attributionDomain":"{domain}"' in patched
+    assert "_ccMultiProviderAttribution(H,_ccNativeAttributionLabel)" in patched
+    assert "K=`Co-Authored-By: ${$} <noreply@${_ccAttributionDomain}>`" in patched
+    assert (
+        "if(_.attribution)return{commit:_.attribution.commit??K,pr:_.attribution.pr??q}"
+        in patched
+    )
+    assert 'if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""}' in patched
     assert (
         '"value":"openai:gpt-6-astra","label":"GPT-6 Astra",'
-        '"description":"OpenAI Codex model"' in patched
+        '"attributionDomain":"openai.com","description":"OpenAI Codex model"' in patched
     )
     assert "openai:gpt-5.6-sol" in patched
     assert "openai:gpt-5.6-terra" in patched
@@ -722,6 +737,60 @@ def test_multi_provider_sdk_runtime_context_and_output_precedence() -> None:
         '{"debug":123456,"external":262144,"anthropicGateCalls":0,'
         '"ordinary":{"default":32000,"upperLimit":32768},'
         '"configured":{"default":32000,"upperLimit":32768}}'
+    )
+
+
+def test_multi_provider_attribution_runtime_tracks_worker_model_and_settings() -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("no node/bun to evaluate provider attribution")
+    patched = MULTI_PROVIDER_SDK.apply(_MULTI_PROVIDER_SRC)
+    helper_end = patched.index("function TOP_WINDOW(")
+    attribution_start = patched.index("function ATTR()")
+    attribution_end = patched.index("function PICK(", attribution_start)
+    script = (
+        patched[patched.index("const _ccMultiProviderDefinitions=") : helper_end]
+        + "let settings={};const process={env:{ANTHROPIC_MODEL:'openai:gpt-5.6-sol'}},"
+        "FIRST={firstParty:'claude-opus-4-8'},URL='https://claude.com/claude-code',"
+        "ENV=process.env,MODE=()=>process.env.MODE??'local',"
+        "REMOTE=()=>({commit:'remote',pr:'remote'}),"
+        "CURRENT=()=>process.env.ANTHROPIC_MODEL,ISFIRST=()=>false,"
+        "ISNATIVE=(model)=>model.startsWith('claude-'),DISPLAY=(model)=>"
+        "model==='claude-opus-4-8'?'Claude Opus 4.8':'Claude',SETTINGS=()=>settings;"
+        + patched[attribution_start:attribution_end]
+        + "const result=[];result.push(ATTR());"
+        "process.env.ANTHROPIC_MODEL='kimi:kimi-k3';result.push(ATTR());"
+        "process.env.ANTHROPIC_MODEL='zai:glm-5.3';result.push(ATTR());"
+        "process.env.ANTHROPIC_MODEL='minimax:MiniMax-M3';result.push(ATTR());"
+        "process.env.ANTHROPIC_MODEL='claude-opus-4-8';result.push(ATTR());"
+        "process.env.ANTHROPIC_MODEL='future-native-model';result.push(ATTR());"
+        "settings={attribution:{commit:'custom commit',pr:'custom pr'}};result.push(ATTR());"
+        "settings={includeCoAuthoredBy:false};result.push(ATTR());"
+        "process.env.MODE='remote';settings={};result.push(ATTR());"
+        "process.env.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION='1';result.push(ATTR());"
+        "console.log(JSON.stringify(result));"
+    )
+
+    proc = subprocess.run(  # noqa: S603 - test intentionally runs the detected JS runtime
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == (
+        '[{"commit":"Co-Authored-By: GPT-5.6 Sol <noreply@openai.com>",'
+        '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
+        '{"commit":"Co-Authored-By: Kimi K3 <noreply@kimi.com>",'
+        '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
+        '{"commit":"Co-Authored-By: GLM 5.3 <noreply@z.ai>",'
+        '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
+        '{"commit":"Co-Authored-By: MiniMax M3 <noreply@minimax.io>",'
+        '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
+        '{"commit":"Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>",'
+        '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
+        '{"commit":"Co-Authored-By: Claude <noreply@anthropic.com>",'
+        '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
+        '{"commit":"custom commit","pr":"custom pr"},{"commit":"","pr":""},'
+        '{"commit":"remote","pr":"remote"},{"commit":"","pr":""}]'
     )
 
 

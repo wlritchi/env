@@ -265,6 +265,19 @@ def test_real_source_routes_multi_provider_sdk(
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
     assert "function _ccMultiProviderModelProvider(" in patched
     assert "function _ccMultiProviderCatalogInfo(" in patched
+    assert "function _ccMultiProviderAttribution(" in patched
+    assert '"attributionDomain":"kimi.com"' in patched
+    assert '"attributionDomain":"z.ai"' in patched
+    assert '"attributionDomain":"minimax.io"' in patched
+    assert '"attributionDomain":"openai.com"' in patched
+    attribution_start = patched.index("function umH()")
+    attribution = patched[
+        attribution_start : patched.index("function fU4(", attribution_start)
+    ]
+    assert "_ccMultiProviderAttribution(H,_ccNativeAttributionLabel)" in attribution
+    assert "K=`Co-Authored-By: ${$} <noreply@${_ccAttributionDomain}>`" in attribution
+    assert "noreply@anthropic.com" not in attribution
+    assert 'if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""}' in attribution
     assert (
         "if(_?.max_tokens&&_.max_tokens>=4096)q=_.max_tokens,$=Math.min($,q)" in patched
     )

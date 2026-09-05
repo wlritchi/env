@@ -4,6 +4,18 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  isMainThread,
+  parentPort,
+  Worker,
+  workerData,
+} from "node:worker_threads";
+
+import {
+  convertResponsesMessages,
+  convertResponsesTools,
+} from "@earendil-works/pi-ai/api/openai-responses-shared";
+import { get_encoding as getEncoding } from "tiktoken";
 
 import {
   loadOrCreateProxyToken,
@@ -18,9 +30,31 @@ const DEFAULT_MODEL = "gpt-5.6-sol";
 const DEFAULT_SONNET_MODEL = "gpt-5.6-terra";
 const DEFAULT_HAIKU_MODEL = "gpt-5.6-luna";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
-const RAW_BODY_BYTES = Symbol("rawBodyBytes");
+const CODEX_TOOL_CALL_PROVIDERS = new Set([
+  "openai",
+  "openai-codex",
+  "opencode",
+]);
+const RESPONSE_ITEM_OVERHEAD_TOKENS = 6;
+const IMAGE_OVERHEAD_TOKENS = 2048;
+const ENCRYPTED_REASONING_OVERHEAD_TOKENS = 64;
+const TOKENIZER_CHUNK_CODE_UNITS = 4 * 1024;
+const TOKENIZER_ENCODING_BY_MODEL = Object.freeze({
+  // OpenAI maps GPT-5 to o200k_base in tiktoken. Apply that encoding to newer
+  // pi GPT-5 and GPT-6 catalog entries as provisional policy until OpenAI
+  // publishes model-specific mappings for these exact IDs.
+  "gpt-5.3-codex-spark": "o200k_base",
+  "gpt-5.4": "o200k_base",
+  "gpt-5.4-mini": "o200k_base",
+  "gpt-5.5": "o200k_base",
+  "gpt-5.6-luna": "o200k_base",
+  "gpt-5.6-sol": "o200k_base",
+  "gpt-5.6-terra": "o200k_base",
+  "gpt-6-astra": "o200k_base",
+});
 
 let modelsPromise;
+let o200kEncoding;
 let authProbePromise;
 let credentialWriteChain = Promise.resolve();
 const processSessionId = `cc-openai-${randomUUID()}`;
@@ -505,10 +539,170 @@ function anthropicUsage(usage = emptyUsage()) {
   };
 }
 
-// Estimate from the complete JSON request size without a tokenizer dependency.
-// The byte ratio is approximate and can differ from the model's token count.
-function estimateInputTokens(byteLength) {
-  return Math.max(1, Math.ceil(byteLength / 4));
+function tokenizerForModel(modelId) {
+  const encoding = TOKENIZER_ENCODING_BY_MODEL[modelId];
+  if (!encoding) {
+    throw httpError(400, `no local tokenizer mapping for ${modelId}`);
+  }
+  o200kEncoding ??= getEncoding(encoding);
+  return o200kEncoding;
+}
+
+function assertTokenizerMappings(models) {
+  const missing = models
+    .filter((model) => !TOKENIZER_ENCODING_BY_MODEL[model.id])
+    .map((model) => model.id);
+  if (missing.length > 0) {
+    throw new Error(`missing local tokenizer mappings: ${missing.join(", ")}`);
+  }
+}
+
+function omitCanonicalInputImages(input) {
+  let imageCount = 0;
+  const omitImagesFromBlocks = (blocks) =>
+    blocks.map((block) => {
+      if (
+        !isPlainObject(block) ||
+        block.type !== "input_image" ||
+        typeof block.image_url !== "string"
+      ) {
+        return block;
+      }
+      imageCount += 1;
+      return { ...block, image_url: "[image payload counted separately]" };
+    });
+  const countableInput = input.map((item) => {
+    if (!isPlainObject(item)) return item;
+    if (Array.isArray(item.content)) {
+      return { ...item, content: omitImagesFromBlocks(item.content) };
+    }
+    if (item.type === "function_call_output" && Array.isArray(item.output)) {
+      return { ...item, output: omitImagesFromBlocks(item.output) };
+    }
+    return item;
+  });
+  return { countableInput, imageCount };
+}
+
+function separateEncryptedReasoning(context) {
+  const encryptedReasoning = [];
+  const messages = context.messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    return {
+      ...message,
+      content: message.content.filter((block) => {
+        if (block.type !== "thinking") return true;
+        encryptedReasoning.push({
+          thinking: block.thinking || "",
+          signature: block.thinkingSignature || "",
+          redacted: Boolean(block.redacted),
+        });
+        return false;
+      }),
+    };
+  });
+  return { context: { ...context, messages }, encryptedReasoning };
+}
+
+function canonicalResponsesPayload(model, request) {
+  const { context, encryptedReasoning } = separateEncryptedReasoning(
+    anthropicToContext(request),
+  );
+  const supportsStrictMode = model.compat?.supportsStrictMode ?? true;
+  const input = convertResponsesMessages(
+    model,
+    context,
+    CODEX_TOOL_CALL_PROVIDERS,
+    {
+      includeSystemPrompt: false,
+      toolOptions: { strict: null, supportsStrictMode },
+    },
+  );
+  const tools = context.tools?.length
+    ? convertResponsesTools(context.tools, {
+        strict: null,
+        supportsStrictMode,
+        supportsOpenAIGrammarTools:
+          model.compat?.supportsOpenAIGrammarTools ?? false,
+      })
+    : undefined;
+  return {
+    payload: {
+      instructions: context.systemPrompt || "You are a helpful assistant.",
+      input,
+      ...(tools ? { tools } : {}),
+    },
+    encryptedReasoning,
+  };
+}
+
+function encodedLength(tokenizer, text) {
+  let total = 0;
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + TOKENIZER_CHUNK_CODE_UNITS, text.length);
+    if (
+      end < text.length &&
+      /[\uD800-\uDBFF]/u.test(text[end - 1]) &&
+      /[\uDC00-\uDFFF]/u.test(text[end])
+    ) {
+      end -= 1;
+    }
+    total += tokenizer.encode(text.slice(start, end)).length;
+    start = end;
+  }
+  return total;
+}
+
+// Bounded chunks limit individual tokenizer calls. Because token boundaries can
+// cross chunks and Responses framing constants are unpublished, this is an estimate.
+function estimateInputTokens(model, request) {
+  const tokenizer = tokenizerForModel(model.id);
+  const { payload, encryptedReasoning } = canonicalResponsesPayload(
+    model,
+    request,
+  );
+  const { countableInput, imageCount } = omitCanonicalInputImages(
+    payload.input,
+  );
+  const countablePayload = { ...payload, input: countableInput };
+  const serializedTokens = encodedLength(
+    tokenizer,
+    JSON.stringify(countablePayload),
+  );
+  const structuralItems =
+    payload.input.length + (payload.tools?.length || 0) + 1;
+  const reasoningTokens = encryptedReasoning.reduce(
+    (total, item) =>
+      total +
+      encodedLength(tokenizer, JSON.stringify(item)) +
+      ENCRYPTED_REASONING_OVERHEAD_TOKENS,
+    0,
+  );
+  return Math.max(
+    1,
+    serializedTokens +
+      structuralItems * RESPONSE_ITEM_OVERHEAD_TOKENS +
+      imageCount * IMAGE_OVERHEAD_TOKENS +
+      reasoningTokens,
+  );
+}
+
+function estimateInputTokensOffThread(model, request) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL(import.meta.url), {
+      workerData: { operation: "estimateInputTokens", model, request },
+    });
+    worker.once("message", (message) => {
+      if (message?.error) reject(new Error(message.error));
+      else resolve(message.inputTokens);
+    });
+    worker.once("error", reject);
+    worker.once("exit", (code) => {
+      if (code !== 0)
+        reject(new Error(`tokenizer worker exited with code ${code}`));
+    });
+  });
 }
 
 function countTokensResponse(inputTokens) {
@@ -547,9 +741,6 @@ async function readJsonBody(req, maxBodyBytes = MAX_BODY_BYTES) {
   const text = Buffer.concat(chunks).toString("utf8");
   try {
     const body = text ? JSON.parse(text) : {};
-    if (body !== null && typeof body === "object") {
-      Object.defineProperty(body, RAW_BODY_BYTES, { value: total });
-    }
     return body;
   } catch (error) {
     throw httpError(
@@ -913,7 +1104,9 @@ function assertInboundAuth(req, expected) {
 // provider catalog, no backend call).
 async function handleModels(req, res) {
   const models = await loadModels();
-  const data = models.getModels(DEFAULT_PROVIDER).map((model) => ({
+  const supportedModels = models.getModels(DEFAULT_PROVIDER);
+  assertTokenizerMappings(supportedModels);
+  const data = supportedModels.map((model) => ({
     type: "model",
     id: model.id,
     display_name: model.name,
@@ -938,17 +1131,15 @@ async function assertKnownModel(modelName) {
   if (!model) {
     throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
   }
+  assertTokenizerMappings([model]);
   return { model, modelId, models };
 }
 
 async function handleCountTokens(req, res) {
   const body = await readJsonBody(req);
-  await assertKnownModel(body.model);
-  sendJson(
-    res,
-    200,
-    countTokensResponse(estimateInputTokens(body[RAW_BODY_BYTES] || 0)),
-  );
+  const { model } = await assertKnownModel(body.model);
+  const inputTokens = await estimateInputTokensOffThread(model, body);
+  sendJson(res, 200, countTokensResponse(inputTokens));
 }
 
 // The Anthropic API defaults `stream` to false, and Claude Code's SDK omits
@@ -1103,6 +1294,8 @@ export {
   anthropicToContext,
   anthropicToolsToPi,
   assertInboundAuth,
+  assertTokenizerMappings,
+  canonicalResponsesPayload,
   countTokensResponse,
   errorType,
   estimateInputTokens,
@@ -1144,7 +1337,17 @@ async function main() {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (!isMainThread && workerData?.operation === "estimateInputTokens") {
+  try {
+    parentPort.postMessage({
+      inputTokens: estimateInputTokens(workerData.model, workerData.request),
+    });
+  } catch (error) {
+    parentPort.postMessage({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+} else if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error) => {
     process.stderr.write(
       `${JSON.stringify({

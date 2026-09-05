@@ -44,6 +44,7 @@ class MultiProviderModel(TypedDict):
 
 class MultiProviderDefinition(TypedDict):
     provider: str
+    attributionDomain: str
     baseURL: str
     tokenEnv: str
     availabilityEnv: NotRequired[str]
@@ -1108,6 +1109,7 @@ def _model_costs_patch(model_costs: ModelCostsByModel) -> Patch:
 _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
     {
         "provider": "kimi",
+        "attributionDomain": "kimi.com",
         "baseURL": "https://api.kimi.com/coding",
         "tokenEnv": "CC_KIMI_AUTH_TOKEN",
         "defaultHeaders": {"User-Agent": "KimiCLI/1.5"},
@@ -1148,6 +1150,7 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
     },
     {
         "provider": "zai",
+        "attributionDomain": "z.ai",
         "baseURL": "https://api.z.ai/api/anthropic",
         "tokenEnv": "CC_ZAI_AUTH_TOKEN",
         "defaultHeaders": {},
@@ -1242,6 +1245,7 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
     },
     {
         "provider": "minimax",
+        "attributionDomain": "minimax.io",
         "baseURL": "https://api.minimax.io/anthropic",
         "tokenEnv": "CC_MINIMAX_AUTH_TOKEN",
         "defaultHeaders": {},
@@ -1278,6 +1282,7 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
     },
     {
         "provider": "openai",
+        "attributionDomain": "openai.com",
         "baseURL": "http://127.0.0.1:17780",
         "baseURLEnv": "CC_OPENAI_PROXY_EFFECTIVE_URL",
         "tokenEnv": "CC_OPENAI_PROXY_AUTH_TOKEN",
@@ -1346,6 +1351,7 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
 _MULTI_PROVIDER_DEFINITIONS = json.dumps(
     {
         definition["provider"]: {
+            "attributionDomain": definition["attributionDomain"],
             "baseURL": definition["baseURL"],
             "tokenEnv": definition["tokenEnv"],
             **(
@@ -1374,6 +1380,7 @@ _MULTI_PROVIDER_CATALOG = json.dumps(
         {
             "value": f'{definition["provider"]}:{model["wireModel"]}',
             "label": model["label"],
+            "attributionDomain": definition["attributionDomain"],
             "description": model["description"],
             "contextWindow": model["contextWindow"],
             "maxOutputTokens": model["maxOutputTokens"],
@@ -1398,6 +1405,9 @@ _MULTI_PROVIDER_HELPER = (
     "function _ccMultiProviderCatalogInfo(_ccModel){if(typeof _ccModel!==\"string\")"
     "return null;return _ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value==="
     "_ccModel)??null}"
+    "function _ccMultiProviderAttribution(_ccModel,_ccNativeLabel){let _ccEntry="
+    "_ccMultiProviderCatalogInfo(_ccModel);return{label:_ccEntry?.label??_ccNativeLabel,"
+    'domain:_ccEntry?.attributionDomain??"anthropic.com"}}'
     "function _ccMultiProviderModelProvider(_ccModel){if(typeof _ccModel!==\"string\")"
     'return"anthropic";let _ccSeparator=_ccModel.indexOf(":"),_ccPrefix='
     "_ccSeparator<0?null:_ccModel.slice(0,_ccSeparator).toLowerCase();if(_ccPrefix&&"
@@ -1564,6 +1574,14 @@ _MULTI_PROVIDER_MAX_OUTPUT = re.compile(
     rf'(?P=default)=Math\.min\((?P=default),(?P=upper)\);)'
     rf'(?P<return>return\{{default:(?P=default),upperLimit:(?P=upper)\}}\}})'
 )
+_MULTI_PROVIDER_ATTRIBUTION = re.compile(
+    rf"let (?P<model>{_ID})=(?P<current>{_ID})\(\),(?P<label>{_ID})="
+    rf'(?P<native_label>[^;]{{1,300}}),(?P<pr>{_ID})=`\\uD83E\\uDD16 Generated with '
+    rf'\[Claude Code\]\(\$\{{(?P<url>{_ID})\}}\)`,(?P<commit>{_ID})=`Co-Authored-By: '
+    rf'\$\{{(?P=label)\}} <noreply@anthropic\.com>`,(?P<settings>{_ID})=(?P<load>{_ID})\(\);'
+)
+
+
 _MULTI_PROVIDER_COMPACTION_SOURCE = re.compile(
     rf'function (?P<function>{_ID})\((?P<model>{_ID}),(?P<setting>{_ID})\)\{{let\{{'
     rf'source:(?P<source>{_ID})\}}=(?P<resolver>{_ID})\((?P=model),(?P=setting)\);'
@@ -1727,6 +1745,23 @@ def _resolve_multi_provider_max_output(match: re.Match[str]) -> str:
     )
 
 
+def _replace_multi_provider_attribution(match: re.Match[str]) -> str:
+    model = match.group("model")
+    label = match.group("label")
+    pr = match.group("pr")
+    commit = match.group("commit")
+    settings = match.group("settings")
+    return (
+        f"let {model}={match.group('current')}(),"
+        f"_ccNativeAttributionLabel={match.group('native_label')},"
+        f"{{label:{label},domain:_ccAttributionDomain}}="
+        f"_ccMultiProviderAttribution({model},_ccNativeAttributionLabel),"
+        f"{pr}=`\\uD83E\\uDD16 Generated with [Claude Code](${{{match.group('url')}}})`,"
+        f"{commit}=`Co-Authored-By: ${{{label}}} <noreply@${{_ccAttributionDomain}}>`,"
+        f"{settings}={match.group('load')}();"
+    )
+
+
 def _mark_multi_provider_compaction_source(match: re.Match[str]) -> str:
     source = match.group("source")
     model = match.group("model")
@@ -1757,6 +1792,11 @@ MULTI_PROVIDER_SDK = PatchSet(
             "resolve-provider-max-output",
             _MULTI_PROVIDER_MAX_OUTPUT,
             _resolve_multi_provider_max_output,
+        ),
+        Patch(
+            "select-provider-attribution",
+            _MULTI_PROVIDER_ATTRIBUTION,
+            _replace_multi_provider_attribution,
         ),
         Patch(
             "mark-provider-compaction-source",
@@ -1821,6 +1861,13 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r"https://api\.minimax\.io/anthropic"),
         re.compile(r"KimiCLI/1\.5"),
         re.compile(r"function _ccMultiProviderCatalogInfo\("),
+        re.compile(
+            r"\{label:[\w$]+,domain:_ccAttributionDomain\}="
+            r"_ccMultiProviderAttribution\([\w$]+,_ccNativeAttributionLabel\)"
+        ),
+        re.compile(
+            r"<noreply@\$\{_ccAttributionDomain\}>",
+        ),
         re.compile(r"_ccProviderModel\.contextWindow"),
         re.compile(r"_ccProviderModel\.maxOutputTokens"),
         re.compile(r'==="auto"&&_ccMultiProviderCatalogInfo\('),
