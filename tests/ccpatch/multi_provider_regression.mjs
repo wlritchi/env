@@ -52,7 +52,7 @@ const context = vm.createContext({
   process: fakeProcess,
 });
 const script = new vm.Script(
-  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,toolAllowed:_ccMultiProviderToolAllowed,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog,pickerCatalog:_ccMultiProviderPickerCatalog};`,
+  `${helper};globalThis.__api={route:_ccMultiProviderRoute,modelInfo:_ccMultiProviderModelInfo,catalogInfo:_ccMultiProviderCatalogInfo,modelProvider:_ccMultiProviderModelProvider,inputTokens:_ccMultiProviderInputTokens,toolAllowed:_ccMultiProviderToolAllowed,clients:_ccMultiProviderClients,catalog:_ccMultiProviderCatalog,pickerCatalog:_ccMultiProviderPickerCatalog};`,
   { filename: helperPath },
 );
 script.runInContext(context);
@@ -76,6 +76,37 @@ assert.deepEqual(
 );
 
 assert.equal(api.catalog.length, 14);
+const expectedLimits = new Map([
+  ["kimi:kimi-k3", [1048576, 131072]],
+  ["kimi:kimi-k2.7-code", [262144, 32768]],
+  ["zai:glm-5.3", [1000000, 131072]],
+  ["zai:glm-5.3-flash", [1000000, 131072]],
+  ["zai:glm-5.2", [1000000, 131072]],
+  ["zai:glm-5-turbo", [200000, 131072]],
+  ["zai:glm-4.7", [204800, 131072]],
+  ["zai:glm-4.5-air", [131072, 98304]],
+  ["minimax:MiniMax-M3", [1048576, 512000]],
+  ["minimax:MiniMax-M2.7", [204800, 131072]],
+  ["openai:gpt-6-astra", [272000, 128000]],
+  ["openai:gpt-5.6-sol", [272000, 128000]],
+  ["openai:gpt-5.6-terra", [272000, 128000]],
+  ["openai:gpt-5.6-luna", [272000, 128000]],
+]);
+for (const [model, limits] of expectedLimits) {
+  const info = api.catalogInfo(model);
+  assert.ok(info, model);
+  assert.deepEqual([info.contextWindow, info.maxOutputTokens], limits, model);
+}
+for (const model of [
+  undefined,
+  null,
+  42,
+  "claude-sonnet-4-6",
+  "zai:unknown",
+  "Zai:glm-5.3",
+]) {
+  assert.equal(api.catalogInfo(model), null, String(model));
+}
 assert.deepEqual(
   Array.from(api.pickerCatalog(), ({ value }) => value),
   [],

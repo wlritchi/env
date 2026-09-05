@@ -18,7 +18,6 @@ const DEFAULT_MODEL = "gpt-5.6-sol";
 const DEFAULT_SONNET_MODEL = "gpt-5.6-terra";
 const DEFAULT_HAIKU_MODEL = "gpt-5.6-luna";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
-const MAX_COUNT_TOKENS_BODY_BYTES = 1024 * 1024;
 const RAW_BODY_BYTES = Symbol("rawBodyBytes");
 
 let modelsPromise;
@@ -506,6 +505,8 @@ function anthropicUsage(usage = emptyUsage()) {
   };
 }
 
+// Estimate from the complete JSON request size without a tokenizer dependency.
+// The byte ratio is approximate and can differ from the model's token count.
 function estimateInputTokens(byteLength) {
   return Math.max(1, Math.ceil(byteLength / 4));
 }
@@ -941,7 +942,7 @@ async function assertKnownModel(modelName) {
 }
 
 async function handleCountTokens(req, res) {
-  const body = await readJsonBody(req, MAX_COUNT_TOKENS_BODY_BYTES);
+  const body = await readJsonBody(req);
   await assertKnownModel(body.model);
   sendJson(
     res,

@@ -37,6 +37,8 @@ class MultiProviderModel(TypedDict):
     wireModel: str
     label: str
     description: str
+    contextWindow: int
+    maxOutputTokens: int
     costs: ModelCosts
 
 
@@ -1114,6 +1116,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "kimi-k3",
                 "label": "Kimi K3",
                 "description": "Kimi general-purpose model",
+                "contextWindow": 1_048_576,
+                "maxOutputTokens": 131_072,
                 "costs": {
                     "inputTokens": 3,
                     "outputTokens": 15,
@@ -1130,6 +1134,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "kimi-k2.7-code",
                 "label": "Kimi K2.7 Code",
                 "description": "Kimi coding model",
+                "contextWindow": 262_144,
+                "maxOutputTokens": 32_768,
                 "costs": {
                     "inputTokens": 0.95,
                     "outputTokens": 4,
@@ -1150,6 +1156,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "glm-5.3",
                 "label": "GLM 5.3",
                 "description": "Z.ai flagship model",
+                "contextWindow": 1_000_000,
+                "maxOutputTokens": 131_072,
                 "costs": {
                     "inputTokens": 1.4,
                     "outputTokens": 4.4,
@@ -1162,6 +1170,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "glm-5.3-flash",
                 "label": "GLM 5.3 Flash",
                 "description": "Z.ai fast model",
+                "contextWindow": 1_000_000,
+                "maxOutputTokens": 131_072,
                 # Use the standard rate effective on 2026-09-10, after the launch
                 # promotion ends. Source: https://docs.z.ai/guides/overview/pricing
                 "costs": {
@@ -1176,6 +1186,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "glm-5.2",
                 "label": "GLM 5.2",
                 "description": "Z.ai coding model",
+                "contextWindow": 1_000_000,
+                "maxOutputTokens": 131_072,
                 "costs": {
                     "inputTokens": 1.4,
                     "outputTokens": 4.4,
@@ -1188,6 +1200,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "glm-5-turbo",
                 "label": "GLM 5 Turbo",
                 "description": "Z.ai coding model",
+                "contextWindow": 200_000,
+                "maxOutputTokens": 131_072,
                 "costs": {
                     "inputTokens": 1.2,
                     "outputTokens": 4,
@@ -1200,6 +1214,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "glm-4.7",
                 "label": "GLM 4.7",
                 "description": "Z.ai coding model",
+                "contextWindow": 204_800,
+                "maxOutputTokens": 131_072,
                 "costs": {
                     "inputTokens": 0.6,
                     "outputTokens": 2.2,
@@ -1212,6 +1228,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "glm-4.5-air",
                 "label": "GLM 4.5 Air",
                 "description": "Z.ai coding model",
+                "contextWindow": 131_072,
+                "maxOutputTokens": 98_304,
                 "costs": {
                     "inputTokens": 0.2,
                     "outputTokens": 1.1,
@@ -1232,6 +1250,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "MiniMax-M3",
                 "label": "MiniMax M3",
                 "description": "MiniMax coding model",
+                "contextWindow": 1_048_576,
+                "maxOutputTokens": 512_000,
                 "costs": {
                     "inputTokens": 0.3,
                     "outputTokens": 1.2,
@@ -1244,6 +1264,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "MiniMax-M2.7",
                 "label": "MiniMax M2.7",
                 "description": "MiniMax coding model",
+                "contextWindow": 204_800,
+                "maxOutputTokens": 131_072,
                 "costs": {
                     "inputTokens": 0.3,
                     "outputTokens": 1.2,
@@ -1266,6 +1288,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "gpt-6-astra",
                 "label": "GPT-6 Astra",
                 "description": "OpenAI Codex model",
+                "contextWindow": 272_000,
+                "maxOutputTokens": 128_000,
                 "costs": {
                     "inputTokens": 10,
                     "outputTokens": 50,
@@ -1278,6 +1302,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "gpt-5.6-sol",
                 "label": "GPT-5.6 Sol",
                 "description": "OpenAI Codex model",
+                "contextWindow": 272_000,
+                "maxOutputTokens": 128_000,
                 "costs": {
                     "inputTokens": 4,
                     "outputTokens": 20,
@@ -1290,6 +1316,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "gpt-5.6-terra",
                 "label": "GPT-5.6 Terra",
                 "description": "OpenAI Codex model",
+                "contextWindow": 272_000,
+                "maxOutputTokens": 128_000,
                 "costs": {
                     "inputTokens": 2,
                     "outputTokens": 12,
@@ -1302,6 +1330,8 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
                 "wireModel": "gpt-5.6-luna",
                 "label": "GPT-5.6 Luna",
                 "description": "OpenAI Codex model",
+                "contextWindow": 272_000,
+                "maxOutputTokens": 128_000,
                 "costs": {
                     "inputTokens": 0.2,
                     "outputTokens": 1.2,
@@ -1345,6 +1375,8 @@ _MULTI_PROVIDER_CATALOG = json.dumps(
             "value": f'{definition["provider"]}:{model["wireModel"]}',
             "label": model["label"],
             "description": model["description"],
+            "contextWindow": model["contextWindow"],
+            "maxOutputTokens": model["maxOutputTokens"],
         }
         for definition in _MULTI_PROVIDER_CATALOG_SOURCE
         for model in definition["models"]
@@ -1363,6 +1395,9 @@ _MULTI_PROVIDER_HELPER = (
     '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"],'
     '_ccMultiProviderTraceHeaders=["traceparent","tracestate","baggage"],'
     "_ccMultiProviderClients=new Map;"
+    "function _ccMultiProviderCatalogInfo(_ccModel){if(typeof _ccModel!==\"string\")"
+    "return null;return _ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value==="
+    "_ccModel)??null}"
     "function _ccMultiProviderModelProvider(_ccModel){if(typeof _ccModel!==\"string\")"
     'return"anthropic";let _ccSeparator=_ccModel.indexOf(":"),_ccPrefix='
     "_ccSeparator<0?null:_ccModel.slice(0,_ccSeparator).toLowerCase();if(_ccPrefix&&"
@@ -1512,6 +1547,29 @@ _MULTI_PROVIDER_TOOL_SCHEMA = re.compile(
     rf'allowedAgentTypes:(?P=context)\.allowedAgentTypes,model:(?P<model>{_ID}),'
     rf'deferLoading:(?P<deferred>{_ID})\((?P=tool)\)\}}\)\)\);'
 )
+_MULTI_PROVIDER_CONTEXT_WINDOW = re.compile(
+    rf'(?P<prefix>function (?P<function>{_ID})\((?P<model>{_ID}),(?P<headers>{_ID})\)'
+    rf'\{{let (?P<override>{_ID})=(?P<override_fn>{_ID})\(\);'
+    rf'if\((?P=override)!==void 0\)return (?P=override);)'
+    rf'(?P<native>if\((?P<extended>{_ID})\((?P=model),(?P=headers)\)\)'
+    rf'return (?P<extended_window>{_ID});return (?P<nested>{_ID})'
+    rf'\((?P=model),(?P=headers)\)\}})'
+)
+_MULTI_PROVIDER_MAX_OUTPUT = re.compile(
+    rf'(?P<prefix>function (?P<function>{_ID})\((?P<model>{_ID})\)\{{let '
+    rf'(?P<default>{_ID}),(?P<upper>{_ID}),(?P<normalized>{_ID})='
+    rf'(?P<normalize>{_ID})\((?P=model)\);.{{0,2000}}?let (?P<config>{_ID})='
+    rf'(?P<config_fn>{_ID})\((?P=model)\);if\((?P=config)\?\.max_tokens&&'
+    rf'(?P=config)\.max_tokens>=4096\)(?P=upper)=(?P=config)\.max_tokens,'
+    rf'(?P=default)=Math\.min\((?P=default),(?P=upper)\);)'
+    rf'(?P<return>return\{{default:(?P=default),upperLimit:(?P=upper)\}}\}})'
+)
+_MULTI_PROVIDER_COMPACTION_SOURCE = re.compile(
+    rf'function (?P<function>{_ID})\((?P<model>{_ID}),(?P<setting>{_ID})\)\{{let\{{'
+    rf'source:(?P<source>{_ID})\}}=(?P<resolver>{_ID})\((?P=model),(?P=setting)\);'
+    rf'return (?P=source)==="env"\|\|(?P=source)==="settings"\|\|'
+    rf'(?P=source)==="model-default"\}}'
+)
 
 
 def _replace_multi_provider_sdk_tail(match: re.Match[str]) -> str:
@@ -1646,6 +1704,39 @@ def _filter_multi_provider_tool_schemas(match: re.Match[str]) -> str:
     )
 
 
+def _resolve_multi_provider_context_window(match: re.Match[str]) -> str:
+    model = match.group("model")
+    return (
+        match.group("prefix")
+        + f"let _ccProviderModel=_ccMultiProviderCatalogInfo({model});"
+        + "if(_ccProviderModel)return _ccProviderModel.contextWindow;"
+        + match.group("native")
+    )
+
+
+def _resolve_multi_provider_max_output(match: re.Match[str]) -> str:
+    model = match.group("model")
+    default = match.group("default")
+    upper = match.group("upper")
+    return (
+        match.group("prefix")
+        + f"let _ccProviderModel=_ccMultiProviderCatalogInfo({model});"
+        + f"if(_ccProviderModel){upper}=_ccProviderModel.maxOutputTokens,"
+        + f"{default}=Math.min({default},{upper});"
+        + match.group("return")
+    )
+
+
+def _mark_multi_provider_compaction_source(match: re.Match[str]) -> str:
+    source = match.group("source")
+    model = match.group("model")
+    return (
+        match.group(0)[:-1]
+        + f'||({source}==="auto"&&_ccMultiProviderCatalogInfo({model})!==null)'
+        + "}"
+    )
+
+
 # The router propagates provider compatibility errors. It does not fall back to
 # Anthropic or change the native client's retry policy.
 MULTI_PROVIDER_SDK = PatchSet(
@@ -1656,6 +1747,21 @@ MULTI_PROVIDER_SDK = PatchSet(
             "capture-generic-anthropic-sdk",
             _MULTI_PROVIDER_SDK_TAIL,
             _replace_multi_provider_sdk_tail,
+        ),
+        Patch(
+            "resolve-provider-context-window",
+            _MULTI_PROVIDER_CONTEXT_WINDOW,
+            _resolve_multi_provider_context_window,
+        ),
+        Patch(
+            "resolve-provider-max-output",
+            _MULTI_PROVIDER_MAX_OUTPUT,
+            _resolve_multi_provider_max_output,
+        ),
+        Patch(
+            "mark-provider-compaction-source",
+            _MULTI_PROVIDER_COMPACTION_SOURCE,
+            _mark_multi_provider_compaction_source,
         ),
         Patch(
             "retain-same-provider-thinking",
@@ -1714,7 +1820,10 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r"https://api\.z\.ai/api/anthropic"),
         re.compile(r"https://api\.minimax\.io/anthropic"),
         re.compile(r"KimiCLI/1\.5"),
-        re.compile(r"_ccMultiProviderCatalog\.find"),
+        re.compile(r"function _ccMultiProviderCatalogInfo\("),
+        re.compile(r"_ccProviderModel\.contextWindow"),
+        re.compile(r"_ccProviderModel\.maxOutputTokens"),
+        re.compile(r'==="auto"&&_ccMultiProviderCatalogInfo\('),
         re.compile(r"_ccMultiProviderPickerCatalog\(\)"),
         re.compile(r'CC_OPENAI_AVAILABLE'),
         re.compile(r'CC_OPENAI_PROXY_AUTH_TOKEN'),

@@ -49,6 +49,18 @@ _DEV_CHANNEL_SRC = (
 _MULTI_PROVIDER_SRC = (
     "},COST_HELPER=READY;COSTS={[modelKey(NATIVE.firstParty)]:NATIVE_COST};"
     "let OPT={apiKey:key};return new SDK(OPT)}async function NEXT(){}"
+    "function TOP_WINDOW(MODEL,HEADERS){let OVERRIDE=DEBUG_WINDOW();if(OVERRIDE!==void 0)"
+    "return OVERRIDE;if(EXTENDED(MODEL,HEADERS))return EXTENDED_WINDOW;return "
+    "WINDOW(MODEL,HEADERS)}"
+    "function WINDOW(MODEL,HEADERS){if(NATIVE1M(MODEL))return 1e6;if(HEADERS?.includes("
+    "BETA.header)&&ELIGIBLE(MODEL))return 1e6;if(ENTITLED(MODEL))return 1e6;let CUSTOM="
+    "CUSTOM_WINDOW(MODEL);if(CUSTOM!==null)return CUSTOM;return FALLBACK}"
+    "function OUTPUT(MODEL){let DEFAULT,UPPER,NORMALIZED=NORMALIZE_OUTPUT(MODEL);if("
+    'NORMALIZED==="native")DEFAULT=32000,UPPER=128000;else DEFAULT=32000,UPPER=128000;'
+    "let CONFIG=MODEL_CONFIG(MODEL);if(CONFIG?.max_tokens&&CONFIG.max_tokens>=4096)"
+    "UPPER=CONFIG.max_tokens,DEFAULT=Math.min(DEFAULT,UPPER);"
+    "return{default:DEFAULT,upperLimit:UPPER}}"
+    'function EXPLICIT(MODEL,SETTING){let{source:SOURCE}=RESOLVE(MODEL,SETTING);return SOURCE==="env"||SOURCE==="settings"||SOURCE==="model-default"}'
     "function FILTER(MSGS,MODEL){return STRIP(MSGS,(MESSAGE)=>"
     "MESSAGE.message.model!==SYNTHETIC&&MESSAGE.message.model!==MODEL)}"
     "let R1=await N1.beta.messages.create({...REQ1,model:KA(REQ1.model)},"
@@ -595,6 +607,24 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
 
     assert "const _ccMultiProviderSDK=()=>SDK" in patched
     assert patched.count("_ccMultiProviderRoute(") == 5
+    assert (
+        "if(OVERRIDE!==void 0)return OVERRIDE;let _ccProviderModel="
+        "_ccMultiProviderCatalogInfo(MODEL);if(_ccProviderModel)return "
+        "_ccProviderModel.contextWindow;if(EXTENDED(MODEL,HEADERS))" in patched
+    )
+    assert "if(NATIVE1M(MODEL))return 1e6" in patched
+    assert "if(HEADERS?.includes(BETA.header)&&ELIGIBLE(MODEL))return 1e6" in patched
+    assert "if(ENTITLED(MODEL))return 1e6" in patched
+    assert (
+        "let _ccProviderModel=_ccMultiProviderCatalogInfo(MODEL);if(_ccProviderModel)"
+        "UPPER=_ccProviderModel.maxOutputTokens,DEFAULT=Math.min(DEFAULT,UPPER);"
+        "return{default:DEFAULT,upperLimit:UPPER}" in patched
+    )
+    assert "DEFAULT=UPPER=_ccProviderModel.maxOutputTokens" not in patched
+    assert (
+        'SOURCE==="model-default"||(SOURCE==="auto"&&'
+        "_ccMultiProviderCatalogInfo(MODEL)!==null)" in patched
+    )
     assert "_ccMultiProviderRoute(N1,_ccRequest,_ccOptions)" in patched
     assert "_ccMultiProviderRoute(N2,_ccRequest,_ccOptions)" in patched
     assert "_ccMultiProviderRoute(N3,_ccRequest,_ccOptions)" in patched
@@ -654,6 +684,56 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
     assert 'code:"EPROVIDERCREDENTIAL"' in patched
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
+
+
+def test_multi_provider_sdk_runtime_context_and_output_precedence() -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("no node/bun to evaluate provider limit resolvers")
+    patched = MULTI_PROVIDER_SDK.apply(_MULTI_PROVIDER_SRC)
+    context_start = patched.index("function TOP_WINDOW(")
+    context_end = patched.index("function OUTPUT(", context_start)
+    output_start = context_end
+    output_end = patched.index("function EXPLICIT(", output_start)
+    resolvers = patched[context_start:context_end] + patched[output_start:output_end]
+    script = (
+        "let debugWindow,anthropicGateCalls=0,CONFIG;"
+        "const DEBUG_WINDOW=()=>debugWindow,EXTENDED=()=>{anthropicGateCalls++;return true},"
+        "EXTENDED_WINDOW=999999,NATIVE1M=()=>{throw Error('native 1m gate reached')},"
+        "ELIGIBLE=()=>true,ENTITLED=()=>true,BETA={header:'beta'},"
+        "CUSTOM_WINDOW=()=>null,FALLBACK=200000,NORMALIZE_OUTPUT=()=>\"other\","
+        "MODEL_CONFIG=()=>CONFIG;"
+        "const _ccMultiProviderCatalogInfo=(model)=>model===\"external\"?"
+        "{contextWindow:262144,maxOutputTokens:32768}:null;"
+        + resolvers
+        + "debugWindow=123456;const debug=TOP_WINDOW('external',[]);"
+        + "debugWindow=undefined;const external=TOP_WINDOW('external',[]);"
+        + "CONFIG=undefined;const ordinary=OUTPUT('external');"
+        + "CONFIG={max_tokens:131072};const configured=OUTPUT('external');"
+        + "console.log(JSON.stringify({debug,external,anthropicGateCalls,ordinary,configured}));"
+    )
+
+    proc = subprocess.run(  # noqa: S603 - runtime is which()-resolved node/bun
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == (
+        '{"debug":123456,"external":262144,"anthropicGateCalls":0,'
+        '"ordinary":{"default":32000,"upperLimit":32768},'
+        '"configured":{"default":32000,"upperLimit":32768}}'
+    )
+
+
+def test_multi_provider_sdk_context_anchors_fail_loudly() -> None:
+    for anchor in (
+        "if(OVERRIDE!==void 0)return OVERRIDE;if(EXTENDED(MODEL,HEADERS))",
+        "if(CONFIG?.max_tokens&&CONFIG.max_tokens>=4096)UPPER=CONFIG.max_tokens,DEFAULT=Math.min(DEFAULT,UPPER);",
+        'function EXPLICIT(MODEL,SETTING){let{source:SOURCE}=RESOLVE(MODEL,SETTING);',
+    ):
+        source = _MULTI_PROVIDER_SRC.replace(anchor, "changed", 1)
+        with pytest.raises(PatchError, match="multi-provider-sdk"):
+            MULTI_PROVIDER_SDK.apply(source)
 
 
 def test_multi_provider_sdk_required_no_op_fails() -> None:

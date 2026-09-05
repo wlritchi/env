@@ -60,6 +60,37 @@ function get(port, path, host, headers = {}) {
   });
 }
 
+function post(port, path, host, headers, body) {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host: "127.0.0.1",
+        port,
+        path,
+        method: "POST",
+        headers: {
+          host,
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+          ...headers,
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
 test("extractInboundBearer reads Authorization then x-api-key, trims, defaults empty", () => {
   assert.equal(
     extractInboundBearer(req({ authorization: "Bearer  secret " })),
@@ -346,6 +377,22 @@ test("server creates a bearer before listen and gates all routes except health",
   assert.equal(
     typeof JSON.parse(capabilities.body).openaiAuthUsable,
     "boolean",
+  );
+  const longCountBody = JSON.stringify({
+    model: "gpt-5.6-sol",
+    messages: [{ role: "user", content: "x".repeat(1024 * 1024) }],
+  });
+  const countTokens = await post(
+    port,
+    "/v1/messages/count_tokens",
+    "localhost",
+    { authorization: `Bearer ${token}` },
+    longCountBody,
+  );
+  assert.equal(countTokens.status, 200, countTokens.body);
+  assert.equal(
+    JSON.parse(countTokens.body).input_tokens,
+    Math.ceil(Buffer.byteLength(longCountBody) / 4),
   );
   assert.equal(child.exitCode, null);
   assert.equal(output.includes(malformedHost), false);

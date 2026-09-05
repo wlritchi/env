@@ -264,6 +264,33 @@ def test_real_source_routes_multi_provider_sdk(
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
     assert "function _ccMultiProviderModelProvider(" in patched
+    assert "function _ccMultiProviderCatalogInfo(" in patched
+    assert (
+        "if(_?.max_tokens&&_.max_tokens>=4096)q=_.max_tokens,$=Math.min($,q)" in patched
+    )
+    context_resolver = patched[
+        patched.index("function K2(") : patched.index("function Hq7(")
+    ]
+    assert context_resolver.index("if(q!==void 0)return q") < context_resolver.index(
+        "_ccProviderModel.contextWindow"
+    )
+    assert context_resolver.index(
+        "_ccProviderModel.contextWindow"
+    ) < context_resolver.index("if(XT6(H,$))return GEH")
+    assert context_resolver.index("if(XT6(H,$))return GEH") < context_resolver.index(
+        "return $q7(H,$)"
+    )
+    output_resolver = patched[
+        patched.index("function AXH(") : patched.index("function qq7(")
+    ]
+    assert "q=_ccProviderModel.maxOutputTokens,$=Math.min($,q)" in output_resolver
+    assert "$=q=_ccProviderModel.maxOutputTokens" not in output_resolver
+    assert "if(K===\"claude-fable-5\"" in output_resolver
+    assert "if(_?.max_tokens&&_.max_tokens>=4096)" in output_resolver
+    compact_source = patched[
+        patched.index("function i9$(") : patched.index("function a0f(")
+    ]
+    assert 'q==="auto"&&_ccMultiProviderCatalogInfo(H)!==null' in compact_source
     assert (
         patched.count("_ccMultiProviderModelProvider(q.message.model)!==_ccProvider")
         == 1
