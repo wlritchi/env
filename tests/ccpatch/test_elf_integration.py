@@ -130,14 +130,20 @@ def test_semantic_function_discovery_accepts_dollar_names(name: str) -> None:
 def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
-    if 'VERSION:"2.1.174"' not in source:
+    if not re.search(r'VERSION:"2\.1\.(?:174|175)"', source):
         if explicit:
-            pytest.fail("CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174")
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174")
+            pytest.fail(
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174 or 2.1.175"
+            )
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174 or 2.1.175")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
-            pytest.fail("CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174")
-        pytest.skip("installed Claude Code 2.1.174 binary is already patched")
+            pytest.fail(
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174 or 2.1.175"
+            )
+        pytest.skip(
+            "installed Claude Code 2.1.174 or 2.1.175 binary is already patched"
+        )
     return source, BACKGROUND_PROVIDER_ENV.apply(source)
 
 
@@ -149,9 +155,12 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     if not path.is_file():
         pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
     source = _entry_source(path.read_bytes())
-    if 'VERSION:"2.1.174"' not in source or "providerEnvVersion:3" not in source:
+    if (
+        not re.search(r'VERSION:"2\.1\.(?:174|175)"', source)
+        or "providerEnvVersion:3" not in source
+    ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174 or 2.1.175"
         )
 
     try:
@@ -458,7 +467,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
     native_resolver, resolver = _same_function(
         pristine,
         patched,
-        rf'function {_ID}\({_ID},{_ID},{_ID},{_ID}\)\{{let {_ID}=\(\)=>{_ID}\(\{{permissionMode:',
+        rf'function {_ID}\({_ID},{_ID},{_ID},{_ID}(?:,{_ID})?\)\{{let {_ID}=\(\)=>{_ID}\(\{{permissionMode:',
     )
     resume_name = _match(rf"function ({_ID})\(", native_resume)[1]
     resolver_name = _match(rf"function ({_ID})\(", native_resolver)[1]
@@ -479,7 +488,13 @@ def test_provider_resume_and_agent_catalogue_runtime(
     native_models = stub(rf"new Set\(({_ID})\.map", '["claude-opus-4-8"]')
     stub(rf"new Set\({_ID}\.map\(({_ID})\)", "(m)=>m")
     stub(rf"\.message\.model===({_ID})\)continue", '"synthetic"')
-    stub(rf'"unknown_family":!({_ID})\(', "()=>allowed")
+    allowlist = _match(
+        rf'"unknown_family":!(?:({_ID})\({_ID}\)&&!)?({_ID})\({_ID}\)\?"not_allowed"',
+        native_resume,
+    )
+    if allowlist[1]:
+        stubs[allowlist[1]] = "()=>false"
+    stubs[allowlist[2]] = "()=>allowed"
     stub(rf'"not_allowed":({_ID})\(', "()=>false")
     stub(rf"\.message\.model,{_ID}=({_ID})\(\)", '()=>"opus"')
     stub(rf";if\(({_ID})\({_ID}\)&&!", "()=>false")
@@ -519,6 +534,11 @@ def test_provider_resume_and_agent_catalogue_runtime(
         pristine, pristine.index("model options: dropping duplicate row")
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
+    if 'VERSION:"2.1.175"' in pristine:
+        denied = _match(
+            rf'if\(!({_ID})\({_ID}\)\)return {_ID}\({_ID}\);', native_resolver
+        )
+        stubs[denied[1]] = "()=>allowed"
     bindings = (
         ";".join(
             f"globalThis[{json.dumps(name)}]={value}" for name, value in stubs.items()
@@ -528,6 +548,11 @@ def test_provider_resume_and_agent_catalogue_runtime(
     script = (
         'const assert=require("node:assert/strict");'
         + catalogue
+        + _function_at(
+            patched,
+            patched.index("function _ccMultiProviderCanonicalModel(")
+            + len("function _ccMultiProviderCanonicalModel("),
+        )[1]
         + "let allowed=true;"
         + bindings
         + resume

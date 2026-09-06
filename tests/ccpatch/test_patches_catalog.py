@@ -233,7 +233,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         (None, False),
         ((2, 1, 173), False),
         ((2, 1, 174), True),
-        ((2, 1, 175), False),
+        ((2, 1, 175), True),
+        ((2, 1, 176), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -861,6 +862,42 @@ def test_multi_provider_resume_requires_allowlist_anchor() -> None:
     )
     with pytest.raises(PatchError, match="multi-provider-sdk"):
         MULTI_PROVIDER_SDK.apply(source)
+
+
+@pytest.mark.parametrize("exempt", [False, True])
+@pytest.mark.parametrize("allowed", [False, True])
+def test_multi_provider_resume_preserves_default_exemption(
+    exempt: bool, allowed: bool
+) -> None:
+    runtime = shutil.which("node")
+    if runtime is None:
+        pytest.skip("node is not installed")
+    source = _MULTI_PROVIDER_SRC.replace(
+        '!ALLOW(f)?"not_allowed"', '!EXEMPT(f)&&!ALLOW(f)?"not_allowed"'
+    ).replace(
+        "process.env.ANTHROPIC_DEFAULT_FABLE_MODEL||MODELS().fable5;",
+        "function FABLE(CATALOG=MODELS()){let MODEL=CATALOG.fable5;return MODEL}",
+    )
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    resume = patched[
+        patched.index("let f=_.message.model;") : patched.index("model:k.enum")
+    ]
+    script = (
+        'const _ccMultiProviderCatalog=[{value:"openai:gpt-6-astra"}];'
+        'const _ccMultiProviderCanonicalModel=(model)=>model;'
+        f"const EXEMPT=()=>{json.dumps(exempt)},ALLOW=()=>{json.dumps(allowed)};"
+        f"function resume(_){{{resume}}}"
+        'console.log(JSON.stringify(resume({message:{model:"gpt-6-astra"}})));'
+    )
+    result = subprocess.run(  # noqa: S603 - local runtime regression
+        [runtime, "-e", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    restored = json.loads(result.stdout)
+    assert restored["model"] == "openai:gpt-6-astra"
+    assert restored["kind"] == ("ok" if exempt or allowed else "declined")
+    if not exempt and not allowed:
+        assert restored["reason"] == "not_allowed"
 
 
 def test_multi_provider_sdk_required_no_op_fails() -> None:

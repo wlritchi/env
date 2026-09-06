@@ -1115,11 +1115,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 175),
+    max_version=(2, 1, 176),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174 only) ----------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.175) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1555,6 +1555,7 @@ _MULTI_PROVIDER_RESUME = re.compile(
     rf'(?P<compatible>{_ID})\((?P=setting),(?P<normalize>{_ID})\((?P=model)\)\)\)'
     r'return\{kind:"mode_dependent_setting"\};'
     rf'(?=let {_ID}=!\([^;]{{1,200}}\)\?"unknown_family":!'
+    rf'(?:(?P<exempt>{_ID})\((?P=model)\)&&!)?'
     rf'(?P<allowed>{_ID})\((?P=model)\)\?"not_allowed")'
 )
 _MULTI_PROVIDER_AGENT_MODEL = re.compile(
@@ -1565,6 +1566,9 @@ _MULTI_PROVIDER_AGENT_MODEL = re.compile(
 
 def _restore_multi_provider_model(match: re.Match[str]) -> str:
     model = match.group("model")
+    allowed = f"{match.group('allowed')}(_ccRestored)"
+    if exempt := match.group("exempt"):
+        allowed = f"{exempt}(_ccRestored)||{allowed}"
     # Only restore bare wire IDs when the catalogue has one matching provider.
     return (
         f"let {model}={match.group('message')}.message.model;"
@@ -1572,7 +1576,7 @@ def _restore_multi_provider_model(match: re.Match[str]) -> str:
         f"_ccEntry.value===_ccMultiProviderCanonicalModel({model})||_ccEntry.value.slice("
         f'_ccEntry.value.indexOf(":")+1)==={model});'
         "if(_ccCandidates.length===1){let _ccRestored=_ccCandidates[0].value;"
-        f'return {match.group("allowed")}(_ccRestored)?{{kind:"ok",model:_ccRestored}}:'
+        f'return {allowed}?{{kind:"ok",model:_ccRestored}}:'
         '{kind:"declined",model:_ccRestored,reason:"not_allowed"}}'
         f"let {match.group('setting')}={match.group('current')}();if("
         f"{match.group('dependent')}({match.group('setting')})&&!"
@@ -1592,7 +1596,10 @@ _MULTI_PROVIDER_AGENT_IDENTIFIERS = (
         rf'\.map\(\((?P<entry>{_ID})\)=>(?P=entry)\.firstParty\)'
     ),
     re.compile(
-        rf'process\.env\.ANTHROPIC_DEFAULT_FABLE_MODEL\|\|(?P<models>{_ID})\(\)\.fable5'
+        rf'(?:process\.env\.ANTHROPIC_DEFAULT_FABLE_MODEL\|\||'
+        rf'function {_ID}\(({_ID})=)'
+        rf'(?P<models>{_ID})\(\)'
+        rf'(?(1)\)\{{let {_ID}=\1\.fable5|\.fable5)'
     ),
     re.compile(
         rf'function (?P<picker>{_ID})\({_ID}=!1\)\{{let {_ID}=new Set,'
@@ -2019,7 +2026,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 175),
+    max_version=(2, 1, 176),
     requires_version=True,
 )
 
