@@ -308,8 +308,8 @@ def test_real_source_routes_multi_provider_sdk(
     assert patched.count("let _ccRequest=") >= 2
     assert "_ccMultiProviderCatalog.find" in patched
     for model in (
-        "kimi:kimi-k3",
-        "kimi:kimi-k2.7-code",
+        "moonshot:kimi-k3",
+        "moonshot:kimi-k2.7-code",
         "zai:glm-5.3",
         "zai:glm-5.3-flash",
         "zai:glm-5.2",
@@ -346,7 +346,7 @@ def test_real_source_routes_multi_provider_sdk(
     assert "function _ccMultiProviderModelProvider(" in patched
     assert "function _ccMultiProviderCatalogInfo(" in patched
     assert "function _ccMultiProviderAttribution(" in patched
-    assert '"attributionDomain":"kimi.com"' in patched
+    assert '"attributionDomain":"moonshot.ai"' in patched
     assert '"attributionDomain":"z.ai"' in patched
     assert '"attributionDomain":"minimax.io"' in patched
     assert '"attributionDomain":"openai.com"' in patched
@@ -437,7 +437,7 @@ def test_real_source_routes_multi_provider_sdk(
         in patched
     )
     assert '_ccTool.isMcp===!0||_ccTool.name!=="WebSearch"' in patched
-    assert '"kimi:kimi-k3":{inputTokens:3,outputTokens:15' in patched
+    assert '"moonshot:kimi-k3":{inputTokens:3,outputTokens:15' in patched
     assert '"zai:glm-5.3-flash":{inputTokens:0.15,outputTokens:0.5' in patched
     assert '"minimax:minimax-m3":{inputTokens:0.3,outputTokens:1.2' in patched
     assert '"kimi-k3":{inputTokens:' not in patched

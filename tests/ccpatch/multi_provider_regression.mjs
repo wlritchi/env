@@ -96,6 +96,19 @@ for (const model of ["glm-5.3", "zai:glm-5.3"]) {
   });
 }
 assert.deepEqual(observed.allowed, Array(4).fill("zai:glm-5.3"));
+for (const model of ["kimi:kimi-k3", "moonshot:kimi-k3", "kimi-k3"]) {
+  allowRestored = true;
+  assert.deepEqual(normalize(portableContext.restore({ message: { model } })), {
+    kind: "ok",
+    model: "moonshot:kimi-k3",
+  });
+  allowRestored = false;
+  assert.deepEqual(normalize(portableContext.restore({ message: { model } })), {
+    kind: "declined",
+    model: "moonshot:kimi-k3",
+    reason: "not_allowed",
+  });
+}
 assert.equal(portableContext.restore({ message: { model: "claude-native" } }).kind, "native");
 const schemaValues = Array.from(portableContext.schema.values);
 for (const model of [
@@ -106,6 +119,8 @@ for (const model of [
   "claude-native",
   "claude-configured",
   "gateway:native",
+  "moonshot:kimi-k3",
+  "kimi:kimi-k3",
   "zai:glm-5.3",
   "openai:gpt-6-astra",
 ]) {
@@ -183,10 +198,20 @@ assert.deepEqual(
 );
 
 assert.equal(api.catalog.length, 14);
+assert.ok(api.catalog.every(({ value }) => !value.startsWith("kimi:")));
+assert.equal(api.catalogInfo("kimi:kimi-k3"), api.catalogInfo("moonshot:kimi-k3"));
+assert.equal(api.catalogInfo("moonshot:kimi-k3").description, "Moonshot general-purpose model");
+assert.equal(api.modelInfo("kimi:kimi-k3").provider, "moonshot");
+assert.equal(api.modelProvider("kimi:kimi-k3"), "moonshot");
+assert.deepEqual(normalize(api.attribution("kimi:kimi-k3", "Claude")), {
+  label: "Kimi K3",
+  domain: "moonshot.ai",
+});
+assert.equal(api.toolAllowed("kimi:kimi-k3", { name: "WebSearch" }), false);
 for (const [model, label, domain] of [
   ["openai:gpt-5.6-sol", "GPT-5.6 Sol", "openai.com"],
   ["openai:gpt-6-astra", "GPT-6 Astra", "openai.com"],
-  ["kimi:kimi-k3", "Kimi K3", "kimi.com"],
+  ["moonshot:kimi-k3", "Kimi K3", "moonshot.ai"],
   ["zai:glm-5.3", "GLM 5.3", "z.ai"],
   ["minimax:MiniMax-M3", "MiniMax M3", "minimax.io"],
 ]) {
@@ -200,8 +225,8 @@ for (const model of ["claude-sonnet-4-6", "future-native-model", "gateway:model"
   );
 }
 const expectedLimits = new Map([
-  ["kimi:kimi-k3", [1048576, 131072]],
-  ["kimi:kimi-k2.7-code", [262144, 32768]],
+  ["moonshot:kimi-k3", [1048576, 131072]],
+  ["moonshot:kimi-k2.7-code", [262144, 32768]],
   ["zai:glm-5.3", [1000000, 131072]],
   ["zai:glm-5.3-flash", [1000000, 131072]],
   ["zai:glm-5.2", [1000000, 131072]],
@@ -254,7 +279,7 @@ delete credentials.CC_MINIMAX_AUTH_TOKEN;
 delete credentials.CC_OPENAI_PROXY_AUTH_TOKEN;
 assert.deepEqual(
   Array.from(api.pickerCatalog(), ({ value }) => value),
-  ["kimi:kimi-k3", "kimi:kimi-k2.7-code"],
+  ["moonshot:kimi-k3", "moonshot:kimi-k2.7-code"],
 );
 delete credentials.CC_KIMI_AUTH_TOKEN;
 delete credentials.CC_OPENAI_AVAILABLE;
@@ -288,12 +313,15 @@ assert.equal(nativeRoute[2], nativeOptions);
 assert.deepEqual(reads, []);
 
 credentials.CC_KIMI_AUTH_TOKEN = " first-token ";
-assert.throws(() => api.route(nativeClient, { model: "kimi:kimi-k2.7-code" }), /not a constructor/);
+assert.throws(
+  () => api.route(nativeClient, { model: "moonshot:kimi-k2.7-code" }),
+  /not a constructor/,
+);
 assert.equal(constructed.length, 0);
 SDK = FakeSDK;
 
 const request = Object.freeze({
-  model: "kimi:kimi-k2.7-code",
+  model: "moonshot:kimi-k2.7-code",
   messages: Object.freeze([]),
   fallback_credit_token: "external-credit",
 });
@@ -335,12 +363,18 @@ assert.equal(
   JSON.stringify({ "User-Agent": "KimiCLI/1.5" }),
 );
 assert.equal(firstClient.options.authToken, "first-token");
+assert.equal(firstClient.options.baseURL, "https://api.kimi.com/coding");
+const [legacyClient, legacyOutbound] = api.route(nativeClient, { model: "kimi:kimi-k2.7-code" });
+assert.equal(legacyClient, firstClient);
+assert.equal(legacyOutbound.model, "kimi-k2.7-code");
 
 const [, repeatedOutbound] = api.route(nativeClient, request, options);
 assert.notEqual(repeatedOutbound, firstOutbound);
 assert.equal(constructed.length, 1);
 await Promise.all(
-  Array.from({ length: 20 }, async () => api.route(nativeClient, { model: "kimi:kimi-k2.7-code" })),
+  Array.from({ length: 20 }, async () =>
+    api.route(nativeClient, { model: "moonshot:kimi-k2.7-code" }),
+  ),
 );
 assert.equal(constructed.length, 1);
 
@@ -350,7 +384,7 @@ assert.notEqual(secondClient, firstClient);
 assert.equal(secondClient.options.authToken, "second-token");
 assert.equal(constructed.length, 2);
 assert.equal(api.clients.size, 1);
-assert.equal(api.clients.get("kimi").client, secondClient);
+assert.equal(api.clients.get("moonshot").client, secondClient);
 
 const changedFetchOptions = Object.freeze({
   dispatcher: "rotated-proxy-and-ca",
@@ -384,7 +418,7 @@ assert.equal(missingError.code, "EPROVIDERCREDENTIAL");
 assert.match(missingError.message, /CC_KIMI_AUTH_TOKEN/);
 assert.ok(!missingError.message.includes("first-token"));
 assert.ok(!missingError.message.includes("second-token"));
-assert.equal(api.clients.has("kimi"), false);
+assert.equal(api.clients.has("moonshot"), false);
 assert.equal(constructed.length, 4);
 
 for (const model of [
@@ -397,7 +431,11 @@ for (const model of [
   assert.equal(api.route(nativeClient, unknown)[1], unknown);
 }
 for (const model of [
+  "moonshot:",
   "kimi:",
+  "kimi:unknown",
+  "Moonshot:kimi-k2.7-code",
+  "MOONSHOT:kimi-k2.7-code",
   "zai:",
   "minimax:",
   "openai:",
@@ -428,8 +466,8 @@ for (const model of [
   assert.equal(api.modelProvider(model), "anthropic", model);
 }
 for (const [model, provider] of [
-  ["kimi:kimi-k2.7-code", "kimi"],
-  ["kimi-k2.7-code", "kimi"],
+  ["moonshot:kimi-k2.7-code", "moonshot"],
+  ["kimi-k2.7-code", "moonshot"],
   ["zai:glm-5.2", "zai"],
   ["glm-5.2", "zai"],
   ["zai:glm-5-turbo", "zai"],

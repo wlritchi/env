@@ -1147,8 +1147,8 @@ def _model_costs_patch(model_costs: ModelCostsByModel) -> Patch:
 
 _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
     {
-        "provider": "kimi",
-        "attributionDomain": "kimi.com",
+        "provider": "moonshot",
+        "attributionDomain": "moonshot.ai",
         "baseURL": "https://api.kimi.com/coding",
         "tokenEnv": "CC_KIMI_AUTH_TOKEN",
         "defaultHeaders": {"User-Agent": "KimiCLI/1.5"},
@@ -1156,7 +1156,7 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
             {
                 "wireModel": "kimi-k3",
                 "label": "Kimi K3",
-                "description": "Kimi general-purpose model",
+                "description": "Moonshot general-purpose model",
                 "contextWindow": 1_048_576,
                 "maxOutputTokens": 131_072,
                 "costs": {
@@ -1174,7 +1174,7 @@ _MULTI_PROVIDER_CATALOG_SOURCE: tuple[MultiProviderDefinition, ...] = (
             {
                 "wireModel": "kimi-k2.7-code",
                 "label": "Kimi K2.7 Code",
-                "description": "Kimi coding model",
+                "description": "Moonshot coding model",
                 "contextWindow": 262_144,
                 "maxOutputTokens": 32_768,
                 "costs": {
@@ -1434,6 +1434,14 @@ _MULTI_PROVIDER_MODEL_COSTS: ModelCostsByModel = {
     for definition in _MULTI_PROVIDER_CATALOG_SOURCE
     for model in definition["models"]
 }
+# Keep saved qualified IDs billable without adding duplicate picker entries.
+_MULTI_PROVIDER_MODEL_COSTS.update(
+    {
+        model.replace("moonshot:", "kimi:", 1): costs
+        for model, costs in _MULTI_PROVIDER_MODEL_COSTS.items()
+        if model.startswith("moonshot:")
+    }
+)
 _MULTI_PROVIDER_HELPER = (
     f"const _ccMultiProviderDefinitions={_MULTI_PROVIDER_DEFINITIONS};"
     f"const _ccMultiProviderCatalog={_MULTI_PROVIDER_CATALOG};"
@@ -1441,14 +1449,18 @@ _MULTI_PROVIDER_HELPER = (
     '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"],'
     '_ccMultiProviderTraceHeaders=["traceparent","tracestate","baggage"],'
     "_ccMultiProviderClients=new Map;"
+    'function _ccMultiProviderCanonicalModel(_ccModel){return typeof _ccModel==="string"'
+    '&&_ccModel.startsWith("kimi:")?"moonshot:"+_ccModel.slice(5):_ccModel}'
     "function _ccMultiProviderCatalogInfo(_ccModel){if(typeof _ccModel!==\"string\")"
-    "return null;return _ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value==="
+    "return null;_ccModel=_ccMultiProviderCanonicalModel(_ccModel);"
+    "return _ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value==="
     "_ccModel)??null}"
     "function _ccMultiProviderAttribution(_ccModel,_ccNativeLabel){let _ccEntry="
     "_ccMultiProviderCatalogInfo(_ccModel);return{label:_ccEntry?.label??_ccNativeLabel,"
     'domain:_ccEntry?.attributionDomain??"anthropic.com"}}'
     "function _ccMultiProviderModelProvider(_ccModel){if(typeof _ccModel!==\"string\")"
-    'return"anthropic";let _ccSeparator=_ccModel.indexOf(":"),_ccPrefix='
+    'return"anthropic";_ccModel=_ccMultiProviderCanonicalModel(_ccModel.toLowerCase());'
+    'let _ccSeparator=_ccModel.indexOf(":"),_ccPrefix='
     "_ccSeparator<0?null:_ccModel.slice(0,_ccSeparator).toLowerCase();if(_ccPrefix&&"
     "_ccMultiProviderPrefixes.includes(_ccPrefix))return _ccPrefix;let _ccKnown="
     "_ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value.slice("
@@ -1457,7 +1469,8 @@ _MULTI_PROVIDER_HELPER = (
     "function _ccMultiProviderModelError(_ccMessage){return Object.assign(Error("
     '_ccMessage),{code:"EPROVIDERMODEL"})}'
     "function _ccMultiProviderModelInfo(_ccModel){if(typeof _ccModel!==\"string\")"
-    "return null;let _ccSeparator=_ccModel.indexOf(\":\"),_ccProvider="
+    "return null;_ccModel=_ccMultiProviderCanonicalModel(_ccModel);"
+    "let _ccSeparator=_ccModel.indexOf(\":\"),_ccProvider="
     "_ccSeparator<0?null:_ccModel.slice(0,_ccSeparator),_ccWireModel="
     "_ccSeparator<0?_ccModel:_ccModel.slice(_ccSeparator+1),_ccKnownWire="
     "_ccMultiProviderCatalog.find((_ccEntry)=>_ccEntry.value.slice("
@@ -1556,7 +1569,7 @@ def _restore_multi_provider_model(match: re.Match[str]) -> str:
     return (
         f"let {model}={match.group('message')}.message.model;"
         f"let _ccCandidates=_ccMultiProviderCatalog.filter((_ccEntry)=>"
-        f"_ccEntry.value==={model}||_ccEntry.value.slice("
+        f"_ccEntry.value===_ccMultiProviderCanonicalModel({model})||_ccEntry.value.slice("
         f'_ccEntry.value.indexOf(":")+1)==={model});'
         "if(_ccCandidates.length===1){let _ccRestored=_ccCandidates[0].value;"
         f'return {match.group("allowed")}(_ccRestored)?{{kind:"ok",model:_ccRestored}}:'
@@ -1598,7 +1611,9 @@ def _expand_multi_provider_agent_model(
         f"...{bindings['first_party']},...Object.values({bindings['models']}()),"
         f"...{bindings['picker']}().filter((_ccEntry)=>"
         'typeof _ccEntry.value==="string").map((_ccEntry)=>_ccEntry.value),'
-        "..._ccMultiProviderCatalog.map((_ccEntry)=>_ccEntry.value)])])"
+        "..._ccMultiProviderCatalog.flatMap((_ccEntry)=>"
+        '_ccEntry.value.startsWith("moonshot:")?[_ccEntry.value,'
+        '_ccEntry.value.replace("moonshot:","kimi:")]:[_ccEntry.value])])])'
     )
 
 
@@ -1994,7 +2009,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r"_ccMultiProviderPickerCatalog\(\)"),
         re.compile(r'CC_OPENAI_AVAILABLE'),
         re.compile(r'CC_OPENAI_PROXY_AUTH_TOKEN'),
-        re.compile(r'"kimi:kimi-k3":\{inputTokens:3,outputTokens:15'),
+        re.compile(r'"moonshot:kimi-k3":\{inputTokens:3,outputTokens:15'),
         re.compile(r'"zai:glm-5\.3-flash":\{inputTokens:0\.15,outputTokens:0\.5'),
         re.compile(r'"minimax:minimax-m3":\{inputTokens:0\.3,outputTokens:1\.2'),
         re.compile(r'function _ccMultiProviderToolAllowed\('),

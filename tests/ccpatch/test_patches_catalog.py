@@ -683,7 +683,7 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert '"availabilityEnv":"CC_OPENAI_AVAILABLE"' in patched
     assert "cc-openai-local" not in patched
     for provider, domain in (
-        ("kimi", "kimi.com"),
+        ("moonshot", "moonshot.ai"),
         ("zai", "z.ai"),
         ("minimax", "minimax.io"),
         ("openai", "openai.com"),
@@ -704,6 +704,8 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert "openai:gpt-5.6-terra" in patched
     assert "openai:gpt-5.6-luna" in patched
     for priced_model in (
+        '"moonshot:kimi-k3":{inputTokens:3,outputTokens:15,promptCacheWriteTokens:3,',
+        '"moonshot:kimi-k2.7-code":{inputTokens:0.95,outputTokens:4,',
         '"kimi:kimi-k3":{inputTokens:3,outputTokens:15,promptCacheWriteTokens:3,',
         '"kimi:kimi-k2.7-code":{inputTokens:0.95,outputTokens:4,',
         '"zai:glm-5.3":{inputTokens:1.4,outputTokens:4.4,',
@@ -784,7 +786,7 @@ def test_multi_provider_attribution_runtime_tracks_worker_model_and_settings() -
         "model==='claude-opus-4-8'?'Claude Opus 4.8':'Claude',SETTINGS=()=>settings;"
         + patched[attribution_start:attribution_end]
         + "const result=[];result.push(ATTR());"
-        "process.env.ANTHROPIC_MODEL='kimi:kimi-k3';result.push(ATTR());"
+        "process.env.ANTHROPIC_MODEL='moonshot:kimi-k3';result.push(ATTR());"
         "process.env.ANTHROPIC_MODEL='zai:glm-5.3';result.push(ATTR());"
         "process.env.ANTHROPIC_MODEL='minimax:MiniMax-M3';result.push(ATTR());"
         "process.env.ANTHROPIC_MODEL='claude-opus-4-8';result.push(ATTR());"
@@ -804,7 +806,7 @@ def test_multi_provider_attribution_runtime_tracks_worker_model_and_settings() -
     assert proc.stdout.strip() == (
         '[{"commit":"Co-Authored-By: GPT-5.6 Sol <noreply@openai.com>",'
         '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
-        '{"commit":"Co-Authored-By: Kimi K3 <noreply@kimi.com>",'
+        '{"commit":"Co-Authored-By: Kimi K3 <noreply@moonshot.ai>",'
         '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
         '{"commit":"Co-Authored-By: GLM 5.3 <noreply@z.ai>",'
         '"pr":"🤖 Generated with [Claude Code](https://claude.com/claude-code)"},'
