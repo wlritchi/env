@@ -546,7 +546,9 @@ _PROVIDER_ENV_STATE_VIEW = re.compile(
 )
 _PROVIDER_ENV_STATE_SCHEMA = re.compile(
     rf'providerEnv:(?P<schema>{_ID})\.record\((?P=schema)\.string\(\),'
-    rf'(?P=schema)\.string\(\)\)\.transform\((?P<filter>{_ID})\)\.optional\(\),'
+    rf'(?P=schema)\.string\(\)\)\.transform\((?:{_ID}|'
+    rf'\((?P<value>{_ID})\)=>\{{let (?P<filtered>{_ID})={_ID}\((?P=value)\);'
+    rf'return (?P=filtered)&&{_ID}\((?P=filtered),{_ID}\)\}})\)\.optional\(\),'
 )
 _PROVIDER_ENV_JOB_COPY = re.compile(rf'providerEnv:(?P<prior>{_ID})\?\.providerEnv,')
 _PROVIDER_ENV_SEED_STATE = re.compile(
@@ -1115,11 +1117,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 176),
+    max_version=(2, 1, 177),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.175) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.176) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1560,7 +1562,7 @@ _MULTI_PROVIDER_RESUME = re.compile(
 )
 _MULTI_PROVIDER_AGENT_MODEL = re.compile(
     r'model:(?P<schema>[\w$]+)\.enum\(\["sonnet","opus","haiku","fable"\]\)'
-    r'(?=\.optional\(\)\.describe\("Optional model override for this agent\.)'
+    r'(?=\.optional\(\)\.describe\(["`]Optional model override for this agent\.)'
 )
 
 
@@ -2026,7 +2028,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 176),
+    max_version=(2, 1, 177),
     requires_version=True,
 )
 

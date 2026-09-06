@@ -130,20 +130,18 @@ def test_semantic_function_discovery_accepts_dollar_names(name: str) -> None:
 def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
-    if not re.search(r'VERSION:"2\.1\.(?:174|175)"', source):
+    if not re.search(r'VERSION:"2\.1\.(?:174|175|176)"', source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174 or 2.1.175"
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.176"
             )
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174 or 2.1.175")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.176")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174 or 2.1.175"
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.176"
             )
-        pytest.skip(
-            "installed Claude Code 2.1.174 or 2.1.175 binary is already patched"
-        )
+        pytest.skip("installed Claude Code 2.1.174-2.1.176 binary is already patched")
     return source, BACKGROUND_PROVIDER_ENV.apply(source)
 
 
@@ -156,11 +154,11 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
         pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
     source = _entry_source(path.read_bytes())
     if (
-        not re.search(r'VERSION:"2\.1\.(?:174|175)"', source)
+        not re.search(r'VERSION:"2\.1\.(?:174|175|176)"', source)
         or "providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174 or 2.1.175"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.176"
         )
 
     try:
@@ -472,7 +470,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
     resume_name = _match(rf"function ({_ID})\(", native_resume)[1]
     resolver_name = _match(rf"function ({_ID})\(", native_resolver)[1]
     schema_match = _match(
-        rf'model:{_ID}\.enum\((.+?)\)\.optional\(\)\.describe\("Optional model override for this agent\.',
+        rf'model:{_ID}\.enum\((.+?)\)\.optional\(\)\.describe\(["`]Optional model override for this agent\.',
         patched,
     )
     schema = schema_match[1]
@@ -534,7 +532,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
         pristine, pristine.index("model options: dropping duplicate row")
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
-    if 'VERSION:"2.1.175"' in pristine:
+    if re.search(r'VERSION:"2\.1\.(?:175|176)"', pristine):
         denied = _match(
             rf'if\(!({_ID})\({_ID}\)\)return {_ID}\({_ID}\);', native_resolver
         )

@@ -234,7 +234,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 173), False),
         ((2, 1, 174), True),
         ((2, 1, 175), True),
-        ((2, 1, 176), False),
+        ((2, 1, 176), True),
+        ((2, 1, 177), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -627,6 +628,29 @@ def test_background_provider_environment_rejects_partial_source() -> None:
     )
     with pytest.raises(PatchError, match="provider groups absent"):
         BACKGROUND_PROVIDER_ENV.apply(source)
+
+
+def test_background_provider_environment_removes_sanitized_state_schema() -> None:
+    source = _PROVIDER_ENV_SRC.replace(
+        ".transform(filter).optional(),",
+        ".transform((value)=>{let filtered=filter(value);"
+        "return filtered&&mapValues(filtered,neutralize)}).optional(),",
+    )
+    assert source != _PROVIDER_ENV_SRC
+    patched = BACKGROUND_PROVIDER_ENV.apply(source)
+    assert "providerEnv:z.record(z.string(),z.string())" not in patched
+    assert "mapValues(filtered,neutralize)" not in patched
+
+
+def test_multi_provider_agent_catalogue_accepts_template_description() -> None:
+    source = _MULTI_PROVIDER_SRC.replace(
+        '"Optional model override for this agent. Takes precedence over frontmatter."',
+        "`Optional model override for this agent. Takes precedence over frontmatter.`",
+    )
+    assert source != _MULTI_PROVIDER_SRC
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert "model:k.enum([...new Set(" in patched
+    assert "describe(`Optional model override" in patched
 
 
 def test_multi_provider_sdk_transforms_complete_fixture() -> None:
