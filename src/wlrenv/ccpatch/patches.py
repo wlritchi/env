@@ -69,6 +69,29 @@ class Patch:
     pattern: re.Pattern[str]
     replacement: str | Callable[[re.Match[str]], str]
     required: bool = True  # must match at least once
+    identifiers: tuple[re.Pattern[str], ...] = ()
+    bound_replacement: Callable[[re.Match[str], dict[str, str]], str] | None = None
+
+
+def discover_identifiers(
+    source: str, patterns: tuple[re.Pattern[str], ...]
+) -> dict[str, str]:
+    """Resolve each semantic anchor once and reject conflicting bindings."""
+    bindings: dict[str, str] = {}
+    for pattern in patterns:
+        matches = list(pattern.finditer(source))
+        if len(matches) != 1:
+            raise PatchError(
+                f"identifier discovery: expected one match, got {len(matches)}: "
+                f"{pattern.pattern!r}"
+            )
+        for name, value in matches[0].groupdict().items():
+            if value is None:
+                raise PatchError(f"identifier discovery: missing binding {name!r}")
+            if name in bindings and bindings[name] != value:
+                raise PatchError(f"identifier discovery: conflicting binding {name!r}")
+            bindings[name] = value
+    return bindings
 
 
 @dataclass(frozen=True)
@@ -92,7 +115,21 @@ class PatchSet:
 
     def apply(self, source: str) -> str:
         for patch in self.patches:
-            source, n = patch.pattern.subn(patch.replacement, source)
+            bindings = discover_identifiers(source, patch.identifiers)
+            replacement = patch.replacement
+            if patch.bound_replacement is not None:
+                bound = patch.bound_replacement
+
+                def replace_bound(
+                    match: re.Match[str],
+                    bound: Callable[[re.Match[str], dict[str, str]], str] = bound,
+                    bindings: dict[str, str] = bindings,
+                ) -> str:
+                    return bound(match, bindings)
+
+                replacement = replace_bound
+
+            source, n = patch.pattern.subn(replacement, source)
             if patch.required and n == 0:
                 raise PatchError(f"{self.name}: patch {patch.name!r} matched nothing")
         for marker in self.verify_present:
@@ -169,13 +206,13 @@ CHANNELS_ENABLED = PatchSet(
         # Force the "channels not enabled" subexpression false -> channels on.
         Patch(
             name="channelator",
-            pattern=re.compile(rf"{_ID}\?\.channelsEnabled!==!0"),
+            pattern=re.compile(rf"(?<![\w$.]){_ID}\?\.channelsEnabled!==!0"),
             replacement="!1",
         ),
         # Force the tengu_harbor feature flag on.
         Patch(
             name="channelizer",
-            pattern=re.compile(rf'{_ID}\("tengu_harbor",!1\)'),
+            pattern=re.compile(rf'(?<![\w$.]){_ID}\("tengu_harbor",!1\)'),
             replacement="!!1",
         ),
     ),
@@ -515,17 +552,19 @@ _PROVIDER_ENV_JOB_COPY = re.compile(rf'providerEnv:(?P<prior>{_ID})\?\.providerE
 _PROVIDER_ENV_SEED_STATE = re.compile(
     rf'providerEnv:(?P<snapshot>{_ID})\(\),sessionPermissionRules:'
 )
-_PROVIDER_ENV_RESPAWN_GUARD = re.compile(r'\|\|(?P<job>[\w$]+)\.providerEnv')
+_PROVIDER_ENV_RESPAWN_GUARD = re.compile(r'\|\|(?P<job>[\w$]+)\.providerEnv(?![\w$])')
 _PROVIDER_ENV_RESPAWN_OPTION = re.compile(
     rf',\.\.\.(?P<job>{_ID})\.providerEnv&&\{{providerEnv:(?P=job)\.providerEnv\}}'
 )
 
 
 def _provider_groups(source: str) -> re.Match[str]:
-    groups = _PROVIDER_ENV_GROUPS.search(source)
-    if groups is None:
-        raise PatchError("background-provider-environment: provider groups absent")
-    return groups
+    groups = list(_PROVIDER_ENV_GROUPS.finditer(source))
+    if len(groups) != 1:
+        raise PatchError(
+            "background-provider-environment: provider groups absent or ambiguous"
+        )
+    return groups[0]
 
 
 _PROVIDER_ENV_VERTEX_REGION_KEYS = (
@@ -576,11 +615,13 @@ _PROVIDER_ENV_EXPLICIT_KEYS = (
 
 def _provider_key_sources(source: str) -> tuple[str, ...]:
     groups = _provider_groups(source)
-    snapshot = _PROVIDER_ENV_SNAPSHOT.search(source)
-    if snapshot is None:
-        raise PatchError("background-provider-environment: provider snapshot absent")
+    snapshots = list(_PROVIDER_ENV_SNAPSHOT.finditer(source))
+    if len(snapshots) != 1:
+        raise PatchError(
+            "background-provider-environment: provider snapshot absent or ambiguous"
+        )
     return (
-        snapshot.group("allowlist"),
+        snapshots[0].group("allowlist"),
         groups.group("selection"),
         groups.group("base_urls"),
         groups.group("credentials"),
@@ -666,14 +707,12 @@ def _replace_provider_schema(match: re.Match[str]) -> str:
 
 
 def _replace_provider_socket(match: re.Match[str]) -> str:
-    snapshot = _PROVIDER_ENV_PATCHED_SNAPSHOT.search(match.string)
-    if snapshot is None:
-        raise PatchError("background-provider-environment: snapshot function absent")
+    snapshot = discover_identifiers(match.string, (_PROVIDER_ENV_PATCHED_SNAPSHOT,))
     version = _PROVIDER_ENV_PROTOCOL_VERSION
     return (
         f'{match.group("call")}({{proto:{match.group("proto")},op:"dispatch",'
         f'd:{{...{match.group("job")},nonce:{match.group("nonce")}}},'
-        f'providerEnvVersion:{version},providerEnv:{snapshot.group("snapshot")}(),'
+        f'providerEnvVersion:{version},providerEnv:{snapshot["snapshot"]}(),'
         f'timeoutMs:5000,auth:await {match.group("auth")}()}}'
     )
 
@@ -1502,6 +1541,8 @@ _MULTI_PROVIDER_RESUME = re.compile(
     rf'(?P<dependent>{_ID})\((?P=setting)\)&&!(?P<eap>{_ID})\((?P=model)\)&&'
     rf'(?P<compatible>{_ID})\((?P=setting),(?P<normalize>{_ID})\((?P=model)\)\)\)'
     r'return\{kind:"mode_dependent_setting"\};'
+    rf'(?=let {_ID}=!\([^;]{{1,200}}\)\?"unknown_family":!'
+    rf'(?P<allowed>{_ID})\((?P=model)\)\?"not_allowed")'
 )
 _MULTI_PROVIDER_AGENT_MODEL = re.compile(
     r'model:(?P<schema>[\w$]+)\.enum\(\["sonnet","opus","haiku","fable"\]\)'
@@ -1518,7 +1559,7 @@ def _restore_multi_provider_model(match: re.Match[str]) -> str:
         f"_ccEntry.value==={model}||_ccEntry.value.slice("
         f'_ccEntry.value.indexOf(":")+1)==={model});'
         "if(_ccCandidates.length===1){let _ccRestored=_ccCandidates[0].value;"
-        'return Ew(_ccRestored)?{kind:"ok",model:_ccRestored}:'
+        f'return {match.group("allowed")}(_ccRestored)?{{kind:"ok",model:_ccRestored}}:'
         '{kind:"declined",model:_ccRestored,reason:"not_allowed"}}'
         f"let {match.group('setting')}={match.group('current')}();if("
         f"{match.group('dependent')}({match.group('setting')})&&!"
@@ -1528,11 +1569,34 @@ def _restore_multi_provider_model(match: re.Match[str]) -> str:
     )
 
 
-def _expand_multi_provider_agent_model(match: re.Match[str]) -> str:
-    # These native catalogue bindings are specific to Claude Code 2.1.174.
+_MULTI_PROVIDER_AGENT_IDENTIFIERS = (
+    re.compile(
+        rf'(?<![\w$.])(?P<aliases>{_ID})=\["sonnet","opus","haiku","fable",'
+        r'"best","sonnet\[1m\]","opus\[1m\]","fable\[1m\]","opusplan"\]'
+    ),
+    re.compile(
+        rf'(?<![\w$.])(?P<first_party>{_ID})=Object\.values\({_ID}\)'
+        rf'\.map\(\((?P<entry>{_ID})\)=>(?P=entry)\.firstParty\)'
+    ),
+    re.compile(
+        rf'process\.env\.ANTHROPIC_DEFAULT_FABLE_MODEL\|\|(?P<models>{_ID})\(\)\.fable5'
+    ),
+    re.compile(
+        rf'function (?P<picker>{_ID})\({_ID}=!1\)\{{let {_ID}=new Set,'
+        rf'{_ID}={_ID}\({_ID}\)\.filter\(\({_ID}\)=>\{{'
+        rf'if\({_ID}\.value===null\)return!0;if\({_ID}\.has\({_ID}\.value\)\)'
+        rf'return {_ID}\(`model options: dropping duplicate row '
+    ),
+)
+
+
+def _expand_multi_provider_agent_model(
+    match: re.Match[str], bindings: dict[str, str]
+) -> str:
     return (
-        f"model:{match.group('schema')}.enum([...new Set([...LyH,...wPK,"
-        "...Object.values(N5()),...UX$().filter((_ccEntry)=>"
+        f"model:{match.group('schema')}.enum([...new Set([...{bindings['aliases']},"
+        f"...{bindings['first_party']},...Object.values({bindings['models']}()),"
+        f"...{bindings['picker']}().filter((_ccEntry)=>"
         'typeof _ccEntry.value==="string").map((_ccEntry)=>_ccEntry.value),'
         "..._ccMultiProviderCatalog.map((_ccEntry)=>_ccEntry.value)])])"
     )
@@ -1550,7 +1614,7 @@ _MULTI_PROVIDER_THINKING_FILTER = re.compile(
 )
 _MULTI_PROVIDER_NONSTREAMING = re.compile(
     rf'let (?P<response>{_ID})=await (?P<client>{_ID})\.beta\.messages\.create\('
-    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),model:KA\((?P=finalized)\.model\)\}}),'
+    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),model:(?P<normalize>[\w$]+)\((?P=finalized)\.model\)\}}),'
     rf'(?P<options>\{{signal:(?P<signal>{_ID})\.signal,timeout:(?P<timeout>{_ID}),'
     rf'\.\.\.Object\.keys\((?P<headers>{_ID})\)\.length>0&&\{{headers:(?P=headers)\}}\}})'
 )
@@ -1568,17 +1632,17 @@ _MULTI_PROVIDER_SIDE_QUERY = re.compile(
     rf'\{{timeout:(?P=timeout)\}}\}})'
 )
 _MULTI_PROVIDER_COUNT_TOKENS = re.compile(
-    rf'let (?P<client>{_ID})=await LF\(\{{maxRetries:1,model:(?P<model>{_ID}),'
+    rf'let (?P<client>{_ID})=await (?P<factory>{_ID})\(\{{maxRetries:1,model:(?P<model>{_ID}),'
     rf'source:"count_tokens"\}}\),(?P<betas>{_ID})=(?P<raw_betas>{_ID})\.filter\('
-    rf'\((?P<beta>{_ID})\)=>ij6\.has\((?P=beta)\)\),(?P<response>{_ID})=await '
-    rf'(?P=client)\.beta\.messages\.countTokens\((?P<request>\{{model:KA\('
+    rf'\((?P<beta>{_ID})\)=>(?P<allowed_betas>{_ID})\.has\((?P=beta)\)\),(?P<response>{_ID})=await '
+    rf'(?P=client)\.beta\.messages\.countTokens\((?P<request>\{{model:(?P<normalize>{_ID})\('
     rf'(?P=model)\),messages:.{{0,500}}?\}})\)'
 )
 _MULTI_PROVIDER_COUNT_TOKENS_CATCH = re.compile(
     rf'(?P<prefix>async function (?P<function>{_ID})\((?P<messages>{_ID}),(?P<tools>{_ID}),'
     rf'(?P<model_arg>{_ID})\)\{{return .{{0,200}}?async\(\)=>\{{try\{{.{{0,1800}}?return '
     rf'(?P<response>{_ID})\.input_tokens)\}}catch\((?P<error>{_ID})\)\{{'
-    rf'(?P<body>return N\(`countTokens API call failed:.{{0,200}}?null)\}}\}}\)\}}'
+    rf'(?P<body>return (?P<logger>{_ID})\(`countTokens API call failed:.{{0,200}}?null)\}}\}}\)\}}'
 )
 _MULTI_PROVIDER_PICKER = re.compile(
     rf'function (?P<function>{_ID})\((?P<flag>{_ID})\)\{{let (?P<options>{_ID})='
@@ -1679,14 +1743,17 @@ def _route_multi_provider_side_query(match: re.Match[str]) -> str:
 
 def _route_multi_provider_count_tokens(match: re.Match[str]) -> str:
     request = match.group("request").replace(
-        f"KA({match.group('model')})", "KA(_ccEffectiveModel)", 1
+        f"{match.group('normalize')}({match.group('model')})",
+        f"{match.group('normalize')}(_ccEffectiveModel)",
+        1,
     )
     return (
         "_ccMultiProviderPreflight(_ccEffectiveModel);let "
-        f"{match.group('client')}=await LF({{maxRetries:1,model:"
+        f"{match.group('client')}=await {match.group('factory')}({{maxRetries:1,model:"
         "_ccEffectiveModel,source:\"count_tokens\"}),"
         f"{match.group('betas')}={match.group('raw_betas')}.filter("
-        f"({match.group('beta')})=>ij6.has({match.group('beta')})),_ccRequest="
+        f"({match.group('beta')})=>{match.group('allowed_betas')}.has("
+        f"{match.group('beta')})),_ccRequest="
         f"{request},"
         "[_ccClient,_ccOutbound]="
         f"_ccMultiProviderRoute({match.group('client')},_ccRequest),"
@@ -1699,26 +1766,23 @@ def _surface_multi_provider_count_tokens_error(match: re.Match[str]) -> str:
     error = match.group("error")
     prefix = match.group("prefix")
     model_arg = match.group("model_arg")
-    model_binding = re.search(
-        rf"let (?P<effective>{_ID})={re.escape(model_arg)}\?\?(?P<default>{_ID})\(\)",
-        prefix,
+    model_pattern = re.compile(
+        rf"let (?P<effective>{_ID})={re.escape(model_arg)}\?\?(?P<default>{_ID})\(\)"
     )
-    if model_binding is None:
-        raise PatchError(
-            "multi-provider-sdk: countTokens effective model binding absent"
-        )
-    effective = model_binding.group("effective")
+    bindings = discover_identifiers(prefix, (model_pattern,))
     callback_try = "async()=>{try{"
     if callback_try not in prefix:
         raise PatchError("multi-provider-sdk: countTokens try scope changed")
-    prefix = prefix.replace(
-        callback_try, "async()=>{let _ccEffectiveModel;try{", 1
-    ).replace(
-        model_binding.group(0),
-        f"_ccEffectiveModel={model_arg}??{model_binding.group('default')}()",
-        1,
+    prefix = prefix.replace(callback_try, "async()=>{let _ccEffectiveModel;try{", 1)
+    # Keep the native local binding. Copy its value into the catch scope.
+    prefix = model_pattern.sub(
+        lambda _: (
+            f"let {bindings['effective']}=_ccEffectiveModel="
+            f"{model_arg}??{bindings['default']}()"
+        ),
+        prefix,
+        count=1,
     )
-    prefix = re.sub(rf"\b{re.escape(effective)}\b", "_ccEffectiveModel", prefix)
     response = match.group("response")
     return_suffix = f"return {response}.input_tokens"
     if not prefix.endswith(return_suffix):
@@ -1888,7 +1952,9 @@ MULTI_PROVIDER_SDK = PatchSet(
         Patch(
             "expand-agent-model-catalogue",
             _MULTI_PROVIDER_AGENT_MODEL,
-            _expand_multi_provider_agent_model,
+            "",
+            identifiers=_MULTI_PROVIDER_AGENT_IDENTIFIERS,
+            bound_replacement=_expand_multi_provider_agent_model,
         ),
         Patch(
             "recognize-qualified-models",

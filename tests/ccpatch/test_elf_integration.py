@@ -88,6 +88,45 @@ def test_write_blob_is_loadable_again(binary_bytes: bytes) -> None:
     assert blob2 == blob
 
 
+_ID = r"[A-Za-z_$][\w$]*"
+
+
+def _match(pattern: str, source: str) -> re.Match[str]:
+    matches = list(re.finditer(pattern, source))
+    assert len(matches) == 1, (
+        f"expected one semantic match for {pattern!r}, got {len(matches)}"
+    )
+    return matches[0]
+
+
+def _function_at(source: str, position: int) -> tuple[str, str]:
+    declarations = list(
+        re.finditer(rf"(?:async )?function ({_ID})\(", source[:position])
+    )
+    assert declarations, "no function declaration before semantic anchor"
+    declaration = declarations[-1]
+    following = re.search(rf"(?:async )?function {_ID}\(", source[position:])
+    assert following is not None, "no function declaration after semantic anchor"
+    return declaration[1], source[declaration.start() : position + following.start()]
+
+
+def _same_function(source: str, patched: str, anchor: str) -> tuple[str, str]:
+    match = _match(anchor, source)
+    name, original = _function_at(source, match.end())
+    declaration = _match(rf"(?:async )?function {re.escape(name)}\(", patched)
+    _, replacement = _function_at(patched, declaration.end())
+    return original, replacement
+
+
+@pytest.mark.parametrize("name", ["$", "$worker", "worker$", "renamedWorker"])
+def test_semantic_function_discovery_accepts_dollar_names(name: str) -> None:
+    source = f'function {name}(){{return "semantic anchor"}}function next(){{}}'
+    patched = source.replace('return "semantic anchor"', 'return "patched anchor"')
+    original, replacement = _same_function(source, patched, "semantic anchor")
+    assert original == f'function {name}(){{return "semantic anchor"}}'
+    assert replacement == f'function {name}(){{return "patched anchor"}}'
+
+
 def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
@@ -95,7 +134,7 @@ def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
         if explicit:
             pytest.fail("CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174")
         pytest.skip("installed binary is not pristine Claude Code 2.1.174")
-    if re.search(r"providerEnvVersion:\d+,providerEnv:AW9\(\)", source):
+    if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail("CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174")
         pytest.skip("installed Claude Code 2.1.174 binary is already patched")
@@ -143,80 +182,113 @@ def test_real_source_secures_background_provider_environment(
         key for key in _PROVIDER_ENV_EXPLICIT_KEYS if key.startswith("VERTEX_REGION_")
     }
     assert '"CLAUDE_CODE_CERT_STORE"' in patched
-    assert patched.count("providerEnvVersion:3,providerEnv:AW9()") == 2
+    snapshot = _match(
+        rf"function ({_ID})\(\)\{{let {_ID}=\{{\}};for\(let {_ID} of {_ID}\)"
+        rf"\{{let {_ID}=process\.env\[{_ID}\];if\({_ID}===void 0\)continue;"
+        rf'if\({_ID}===""&&{_ID}!=="CLAUDE_SECURESTORAGE_CONFIG_DIR"\)',
+        source,
+    )[1]
+    assert patched.count(f"providerEnvVersion:3,providerEnv:{snapshot}()") == 2
     assert "providerEnvVersion:3,short:" in patched
     assert patched.count(".providerEnvVersion!==3") == 3
     assert patched.count('code==="EPROVIDERENV"') == 2
     assert 'throw Object.assign(Error(' in patched
     for key in _PROVIDER_ENV_EXPLICIT_KEYS:
         assert f'"{key}"' in patched
-    assert "W0q(H,$,q,K,_ccProviderEnv)" in patched
-    assert "UVA(H,f,_.socketAuth(),$.claimAuth,_ccProviderEnv)" in patched
-    assert "UVA(H,$,q,K,_ccProviderEnv)" in patched
-    assert "wd.buildClaimFrame(H,$,q,_ccProviderEnv)" in patched
-    assert "D(E,I+1,R,_ccProviderEnv)" in patched
-    assert "D(I.dispatch,0,!0)" in patched
-    assert "Ea9((E)=>void D(E)" in patched
-    assert "dispatch:(E)=>void D(E)" in patched
-    manager_start = patched.index("D=async(E,I=0,R,_ccProviderEnv)=>{")
-    assert (
-        patched[manager_start : manager_start + 180].count(
-            "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);"
-        )
-        == 1
+    for pattern in (
+        rf"{_ID}\({_ID},{_ID},{_ID}\.socketAuth\(\),{_ID}\.claimAuth\)",
+        rf"{_ID}\.buildClaimFrame\({_ID},{_ID},{_ID}\)",
+        rf"return await {_ID}\(100\),{_ID}\({_ID},{_ID}\+1,{_ID}\)",
+    ):
+        call = _match(pattern, source)[0]
+        assert call[:-1] + ",_ccProviderEnv)" in patched
+    manager = _match(rf"({_ID})=async\({_ID},{_ID}=0,{_ID}\)=>\{{", source)
+    manager_prefix = manager[0].replace(")=>{", ",_ccProviderEnv)=>{")
+    manager_start = patched.index(manager_prefix)
+    assert patched[manager_start:].startswith(
+        manager_prefix + "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);"
     )
+    for pattern in (
+        rf"{re.escape(manager[1])}\({_ID}\.dispatch,0,!0\)",
+        rf"{_ID}\(\({_ID}\)=>void {re.escape(manager[1])}\({_ID}\)",
+        rf"dispatch:\({_ID}\)=>void {re.escape(manager[1])}\({_ID}\)",
+    ):
+        assert _match(pattern, source)[0] in patched
     assert "for(let _ccKey of _ccProviderKeys())delete process.env[_ccKey]" in patched
-    assert "providerEnv:k.record(k.enum(_ccProviderKeys())" in patched
-    assert "K?.providerEnv??AW9()" not in patched
-    assert "providerEnv:AW9(),sessionPermissionRules" not in patched
-    assert "providerEnv:v?.providerEnv" not in patched
-    assert "providerEnv:H.providerEnv" not in patched
-    assert "...K.providerEnv&&{providerEnv:K.providerEnv}" not in patched
-    file_fallback = patched[patched.index("let D=IH({...H,nonce:O})") :]
-    assert (
-        "providerEnv" not in file_fallback[: file_fallback.index("await jO(A,D,384)")]
-    )
+    schema = _match(
+        rf'({_ID})\.object\(\{{proto:{_ID},op:\1\.literal\("dispatch"\)', source
+    )[1]
+    assert f"providerEnv:{schema}.record({schema}.enum(_ccProviderKeys())" in patched
+    for pattern in (
+        rf"{_ID}\?\.providerEnv\?\?{re.escape(snapshot)}\(\)",
+        rf"providerEnv:{re.escape(snapshot)}\(\),sessionPermissionRules",
+        rf"providerEnv:{_ID}\?\.providerEnv",
+        rf"providerEnv:{_ID}\.providerEnv",
+        rf"\.\.\.{_ID}\.providerEnv&&\{{providerEnv:{_ID}\.providerEnv\}}",
+    ):
+        assert re.search(pattern, source) is not None
+        assert re.search(pattern, patched) is None
+    fallback = _match(
+        rf"let {_ID}={_ID}\(\{{\.\.\.{_ID},nonce:{_ID}\}}\);await {_ID}\({_ID},{_ID},384\)",
+        source,
+    )[0]
+    assert fallback in patched
     assert "Restart the stale Claude Code daemon and try again" in patched
 
-    builder_start = patched.index("function I09(")
-    builder = patched[
-        builder_start : patched.index("async function pXq", builder_start)
-    ]
+    original_builder, builder = _same_function(
+        source,
+        patched,
+        rf'\.\.\.{_ID}\.env,CLAUDE_CODE_SESSION_KIND:"bg",CLAUDE_BG_BACKEND:"daemon"',
+    )
     payload = "let _ccProviderPayload=_ccProviderRetain(_ccProviderEnv)"
     initial_apply = "Object.entries(_ccProviderPayload)"
-    native_scrubs = ("for(let z of UXq)", "for(let z of FXq)", "WG$.some")
+    native_scrubs = re.findall(
+        rf"for\(let {_ID} of {_ID}\)|{_ID}\.some", original_builder
+    )
+    assert len(native_scrubs) >= 3
     final_apply = "Object.entries(_ccProviderPayload)"
     assert builder.index(payload) < builder.index(initial_apply)
     for native_scrub in native_scrubs:
         assert builder.index(initial_apply) < builder.index(native_scrub)
         assert builder.index(native_scrub) < builder.rindex(final_apply)
-    assert builder.rindex(final_apply) < builder.index("return A}")
+    env = _match(rf"return ({_ID})\}}", original_builder)[1]
+    assert builder.rindex(final_apply) < builder.index(f"return {env}}}")
     assert "_ccProviderSnapshotFromEnv" not in builder
     assert (
-        "A.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT=JSON.stringify(_ccProviderPayload)"
+        f"{env}.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT=JSON.stringify(_ccProviderPayload)"
         in builder
     )
 
     capture = "_ccProviderWorkerEnv=_ccProviderCaptureTransport("
-    capture_start = patched.index(capture, patched.index("async function O09"))
-    claimed_start = patched.rfind("async function ", 0, capture_start)
-    claimed = patched[claimed_start : capture_start + 2000]
+    _, claimed = _same_function(
+        source,
+        patched,
+        rf'"spare_claim"\);{_ID}\(\),{_ID}\(\),Object.assign\(process.env,',
+    )
     assign = claimed.index("Object.assign(process.env,", claimed.index(capture))
     final_apply = claimed.index("_ccProviderApplyWorkerFinal()", assign)
     assert claimed.index(capture) < assign < final_apply
     assert final_apply < claimed.index("await ", final_apply)
     assert "_ccProviderSnapshotFromEnv" not in patched
 
-    delayed_start = patched.index("Vy$().then(async()=>")
-    delayed = patched[delayed_start : delayed_start + 500]
-    assert (
-        delayed.index("Ko()")
-        < delayed.index("_ccProviderApplyWorkerFinal()")
-        < delayed.index("await vLq()")
+    native_delayed, delayed = _same_function(
+        source, patched, "Waiting for remote managed settings before telemetry init"
     )
-    operational_start = patched.index("Ko(),CB$(_ccProviderWorkerEnv)")
+    telemetry = _match(rf"function ({_ID})\(", native_delayed)[1]
+    initializers = _match(
+        rf'Remote managed settings loaded, initializing telemetry"\),({_ID})\(\),await ({_ID})\(\)',
+        native_delayed,
+    )
+    assert (
+        delayed.index(f"{initializers[1]}()")
+        < delayed.index("_ccProviderApplyWorkerFinal()")
+        < delayed.index(f"await {initializers[2]}()")
+    )
+    operational_start = patched.index(
+        f"{initializers[1]}(),{telemetry}(_ccProviderWorkerEnv)"
+    )
     operational = patched[operational_start : operational_start + 250]
-    assert operational.index("CB$(_ccProviderWorkerEnv)") < operational.index(
+    assert operational.index(f"{telemetry}(_ccProviderWorkerEnv)") < operational.index(
         "_ccProviderApplyWorkerFinal()"
     )
 
@@ -224,10 +296,14 @@ def test_real_source_secures_background_provider_environment(
 def test_real_source_routes_multi_provider_sdk(
     binary_info: tuple[bytes, bool],
 ) -> None:
-    _, provider_patched = _provider_sources(binary_info)
+    source, provider_patched = _provider_sources(binary_info)
     patched = MULTI_PROVIDER_SDK.apply(provider_patched)
 
-    assert "const _ccMultiProviderSDK=()=>GC" in patched
+    sdk = _match(
+        rf"let ({_ID})=\{{apiKey:.{{0,500}}?\}};return new ({_ID})\(\1\)\}}async function",
+        source,
+    )[2]
+    assert f"const _ccMultiProviderSDK=()=>{sdk}" in patched
     assert patched.count("_ccMultiProviderRoute(") == 5
     assert patched.count("let _ccRequest=") >= 2
     assert "_ccMultiProviderCatalog.find" in patched
@@ -259,7 +335,11 @@ def test_real_source_routes_multi_provider_sdk(
     assert "cc-openai-local" not in patched
     assert "apiKey:null,authToken:_ccToken,maxRetries:0" in patched
     assert "defaultHeaders:{..._ccInfo.definition.defaultHeaders}" in patched
-    assert "_ccMultiProviderRoute(z,_ccRequest)" in patched
+    count_client = _match(
+        rf'let ({_ID})=await {_ID}\(\{{maxRetries:1,model:{_ID},source:"count_tokens"',
+        source,
+    )[1]
+    assert f"_ccMultiProviderRoute({count_client},_ccRequest)" in patched
     assert "_ccClient.beta.messages.countTokens(_ccOutbound)" in patched
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
@@ -270,56 +350,100 @@ def test_real_source_routes_multi_provider_sdk(
     assert '"attributionDomain":"z.ai"' in patched
     assert '"attributionDomain":"minimax.io"' in patched
     assert '"attributionDomain":"openai.com"' in patched
-    attribution_start = patched.index("function umH()")
-    attribution = patched[
-        attribution_start : patched.index("function fU4(", attribution_start)
-    ]
-    assert "_ccMultiProviderAttribution(H,_ccNativeAttributionLabel)" in attribution
-    assert "K=`Co-Authored-By: ${$} <noreply@${_ccAttributionDomain}>`" in attribution
-    assert "noreply@anthropic.com" not in attribution
-    assert 'if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""}' in attribution
-    assert (
-        "if(_?.max_tokens&&_.max_tokens>=4096)q=_.max_tokens,$=Math.min($,q)" in patched
+    native_attribution, attribution = _same_function(
+        source, patched, r"Co-Authored-By: \$\{[^}]+\} <noreply@anthropic\.com>"
     )
-    context_resolver = patched[
-        patched.index("function K2(") : patched.index("function Hq7(")
-    ]
-    assert context_resolver.index("if(q!==void 0)return q") < context_resolver.index(
+    attribution_vars = _match(
+        rf"let ({_ID})={_ID}\(\),({_ID})=[^;]+,({_ID})=`Co-Authored-By:",
+        native_attribution,
+    )
+    assert (
+        f"_ccMultiProviderAttribution({attribution_vars[1]},_ccNativeAttributionLabel)"
+        in attribution
+    )
+    assert (
+        f"{attribution_vars[3]}=`Co-Authored-By: ${{{attribution_vars[2]}}} <noreply@${{_ccAttributionDomain}}>`"
+        in attribution
+    )
+    assert "noreply@anthropic.com" not in attribution
+    assert (
+        _match(
+            rf'if\({_ID}\.includeCoAuthoredBy===!1\)return\{{commit:"",pr:""\}}',
+            native_attribution,
+        )[0]
+        in attribution
+    )
+    native_context, context_resolver = _same_function(
+        source,
+        patched,
+        rf'function {_ID}\({_ID},{_ID}\)\{{let ({_ID})={_ID}\(\);if\(\1!==void 0\)return \1;if\({_ID}\({_ID},{_ID}\)\)return {_ID};return {_ID}\({_ID},{_ID}\)\}}',
+    )
+    override = _match(rf"if\(({_ID})!==void 0\)return \1;", native_context)[0]
+    native_fallback = native_context[native_context.index(override) + len(override) :]
+    assert context_resolver.index(override) < context_resolver.index(
         "_ccProviderModel.contextWindow"
     )
     assert context_resolver.index(
         "_ccProviderModel.contextWindow"
-    ) < context_resolver.index("if(XT6(H,$))return GEH")
-    assert context_resolver.index("if(XT6(H,$))return GEH") < context_resolver.index(
-        "return $q7(H,$)"
+    ) < context_resolver.index(native_fallback)
+    native_output, output_resolver = _same_function(
+        source, patched, rf'return\{{default:{_ID},upperLimit:{_ID}\}}'
     )
-    output_resolver = patched[
-        patched.index("function AXH(") : patched.index("function qq7(")
-    ]
-    assert "q=_ccProviderModel.maxOutputTokens,$=Math.min($,q)" in output_resolver
-    assert "$=q=_ccProviderModel.maxOutputTokens" not in output_resolver
-    assert "if(K===\"claude-fable-5\"" in output_resolver
-    assert "if(_?.max_tokens&&_.max_tokens>=4096)" in output_resolver
-    compact_source = patched[
-        patched.index("function i9$(") : patched.index("function a0f(")
-    ]
-    assert 'q==="auto"&&_ccMultiProviderCatalogInfo(H)!==null' in compact_source
+    limits = _match(rf'return\{{default:({_ID}),upperLimit:({_ID})\}}', native_output)
     assert (
-        patched.count("_ccMultiProviderModelProvider(q.message.model)!==_ccProvider")
+        f"{limits[2]}=_ccProviderModel.maxOutputTokens,{limits[1]}=Math.min({limits[1]},{limits[2]})"
+        in output_resolver
+    )
+    assert (
+        f"{limits[1]}={limits[2]}=_ccProviderModel.maxOutputTokens"
+        not in output_resolver
+    )
+    assert _match(rf'if\({_ID}==="claude-fable-5"', native_output)[0] in output_resolver
+    assert (
+        _match(
+            rf'if\(({_ID})\?\.max_tokens&&\1\.max_tokens>=4096\)[^;]+;', native_output
+        )[0]
+        in output_resolver
+    )
+    native_compact, compact_source = _same_function(
+        source,
+        patched,
+        rf'return ({_ID})==="env"\|\|\1==="settings"\|\|\1==="model-default"',
+    )
+    compact_vars = _match(
+        rf'function {_ID}\(({_ID}),{_ID}\)\{{let\{{source:({_ID})\}}', native_compact
+    )
+    assert (
+        f'{compact_vars[2]}==="auto"&&_ccMultiProviderCatalogInfo({compact_vars[1]})!==null'
+        in compact_source
+    )
+    thinking = _match(
+        rf'function {_ID}\({_ID},{_ID}\)\{{return {_ID}\({_ID},\(({_ID})\)=>\1\.message\.model!=={_ID}&&\1\.message\.model!=={_ID}\)\}}',
+        source,
+    )
+    assert (
+        patched.count(
+            f"_ccMultiProviderModelProvider({thinking[1]}.message.model)!==_ccProvider"
+        )
         == 1
     )
-    assert "q.message.model!==L0&&q.message.model!==$" not in patched
-    assert "Z.filter((m$)=>_ccMultiProviderToolAllowed(J,m$)).map((m$)=>qx8" in patched
+    assert thinking[0] not in patched
+    tools = _match(
+        rf'({_ID})\.map\(\(({_ID})\)=>({_ID})\(\2,\{{getToolPermissionContext:{_ID}\.getToolPermissionContext,tools:{_ID},agents:{_ID}\.agents,allowedAgentTypes:{_ID}\.allowedAgentTypes,model:({_ID}),deferLoading:',
+        source,
+    )
+    assert (
+        f"{tools[1]}.filter(({tools[2]})=>_ccMultiProviderToolAllowed({tools[4]},{tools[2]})).map(({tools[2]})=>{tools[3]}"
+        in patched
+    )
     assert '_ccTool.isMcp===!0||_ccTool.name!=="WebSearch"' in patched
     assert '"kimi:kimi-k3":{inputTokens:3,outputTokens:15' in patched
     assert '"zai:glm-5.3-flash":{inputTokens:0.15,outputTokens:0.5' in patched
     assert '"minimax:minimax-m3":{inputTokens:0.3,outputTokens:1.2' in patched
     assert '"kimi-k3":{inputTokens:' not in patched
-    verification = patched[
-        patched.index("async function xG9") : patched.index("function p7A")
-    ]
+    _, verification = _same_function(source, patched, 'source:"verify_api_key"')
     assert "_ccMultiProviderRoute" not in verification
-    assert "source:\"verify_api_key\"" in verification
+    assert 'source:"verify_api_key"' in verification
 
 
 def test_provider_resume_and_agent_catalogue_runtime(
@@ -328,50 +452,110 @@ def test_provider_resume_and_agent_catalogue_runtime(
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
-    _, source = _provider_sources(binary_info)
+    pristine, source = _provider_sources(binary_info)
     patched = MULTI_PROVIDER_SDK.apply(source)
-    resume = patched[patched.index("function lR9(") : patched.index("function gOA(")]
-    resolver = patched[patched.index("function Xe(") : patched.index("function E28(")]
-    schema_start = patched.index("model:k.enum([...new Set(")
-    schema_end = patched.index(".optional()", schema_start)
-    schema = patched[schema_start + len("model:k.enum(") : schema_end - 1]
+    native_resume, resume = _same_function(pristine, patched, r'\?"unknown_family":')
+    native_resolver, resolver = _same_function(
+        pristine,
+        patched,
+        rf'function {_ID}\({_ID},{_ID},{_ID},{_ID}\)\{{let {_ID}=\(\)=>{_ID}\(\{{permissionMode:',
+    )
+    resume_name = _match(rf"function ({_ID})\(", native_resume)[1]
+    resolver_name = _match(rf"function ({_ID})\(", native_resolver)[1]
+    schema_match = _match(
+        rf'model:{_ID}\.enum\((.+?)\)\.optional\(\)\.describe\("Optional model override for this agent\.',
+        patched,
+    )
+    schema = schema_match[1]
     catalogue_start = patched.index("const _ccMultiProviderCatalog=")
     catalogue = patched[catalogue_start : patched.index(";", catalogue_start) + 1]
+    stubs: dict[str, str] = {}
+
+    def stub(pattern: str, body: str, context: str = native_resume) -> str:
+        name = _match(pattern, context)[1]
+        stubs[name] = body
+        return name
+
+    native_models = stub(rf"new Set\(({_ID})\.map", '["claude-opus-4-8"]')
+    stub(rf"new Set\({_ID}\.map\(({_ID})\)", "(m)=>m")
+    stub(rf"\.message\.model===({_ID})\)continue", '"synthetic"')
+    stub(rf'"unknown_family":!({_ID})\(', "()=>allowed")
+    stub(rf'"not_allowed":({_ID})\(', "()=>false")
+    stub(rf"\.message\.model,{_ID}=({_ID})\(\)", '()=>"opus"')
+    stub(rf";if\(({_ID})\({_ID}\)&&!", "()=>false")
+    stub(rf"&&!({_ID})\({_ID}\)&&", "()=>false")
+    stub(rf"&&({_ID})\({_ID},{_ID}\({_ID}\)\)\)return", "()=>false")
+    for pattern in (
+        rf"if\({_ID}&&({_ID})\({_ID}\)&&",
+        rf"&&({_ID})\({_ID}\)&&{_ID}\({_ID}\({_ID}\(",
+    ):
+        stub(pattern, "()=>false")
+    nested = _match(rf"&&{_ID}\(({_ID})\(({_ID})\({_ID}\)\)\)", native_resume)
+    stubs[nested[1]] = stubs[nested[2]] = "(m)=>m"
+    stub(
+        rf"\(\)=>({_ID})\(\{{permissionMode:", "({mainLoopModel:m})=>m", native_resolver
+    )
+    stub(rf"let {_ID}=({_ID})\({_ID}\),{_ID}=\(", "()=>null", native_resolver)
+    stub(rf'&&({_ID})\({_ID}\)==="bedrock"', '()=>"firstParty"', native_resolver)
+    stub(rf"let {_ID}={_ID}\?\?({_ID})\(\)", '()=>"inherit"', native_resolver)
+    inherited = re.findall(rf"if\(({_ID})\({_ID},{_ID}\)\)return", native_resolver)
+    assert len(set(inherited)) == 1
+    stubs[inherited[0]] = "()=>false"
+    normalization = re.findall(
+        rf"let {_ID}={_ID}\(({_ID})\(({_ID})\({_ID}\)\),{_ID}\)", native_resolver
+    )
+    assert len(set(normalization)) == 1
+    for name in normalization[0]:
+        stubs[name] = "(m)=>m"
+    aliases = stub(
+        rf'(?<![\w$])({_ID})=\["sonnet","opus","haiku","fable","best",',
+        '["sonnet","opus","haiku","fable","best"]',
+        pristine,
+    )
+    native_catalogues = set(re.findall(rf"({_ID})\(\)\.opus48", pristine))
+    assert len(native_catalogues) == 1
+    stubs[native_catalogues.pop()] = '()=>({opus48:"provider-native-opus"})'
+    picker, _ = _function_at(
+        pristine, pristine.index("model options: dropping duplicate row")
+    )
+    stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
+    bindings = (
+        ";".join(
+            f"globalThis[{json.dumps(name)}]={value}" for name, value in stubs.items()
+        )
+        + ";"
+    )
     script = (
         'const assert=require("node:assert/strict");'
         + catalogue
-        + 'let allowed=true;const Ew=()=>allowed,L0="synthetic",'
-        'wPK=["claude-opus-4-8"],LyH=["sonnet","opus","haiku","fable","best"],'
-        'N5=()=>({opus48:"provider-native-opus"}),UX$=()=>[{value:null},'
-        '{value:"custom-model"}],qK=(m)=>m,Yl=()=>"opus",YD6=()=>false,'
-        'N5H=()=>false,aM9=()=>false,Nj=()=>false,rU=()=>false,VL=()=>false,'
-        'G7=(m)=>m,KA=(m)=>m,s68=()=>null,tO=()=>"firstParty",'
-        'gd6=()=>"inherit",bV=({mainLoopModel:m})=>m;'
+        + "let allowed=true;"
+        + bindings
         + resume
         + resolver
-        + f"const models={schema};"
+        + f"const models={schema},resumeModel={resume_name},resolveModel={resolver_name};"
+        + f"const aliases={aliases},nativeModels={native_models};"
         'const message=(model)=>({type:"assistant",message:{model}});'
         'delete process.env.CLAUDE_CODE_SUBAGENT_MODEL;'
         'for(const entry of _ccMultiProviderCatalog){'
         'for(const model of [entry.value,entry.value.split(":")[1]])'
-        'assert.deepEqual(lR9([message(model)]),{kind:"ok",model:entry.value});'
+        'assert.deepEqual(resumeModel([message(model)]),{kind:"ok",model:entry.value});'
         'assert(models.includes(entry.value));'
-        'assert.equal(Xe(undefined,"claude-opus-4-8",entry.value),entry.value);}'
-        'for(const model of [...LyH,...wPK,"provider-native-opus","custom-model"])'
+        'assert.equal(resolveModel(undefined,"claude-opus-4-8",entry.value),entry.value);}'
+        'for(const model of [...aliases,...nativeModels,"provider-native-opus","custom-model"])'
         'assert(models.includes(model));'
         'assert(!models.includes("openai:not-a-model"));'
         'assert(!models.includes("gpt-6-astra"));'
-        'assert.deepEqual(lR9([message("claude-opus-4-8")]),'
+        'assert.deepEqual(resumeModel([message("claude-opus-4-8")]),'
         '{kind:"ok",model:"claude-opus-4-8"});'
-        'assert.equal(lR9([message("unknown")]).reason,"unknown_family");'
-        'assert.equal(lR9([message("synthetic")]).kind,"none");'
-        'assert.equal(lR9([message("gpt-6-astra"),{...message("unknown"),isMeta:true}]).model,'
+        'assert.equal(resumeModel([message("unknown")]).reason,"unknown_family");'
+        'assert.equal(resumeModel([message("synthetic")]).kind,"none");'
+        'assert.equal(resumeModel([message("gpt-6-astra"),{...message("unknown"),isMeta:true}]).model,'
         '"openai:gpt-6-astra");'
-        'allowed=false;assert.deepEqual(lR9([message("gpt-6-astra")]),'
+        'allowed=false;assert.deepEqual(resumeModel([message("gpt-6-astra")]),'
         '{kind:"declined",model:"openai:gpt-6-astra",reason:"not_allowed"});'
         'allowed=true;_ccMultiProviderCatalog.push({value:"other:gpt-6-astra"});'
-        'assert.equal(lR9([message("gpt-6-astra")]).reason,"unknown_family");'
-        'assert.equal(lR9([message("openai:gpt-6-astra")]).model,"openai:gpt-6-astra");'
+        'assert.equal(resumeModel([message("gpt-6-astra")]).reason,"unknown_family");'
+        'assert.equal(resumeModel([message("openai:gpt-6-astra")]).model,"openai:gpt-6-astra");'
     )
     result = subprocess.run(  # noqa: S603 - local runtime regression
         [node, "-e", script], capture_output=True, text=True, check=False

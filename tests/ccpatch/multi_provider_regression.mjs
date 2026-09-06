@@ -6,6 +6,114 @@ const helperPath = process.argv[2];
 assert.ok(helperPath, "exact injected helper path is required");
 const helper = fs.readFileSync(helperPath, "utf8");
 
+const snippets = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const bindings = snippets.bindings;
+const normalize = (value) => JSON.parse(JSON.stringify(value));
+const observed = { factories: [], requests: [], logs: [], allowed: [] };
+let allowRestored = true;
+let tokenFailure;
+const tokenClient = {
+  beta: {
+    messages: {
+      countTokens: async (request) => {
+        observed.requests.push(request);
+        if (tokenFailure) throw tokenFailure;
+        return { input_tokens: 23 };
+      },
+    },
+  },
+};
+const portableContext = vm.createContext({
+  process: { env: {} },
+  WRAP: (_messages, _tools, callback) => callback(),
+  DEFAULT: () => "claude-default",
+  [bindings.LF]: async (options) => {
+    observed.factories.push(options);
+    return tokenClient;
+  },
+  [bindings.KA]: (model) => model,
+  [bindings.RAW]: ["keep", "drop"],
+  [bindings.ij6]: new Set(["keep"]),
+  [bindings.N]: (message) => observed.logs.push(message),
+  [bindings.ALLOW]: (model) => {
+    observed.allowed.push(model);
+    return allowRestored;
+  },
+  Yl: () => "native-setting",
+  YD6: () => false,
+  N5H: () => false,
+  QOA: () => false,
+  qK: (model) => model,
+  NATIVE_FAMILY: () => true,
+  [bindings.ALIASES]: ["sonnet", "best", "opus[1m]", "opusplan"],
+  [bindings.FIRST_PARTY]: ["claude-native", "sonnet"],
+  [bindings.MODELS]: () => ({ fable5: "claude-configured" }),
+  [bindings.NATIVE_PICKER]: () => [{ value: null }, { value: "gateway:native" }],
+  [bindings.k]: {
+    enum: (values) => ({
+      values,
+      optional() {
+        return this;
+      },
+      describe() {
+        return this;
+      },
+    }),
+  },
+});
+vm.runInContext(
+  `${helper};${snippets.tokens};globalThis.restore=function(_){${snippets.resume}};globalThis.schema=({${snippets.agent}}).model;globalThis.tokens=TOKENS;`,
+  portableContext,
+);
+assert.equal(await portableContext.tokens([], [], "claude-native"), 23);
+assert.equal(await portableContext.tokens([], [], undefined), 23);
+assert.deepEqual(
+  observed.factories.map((options) => options.model),
+  ["claude-native", "claude-default"],
+);
+assert.deepEqual(
+  observed.requests.map((request) => request.model),
+  ["claude-native", "claude-default"],
+);
+tokenFailure = Error("native failure");
+assert.equal(await portableContext.tokens([], [], "claude-native"), null);
+assert.equal(observed.logs.length, 1);
+await assert.rejects(portableContext.tokens([], [], "zai:glm-5.3"), {
+  code: "EPROVIDERCREDENTIAL",
+});
+assert.equal(observed.factories.length, 3, "external preflight precedes native client creation");
+for (const model of ["glm-5.3", "zai:glm-5.3"]) {
+  allowRestored = true;
+  assert.deepEqual(normalize(portableContext.restore({ message: { model } })), {
+    kind: "ok",
+    model: "zai:glm-5.3",
+  });
+  allowRestored = false;
+  assert.deepEqual(normalize(portableContext.restore({ message: { model } })), {
+    kind: "declined",
+    model: "zai:glm-5.3",
+    reason: "not_allowed",
+  });
+}
+assert.deepEqual(observed.allowed, Array(4).fill("zai:glm-5.3"));
+assert.equal(portableContext.restore({ message: { model: "claude-native" } }).kind, "native");
+const schemaValues = Array.from(portableContext.schema.values);
+for (const model of [
+  "sonnet",
+  "best",
+  "opus[1m]",
+  "opusplan",
+  "claude-native",
+  "claude-configured",
+  "gateway:native",
+  "zai:glm-5.3",
+  "openai:gpt-6-astra",
+]) {
+  assert.ok(schemaValues.includes(model), model);
+}
+assert.equal(schemaValues.includes(null), false);
+assert.equal(new Set(schemaValues).size, schemaValues.length);
+
 const credentials = {};
 const reads = [];
 const environment = new Proxy(credentials, {
@@ -64,8 +172,7 @@ const ordinaryTools = [
   { name: "Read" },
   { name: "mcp__docs__search", isMcp: true },
 ];
-const allowedTools = (model) =>
-  ordinaryTools.filter((tool) => api.toolAllowed(model, tool));
+const allowedTools = (model) => ordinaryTools.filter((tool) => api.toolAllowed(model, tool));
 assert.deepEqual(
   Array.from(allowedTools("claude-sonnet-4-6"), ({ name }) => name),
   ["WebSearch", "WebFetch", "Read", "mcp__docs__search"],
@@ -83,18 +190,9 @@ for (const [model, label, domain] of [
   ["zai:glm-5.3", "GLM 5.3", "z.ai"],
   ["minimax:MiniMax-M3", "MiniMax M3", "minimax.io"],
 ]) {
-  assert.deepEqual(
-    { ...api.attribution(model, "Claude") },
-    { label, domain },
-    model,
-  );
+  assert.deepEqual({ ...api.attribution(model, "Claude") }, { label, domain }, model);
 }
-for (const model of [
-  "claude-sonnet-4-6",
-  "future-native-model",
-  "gateway:model",
-  undefined,
-]) {
+for (const model of ["claude-sonnet-4-6", "future-native-model", "gateway:model", undefined]) {
   assert.deepEqual(
     { ...api.attribution(model, "Claude Opus 4.8") },
     { label: "Claude Opus 4.8", domain: "anthropic.com" },
@@ -122,14 +220,7 @@ for (const [model, limits] of expectedLimits) {
   assert.ok(info, model);
   assert.deepEqual([info.contextWindow, info.maxOutputTokens], limits, model);
 }
-for (const model of [
-  undefined,
-  null,
-  42,
-  "claude-sonnet-4-6",
-  "zai:unknown",
-  "Zai:glm-5.3",
-]) {
+for (const model of [undefined, null, 42, "claude-sonnet-4-6", "zai:unknown", "Zai:glm-5.3"]) {
   assert.equal(api.catalogInfo(model), null, String(model));
 }
 assert.deepEqual(
@@ -197,10 +288,7 @@ assert.equal(nativeRoute[2], nativeOptions);
 assert.deepEqual(reads, []);
 
 credentials.CC_KIMI_AUTH_TOKEN = " first-token ";
-assert.throws(
-  () => api.route(nativeClient, { model: "kimi:kimi-k2.7-code" }),
-  /not a constructor/,
-);
+assert.throws(() => api.route(nativeClient, { model: "kimi:kimi-k2.7-code" }), /not a constructor/);
 assert.equal(constructed.length, 0);
 SDK = FakeSDK;
 
@@ -222,11 +310,7 @@ const options = Object.freeze({
     "x-safe-looking-but-not-allowlisted": "drop-me",
   }),
 });
-const [firstClient, firstOutbound, firstOptions] = api.route(
-  nativeClient,
-  request,
-  options,
-);
+const [firstClient, firstOutbound, firstOptions] = api.route(nativeClient, request, options);
 assert.equal(firstOutbound.model, "kimi-k2.7-code");
 assert.ok(!("fallback_credit_token" in firstOutbound));
 assert.equal(request.fallback_credit_token, "external-credit");
@@ -256,9 +340,7 @@ const [, repeatedOutbound] = api.route(nativeClient, request, options);
 assert.notEqual(repeatedOutbound, firstOutbound);
 assert.equal(constructed.length, 1);
 await Promise.all(
-  Array.from({ length: 20 }, async () =>
-    api.route(nativeClient, { model: "kimi:kimi-k2.7-code" }),
-  ),
+  Array.from({ length: 20 }, async () => api.route(nativeClient, { model: "kimi:kimi-k2.7-code" })),
 );
 assert.equal(constructed.length, 1);
 
@@ -280,10 +362,7 @@ const changedNativeClient = Object.freeze({
 const [transportClient] = api.route(changedNativeClient, request, options);
 assert.notEqual(transportClient, secondClient);
 assert.notEqual(transportClient.options.fetchOptions, changedFetchOptions);
-assert.equal(
-  transportClient.options.fetchOptions.dispatcher,
-  "rotated-proxy-and-ca",
-);
+assert.equal(transportClient.options.fetchOptions.dispatcher, "rotated-proxy-and-ca");
 assert.equal(constructed.length, 3);
 const changedTimeoutClient = Object.freeze({
   ...changedNativeClient,
@@ -385,8 +464,7 @@ for (const [unavailable, missing] of [
   Object.assign(credentials, unavailable);
   assert.throws(
     () => api.route(nativeClient, { model: "openai:gpt-5.6-sol" }),
-    (error) =>
-      error.code === "EPROVIDERCREDENTIAL" && error.message.includes(missing),
+    (error) => error.code === "EPROVIDERCREDENTIAL" && error.message.includes(missing),
   );
   delete credentials.CC_OPENAI_PROXY_AUTH_TOKEN;
   delete credentials.CC_OPENAI_AVAILABLE;
@@ -433,10 +511,7 @@ const [countClient, countRequest, countOptions] = api.route(
   Object.freeze({ model: "zai:glm-5.2", messages: [] }),
   Object.freeze({ headers: { Authorization: "never-forward" } }),
 );
-const countResult = await countClient.beta.messages.countTokens(
-  countRequest,
-  countOptions,
-);
+const countResult = await countClient.beta.messages.countTokens(countRequest, countOptions);
 assert.equal(countResult.input_tokens, 17);
 assert.equal(countClient.calls[0][0], "countTokens");
 assert.equal(countClient.calls[0][1], countRequest);
@@ -446,8 +521,7 @@ assert.equal(api.inputTokens("zai:glm-5.2", countResult), 17);
 assert.throws(
   () => api.inputTokens("zai:glm-5.2", {}),
   (error) =>
-    error.code === "EPROVIDERINCOMPATIBLE" &&
-    error.message.includes("numeric input_tokens"),
+    error.code === "EPROVIDERINCOMPATIBLE" && error.message.includes("numeric input_tokens"),
 );
 assert.equal(api.inputTokens("claude-sonnet-4-6", {}), undefined);
 

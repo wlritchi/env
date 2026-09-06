@@ -6,6 +6,8 @@ The integration tests apply COMPACT_SESSION to a real binary.
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -49,13 +51,26 @@ _DEV_CHANNEL_SRC = (
 _MULTI_PROVIDER_RESUME_SRC = (
     'let f=_.message.model,A=Yl();if(YD6(A)&&!N5H(f)&&QOA(A,qK(f)))'
     'return{kind:"mode_dependent_setting"};'
+    'let reason=!(NATIVE_FAMILY(f))?"unknown_family":!ALLOW(f)?"not_allowed":null;'
+    'return{kind:"native",model:f,reason};'
+)
+_MULTI_PROVIDER_AGENT_IDENTIFIERS_SRC = (
+    'ALIASES=["sonnet","opus","haiku","fable","best","sonnet[1m]",'
+    '"opus[1m]","fable[1m]","opusplan"];'
+    'FIRST_PARTY=Object.values(TABLE).map((ENTRY)=>ENTRY.firstParty);'
+    'process.env.ANTHROPIC_DEFAULT_FABLE_MODEL||MODELS().fable5;'
+    'function NATIVE_PICKER(FLAG=!1){let SEEN=new Set,'
+    'ROWS=OPTIONS(FLAG).filter((ROW)=>{if(ROW.value===null)return!0;'
+    'if(SEEN.has(ROW.value))return LOG(`model options: dropping duplicate row ${ROW.value}`);'
+    'SEEN.add(ROW.value);return!0});return ROWS}'
 )
 _MULTI_PROVIDER_AGENT_SRC = (
     'model:k.enum(["sonnet","opus","haiku","fable"]).optional().describe('
     '"Optional model override for this agent. Takes precedence over frontmatter.")'
 )
 _MULTI_PROVIDER_SRC = (
-    _MULTI_PROVIDER_RESUME_SRC
+    _MULTI_PROVIDER_AGENT_IDENTIFIERS_SRC
+    + _MULTI_PROVIDER_RESUME_SRC
     + _MULTI_PROVIDER_AGENT_SRC
     + "},COST_HELPER=READY;COSTS={[modelKey(NATIVE.firstParty)]:NATIVE_COST};"
     "let OPT={apiKey:key};return new SDK(OPT)}async function NEXT(){}"
@@ -815,12 +830,46 @@ def test_multi_provider_sdk_context_anchors_fail_loudly() -> None:
             MULTI_PROVIDER_SDK.apply(source)
 
 
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        'ALIASES=["sonnet","opus","haiku","fable","best","sonnet[1m]","opus[1m]","fable[1m]","opusplan"]',
+        "FIRST_PARTY=Object.values(TABLE).map((ENTRY)=>ENTRY.firstParty)",
+        "process.env.ANTHROPIC_DEFAULT_FABLE_MODEL||MODELS().fable5",
+        'function NATIVE_PICKER(FLAG=!1){let SEEN=new Set,ROWS=OPTIONS(FLAG).filter((ROW)=>{if(ROW.value===null)return!0;if(SEEN.has(ROW.value))return LOG(`model options: dropping duplicate row ',
+    ],
+)
+@pytest.mark.parametrize("ambiguous", [False, True], ids=["missing", "ambiguous"])
+def test_multi_provider_agent_discovery_fails_closed(
+    anchor: str, ambiguous: bool
+) -> None:
+    assert anchor in _MULTI_PROVIDER_SRC
+    source = (
+        _MULTI_PROVIDER_SRC + ";" + anchor
+        if ambiguous
+        else _MULTI_PROVIDER_SRC.replace(anchor, "changed", 1)
+    )
+    with pytest.raises(PatchError, match="identifier discovery: expected one match"):
+        MULTI_PROVIDER_SDK.apply(source)
+
+
+def test_multi_provider_resume_requires_allowlist_anchor() -> None:
+    source = _MULTI_PROVIDER_SRC.replace(
+        '!ALLOW(f)?"not_allowed"', '!ALLOW(f)?"changed"'
+    )
+    with pytest.raises(PatchError, match="multi-provider-sdk"):
+        MULTI_PROVIDER_SDK.apply(source)
+
+
 def test_multi_provider_sdk_required_no_op_fails() -> None:
     with pytest.raises(PatchError, match="multi-provider-sdk"):
         MULTI_PROVIDER_SDK.apply("unrelated source")
 
 
-def test_multi_provider_sdk_regression_harness(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "renamed", [False, True], ids=["original", "dollar-identifiers"]
+)
+def test_multi_provider_sdk_regression_harness(tmp_path: Path, renamed: bool) -> None:
     runtime = shutil.which("node") or shutil.which("bun")
     if runtime is None:
         pytest.skip("no node/bun to run the multi-provider regression harness")
@@ -840,8 +889,54 @@ def test_multi_provider_sdk_regression_harness(tmp_path: Path) -> None:
         timeout=30,
     )
     assert generated.returncode == 0, generated.stderr
+    bindings = {
+        name: f"${index}$" if renamed else name
+        for index, name in enumerate(
+            (
+                "ALIASES",
+                "FIRST_PARTY",
+                "MODELS",
+                "NATIVE_PICKER",
+                "k",
+                "ALLOW",
+                "EFFECTIVE",
+                "LF",
+                "KA",
+                "RAW",
+                "ij6",
+                "N",
+            )
+        )
+    }
+    source = re.sub(
+        r"[\w$]+", lambda match: bindings.get(match[0], match[0]), _MULTI_PROVIDER_SRC
+    )
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    snippets = tmp_path / "patched_snippets.json"
+    snippets.write_text(
+        json.dumps(
+            {
+                "bindings": bindings,
+                "tokens": patched[
+                    patched.index("async function TOKENS(") : patched.index(
+                        "function ATTR()"
+                    )
+                ],
+                "resume": patched[
+                    patched.index("let f=_.message.model;") : patched.index(
+                        f"model:{bindings['k']}.enum"
+                    )
+                ],
+                "agent": patched[
+                    patched.index(f"model:{bindings['k']}.enum") : patched.index(
+                        "},COST_HELPER"
+                    )
+                ],
+            }
+        )
+    )
     proc = subprocess.run(  # noqa: S603 - runtime is which()-resolved node/bun
-        [runtime, str(harness), str(helper)],
+        [runtime, str(harness), str(helper), str(snippets)],
         capture_output=True,
         text=True,
         timeout=30,
