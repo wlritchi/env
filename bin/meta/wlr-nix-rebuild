@@ -6,16 +6,20 @@ if ! command -v nix >/dev/null 2>&1; then
     exit 1
 fi
 
-# Determine which flake to use - prefer private overlay if it exists.
-# When building from the overlay, override its `wlrenv` input to point at the
-# local public checkout so we don't need to `nix flake update` on every change.
+# Use one committed public revision for the configuration and tool launchers.
+public_rev="$(git -C "$WLR_ENV_PATH" rev-parse --verify 'HEAD^{commit}')"
+public_ref="git+file://$WLR_ENV_PATH?rev=$public_rev"
+
+# Keep private working-tree changes visible without updating its lock file.
 PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
 override_args=()
 if [[ -d "$PRIVATE_ENV_PATH" ]]; then
     FLAKE_PATH="$PRIVATE_ENV_PATH"
-    override_args=(--override-input wlrenv "path:$WLR_ENV_PATH")
+    flake_ref="$FLAKE_PATH"
+    override_args=(--override-input wlrenv "$public_ref")
 else
     FLAKE_PATH="$WLR_ENV_PATH"
+    flake_ref="$public_ref"
 fi
 
 cd "$FLAKE_PATH"
@@ -47,11 +51,11 @@ home_manager=(
     nix
     run
     --impure
-    "path:$WLR_ENV_PATH#home-manager"
+    "$public_ref#home-manager"
     --
 )
 
-"${home_manager[@]}" switch --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
+"${home_manager[@]}" switch --impure --flake "${flake_ref}#default" ${override_args[@]+"${override_args[@]}"}
 
 # On macOS, also run darwin-rebuild for system-level config (Homebrew casks, etc.)
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -59,11 +63,11 @@ if [ "$(uname -s)" = "Darwin" ]; then
         nix
         run
         --impure
-        "path:$WLR_ENV_PATH#darwin-rebuild"
+        "$public_ref#darwin-rebuild"
         --
     )
     # Build first (no sudo needed) to check if anything changed
-    "${nix_darwin[@]}" build --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
+    "${nix_darwin[@]}" build --impure --flake "${flake_ref}#default" ${override_args[@]+"${override_args[@]}"}
 
     # Compare new build to current system - only activate if different
     NEW_SYSTEM="$(readlink ./result)"
@@ -74,7 +78,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
         # default; preserve them so the impure flake sees the same environment
         # as the unprivileged build above.
         sudo --preserve-env=NIX_HOSTNAME,NIX_SYSTEM,NIX_CONFIG,HOME \
-            "${nix_darwin[@]}" switch --impure --flake "${FLAKE_PATH}#default" ${override_args[@]+"${override_args[@]}"}
+            "${nix_darwin[@]}" switch --impure --flake "${flake_ref}#default" ${override_args[@]+"${override_args[@]}"}
     else
         echo "nix-darwin: no changes to activate"
     fi
