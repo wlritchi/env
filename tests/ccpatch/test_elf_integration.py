@@ -26,6 +26,7 @@ from wlrenv.ccpatch.patches import (
     COMPACT_SESSION,
     MULTI_PROVIDER_SDK,
     PatchError,
+    default_patch_sets,
 )
 
 
@@ -130,18 +131,18 @@ def test_semantic_function_discovery_accepts_dollar_names(name: str) -> None:
 def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
-    if not re.search(r'VERSION:"2\.1\.(?:174|175|176)"', source):
+    if not re.search(r'VERSION:"2\.1\.(?:174|175|176|177|178|179)"', source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.176"
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.179"
             )
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.176")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.179")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.176"
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.179"
             )
-        pytest.skip("installed Claude Code 2.1.174-2.1.176 binary is already patched")
+        pytest.skip("installed Claude Code 2.1.174-2.1.179 binary is already patched")
     return source, BACKGROUND_PROVIDER_ENV.apply(source)
 
 
@@ -154,11 +155,11 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
         pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
     source = _entry_source(path.read_bytes())
     if (
-        not re.search(r'VERSION:"2\.1\.(?:174|175|176)"', source)
+        not re.search(r'VERSION:"2\.1\.(?:174|175|176|177|178|179)"', source)
         or "providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.176"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.179"
         )
 
     try:
@@ -300,6 +301,75 @@ def test_real_source_secures_background_provider_environment(
     )
 
 
+def test_178_preserves_upstream_security_and_compaction_fallback(
+    binary_info: tuple[bytes, bool],
+) -> None:
+    source = _entry_source(binary_info[0])
+    if not re.search(r'VERSION:"2\.1\.(?:178|179)"', source):
+        pytest.skip("requires Claude Code 2.1.178-2.1.179")
+    patched = source
+    for patch_set in default_patch_sets((2, 1, 178)):
+        patched = patch_set.apply(patched)
+
+    for anchor in (
+        "Auto mode classifier transcript too long, falling back",
+        rf'function {_ID}\({_ID}\)\{{let {_ID}=new Set,{_ID}=new Set,{_ID}=new Set,{_ID}=!1;for\(let {_ID} of {_ID}\?\?\[\]\)',
+        "Tool use is not allowed during compaction",
+        "CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR must be a valid",
+    ):
+        original, replacement = _same_function(source, patched, anchor)
+        assert replacement == original
+
+    for label in ("compact", "reactive-compact"):
+        fallback = _match(
+            rf'forkLabel:"{label}",maxTurns:1,fallbackModel:{_ID}\([^;]+?maxOutputTokens:',
+            source,
+        )[0]
+        assert fallback in patched
+    retry_chain = _match(
+        rf'let {_ID}={_ID}\({_ID},{_ID}\.options\.fallbackModel\),'
+        rf'{_ID}=\[{_ID},\.\.\.{_ID}\.filter\(\({_ID}\)=>{_ID}!=={_ID}\)\],{_ID}=0;while\(!0\)',
+        source,
+    )[0]
+    assert retry_chain in patched
+
+    native_builder, builder = _same_function(
+        source,
+        patched,
+        rf'\.\.\.{_ID}\.env,CLAUDE_CODE_SESSION_KIND:"bg",CLAUDE_BG_BACKEND:"daemon"',
+    )
+    scrub = _match(
+        rf'else if\({_ID}\.ANTHROPIC_BASE_URL\)delete {_ID}\.ANTHROPIC_AUTH_TOKEN;',
+        native_builder,
+    )[0]
+    assert scrub in builder
+    assert builder.index(scrub) < builder.rindex("Object.entries(_ccProviderPayload)")
+    assert "_ccProviderSnapshotFromEnv" not in patched
+
+
+def test_179_preserves_clientdata_and_partial_stream_recovery(
+    binary_info: tuple[bytes, bool],
+) -> None:
+    source = _entry_source(binary_info[0])
+    if 'VERSION:"2.1.179"' not in source:
+        pytest.skip("requires Claude Code 2.1.179")
+    patched = source
+    for patch_set in default_patch_sets((2, 1, 179)):
+        patched = patch_set.apply(patched)
+    native, replacement = _same_function(
+        source,
+        patched,
+        rf'return {_ID}==="env"\|\|{_ID}==="settings"\|\|{_ID}==="clientdata"',
+    )
+    assert replacement.startswith(native[:-1] + "||(")
+    recovery = _match(
+        rf'if\({_ID}&&{_ID}\)\{{let {_ID}={_ID}\.some\([^\n]+?'
+        rf'tengu_streaming_partial_finalized[^\n]+?break {_ID}\}}',
+        source,
+    )[0]
+    assert recovery in patched
+
+
 def test_real_source_routes_multi_provider_sdk(
     binary_info: tuple[bytes, bool],
 ) -> None:
@@ -415,7 +485,7 @@ def test_real_source_routes_multi_provider_sdk(
     native_compact, compact_source = _same_function(
         source,
         patched,
-        rf'return ({_ID})==="env"\|\|\1==="settings"\|\|\1==="model-default"',
+        rf'return ({_ID})==="env"\|\|\1==="settings"\|\|(?:\1==="clientdata"\|\|)?\1==="model-default"',
     )
     compact_vars = _match(
         rf'function {_ID}\(({_ID}),{_ID}\)\{{let\{{source:({_ID})\}}', native_compact
@@ -532,7 +602,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
         pristine, pristine.index("model options: dropping duplicate row")
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
-    if re.search(r'VERSION:"2\.1\.(?:175|176)"', pristine):
+    if re.search(r'VERSION:"2\.1\.(?:175|176|177|178|179)"', pristine):
         denied = _match(
             rf'if\(!({_ID})\({_ID}\)\)return {_ID}\({_ID}\);', native_resolver
         )

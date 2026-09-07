@@ -1117,11 +1117,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 177),
+    max_version=(2, 1, 180),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.176) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.179) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1716,7 +1716,7 @@ _MULTI_PROVIDER_COMPACTION_SOURCE = re.compile(
     rf'function (?P<function>{_ID})\((?P<model>{_ID}),(?P<setting>{_ID})\)\{{let\{{'
     rf'source:(?P<source>{_ID})\}}=(?P<resolver>{_ID})\((?P=model),(?P=setting)\);'
     rf'return (?P=source)==="env"\|\|(?P=source)==="settings"\|\|'
-    rf'(?P=source)==="model-default"\}}'
+    rf'(?:(?P=source)==="clientdata"\|\|)?(?P=source)==="model-default"\}}'
 )
 
 
@@ -2028,7 +2028,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 177),
+    max_version=(2, 1, 180),
     requires_version=True,
 )
 

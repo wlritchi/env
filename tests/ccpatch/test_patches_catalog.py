@@ -235,7 +235,10 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 174), True),
         ((2, 1, 175), True),
         ((2, 1, 176), True),
-        ((2, 1, 177), False),
+        ((2, 1, 177), True),
+        ((2, 1, 178), True),
+        ((2, 1, 179), True),
+        ((2, 1, 180), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -651,6 +654,26 @@ def test_multi_provider_agent_catalogue_accepts_template_description() -> None:
     patched = MULTI_PROVIDER_SDK.apply(source)
     assert "model:k.enum([...new Set(" in patched
     assert "describe(`Optional model override" in patched
+
+
+@pytest.mark.parametrize("source_name", ("clientdata", "unknown"))
+def test_multi_provider_compaction_source_preserves_known_branch(
+    source_name: str,
+) -> None:
+    source = _MULTI_PROVIDER_SRC.replace(
+        'SOURCE==="model-default"',
+        f'SOURCE==="{source_name}"||SOURCE==="model-default"',
+    )
+    if source_name == "unknown":
+        with pytest.raises(PatchError, match="mark-provider-compaction-source"):
+            MULTI_PROVIDER_SDK.apply(source)
+        return
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert (
+        'SOURCE==="env"||SOURCE==="settings"||SOURCE==="clientdata"||'
+        'SOURCE==="model-default"||(SOURCE==="auto"&&'
+        '_ccMultiProviderCatalogInfo(MODEL)!==null)'
+    ) in patched
 
 
 def test_multi_provider_sdk_transforms_complete_fixture() -> None:
