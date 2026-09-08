@@ -1,37 +1,175 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env -S uv run -qs
+# vim: filetype=python
 
-# Dependencies: ssh-keygen, ssh-add, awk
-#
-# Git invokes this as gpg.ssh.program: wlr-git-ssh-sign -Y sign -n git -f <key> <buffer>
-# ssh-keygen gives only one passphrase attempt when it must decrypt the key
-# file, so a typo fails the commit. To avoid that, load the signing key into
-# ssh-agent first: ssh-add gives multiple passphrase attempts, and once the
-# key is loaded, later signatures need only a security-key touch. If ssh-add
-# fails (no agent, prompt cancelled), fall through to plain ssh-keygen, which
-# gives a single passphrase attempt.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
 
-keyfile=''
-prev=''
-for arg in "$@"; do
-    if [ "$prev" = '-f' ]; then
-        keyfile="$arg"
-    fi
-    prev="$arg"
-done
+# Dependencies: git, wayprompt, ssh-keygen, ssh-add.
 
-if [ -n "$keyfile" ]; then
-    pubfile="$keyfile"
-    if [ "${pubfile%.pub}" = "$pubfile" ] && [ -f "$pubfile.pub" ]; then
-        pubfile="$pubfile.pub"
-    fi
-    privfile="${pubfile%.pub}"
-    if [ -f "$pubfile" ] && [ -f "$privfile" ]; then
-        fingerprint="$(ssh-keygen -lf "$pubfile" | awk '{print $2}')" || fingerprint=''
-        if [ -n "$fingerprint" ] && ! ssh-add -l 2>/dev/null | grep -qF "$fingerprint"; then
-            ssh-add "$privfile" || true
-        fi
-    fi
-fi
+import getopt
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
-exec ssh-keygen "$@"
+
+def capture(args: list[str]) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(  # noqa: S603
+        args,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def git(*args: str) -> str:
+    result = capture(["git", *args])
+    return (
+        result.stdout.decode("utf-8", errors="replace").strip()
+        if result.returncode == 0
+        else ""
+    )
+
+
+def display(text: str) -> str:
+    # Escape control characters so payload text cannot hide dialog content.
+    return "".join(
+        c if c in "\n\t" or c.isprintable() else ascii(c)[1:-1] for c in text
+    )
+
+
+def description(payload: bytes) -> str:
+    headers, _, message = payload.decode("utf-8", errors="replace").partition("\n\n")
+    fields: dict[str, list[str]] = {}
+    for line in headers.splitlines():
+        if line and not line.startswith(" "):
+            key, _, value = line.partition(" ")
+            fields.setdefault(key, []).append(value)
+
+    def field(name: str) -> str:
+        return fields.get(name, [""])[0]
+
+    context = [
+        f"Repository: {git('rev-parse', '--show-toplevel') or git('rev-parse', '--absolute-git-dir') or '(not a repository)'}",
+        f"Working directory: {Path.cwd()}",
+        f"Branch: {git('symbolic-ref', '--quiet', '--short', 'HEAD') or '(detached or unavailable)'}",
+    ]
+    if field("tree") and field("author"):
+        context += [f"Author: {field('author')}", f"Committer: {field('committer')}"]
+        tree = field("tree")
+        parent = field("parent")
+        summary = ""
+        if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", tree) and (
+            not parent or re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", parent)
+        ):
+            # Compare the signed tree with its first parent, not the live index.
+            base = parent or git("hash-object", "-t", "tree", "--stdin")
+            if base:
+                summary = git(
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--stat=72,40,12",
+                    base,
+                    tree,
+                    "--",
+                )
+        context += [
+            "Changes (against first parent, or empty tree):",
+            summary or "(no changes or summary unavailable)",
+        ]
+    elif field("object") and field("tag"):
+        context += [
+            f"Tag: {field('tag')}",
+            f"Tagger: {field('tagger')}",
+            f"Target: {field('type')} {field('object')}",
+        ]
+    else:
+        context.append("Unrecognized signing payload (full text below):")
+        message = payload.decode("utf-8", errors="replace")
+    return display("\n".join([*context, "", "Message:", message]))
+
+
+def load_key(keyfile: str) -> None:
+    public = Path(keyfile)
+    if public.suffix != ".pub" and Path(f"{public}.pub").is_file():
+        public = Path(f"{public}.pub")
+    private = public.with_suffix("") if public.suffix == ".pub" else public
+    if not public.is_file() or not private.is_file():
+        return
+    fingerprint = capture(["ssh-keygen", "-lf", str(public)])
+    parts = fingerprint.stdout.split()
+    if fingerprint.returncode or len(parts) < 2:
+        return
+    keys = capture(["ssh-add", "-l"])
+    if keys.returncode or parts[1] not in keys.stdout.split():
+        # ssh-add permits passphrase retries. Keep ssh-keygen as the fallback.
+        subprocess.run(["ssh-add", str(private)], check=False)  # noqa: S603, S607
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    # Parse option arguments before looking for the signing operation.
+    options, files = getopt.gnu_getopt(
+        args,
+        "ABCD:E:F:GI:J:KL:M:N:O:P:QR:ST:UV:W:XY:Z:a:b:cde:f:ghiklm:n:opqr:s:t:uvwyz:",
+    )
+    values = dict(options)
+    if values.get("-Y") != "sign":
+        os.execvp("ssh-keygen", ["ssh-keygen", *args])  # noqa: S606, S607
+    forwarded = [
+        item
+        for option, value in options
+        for item in ([option, value] if value else [option])
+    ]
+    stdin_payload: bytes | None = None
+    with tempfile.TemporaryDirectory(prefix="git-sign-") as directory:
+        snapshots: list[str] = []
+        for index, filename in enumerate(files or ["-"]):
+            if filename == "-":
+                if stdin_payload is None:
+                    stdin_payload = sys.stdin.buffer.read()
+                payload = stdin_payload
+                snapshots.append("-")
+            else:
+                original = Path(filename).absolute()
+                payload = original.read_bytes()
+                snapshot = Path(directory) / str(index)
+                snapshot.write_bytes(payload)
+                # Keep ssh-keygen's output path and overwrite confirmation behavior.
+                Path(f"{snapshot}.sig").symlink_to(f"{original}.sig")
+                snapshots.append(str(snapshot))
+            confirmed = capture(
+                [
+                    "wayprompt",
+                    "--title",
+                    "Confirm Git signature",
+                    "--description",
+                    description(payload),
+                    "--button-ok",
+                    "Sign",
+                    "--button-cancel",
+                    "Cancel",
+                ]
+            )
+            if confirmed.returncode:
+                return 1
+        if keyfile := values.get("-f"):
+            load_key(keyfile)
+        return subprocess.run(  # noqa: S603
+            ["ssh-keygen", *forwarded, *snapshots],  # noqa: S607
+            input=stdin_payload,
+            check=False,
+        ).returncode
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except (OSError, getopt.GetoptError) as error:
+        sys.exit(f"wlr-git-ssh-sign: {error}")
