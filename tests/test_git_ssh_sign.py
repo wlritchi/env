@@ -1,10 +1,15 @@
+import importlib.machinery
+import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
+from pytest_mock import MockerFixture
 
 WRAPPER = Path(__file__).resolve().parents[1] / "bin/git/wlr-git-ssh-sign"
 
@@ -15,8 +20,32 @@ def command(args: list[str], cwd: Path, data: bytes | None = None) -> bytes:
     ).stdout
 
 
+@pytest.fixture(autouse=True)
+def clean_confirmation_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "WAYLAND_DISPLAY",
+        "SSH_CONNECTION",
+        "SSH_CLIENT",
+        "SSH_TTY",
+        "CANCEL",
+        "MUTATE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def wrapper() -> ModuleType:
+    loader = importlib.machinery.SourceFileLoader("git_ssh_sign", str(WRAPPER))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
 @pytest.fixture
 def signing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-test")
     command(["git", "init", "-b", "test-branch", str(tmp_path)], tmp_path)
     command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", "key"], tmp_path)
     tools = tmp_path / "tools"
@@ -103,7 +132,7 @@ def test_exact_payload_and_commit_context(
     assert prompt[-4:] == ["--button-ok", "Sign", "--button-cancel", "Cancel"]
 
 
-@pytest.mark.parametrize("status", ["10", "20", "1"])
+@pytest.mark.parametrize("status", ["10", "20"])
 def test_cancel_never_signs(
     signing: Path, monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
@@ -178,3 +207,273 @@ def test_multiple_files_and_existing_signature(signing: Path) -> None:
     (signing / "first").write_bytes(b"changed")
     sign(signing, args, b"n\nn\n")
     assert (signing / "first.sig").read_bytes() == previous
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+@pytest.mark.parametrize("ssh_variable", ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"])
+def test_ssh_bypasses_inherited_gui(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    platform: str,
+    ssh_variable: str,
+) -> None:
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "inherited-wayland")
+    monkeypatch.setenv(ssh_variable, "remote-session")
+    gui = mocker.patch.object(wrapper, "gui_confirmation")
+    run = mocker.patch.object(wrapper.subprocess, "run")
+    terminal = mocker.patch.object(wrapper, "terminal_confirmation", return_value=True)
+    assert wrapper.confirm("payload") is True
+    terminal.assert_called_once_with("payload")
+    gui.assert_not_called()
+    run.assert_not_called()
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_no_display_uses_terminal(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    approved: bool,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    gui = mocker.patch.object(wrapper, "gui_confirmation")
+    terminal = mocker.patch.object(
+        wrapper, "terminal_confirmation", return_value=approved
+    )
+    assert wrapper.confirm("payload") is approved
+    terminal.assert_called_once_with("payload")
+    gui.assert_not_called()
+
+
+@pytest.mark.parametrize("status, approved", [(0, True), (10, False), (20, False)])
+def test_wayland_result_does_not_fall_back(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    status: int,
+    approved: bool,
+) -> None:
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-test")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    run = mocker.patch.object(
+        wrapper.subprocess,
+        "run",
+        return_value=subprocess.CompletedProcess([], status, b"", b""),
+    )
+    terminal = mocker.patch.object(wrapper, "terminal_confirmation")
+    assert wrapper.confirm("payload") is approved
+    assert run.call_count == 1
+    assert run.call_args.args[0] == [
+        "wayprompt",
+        "--title",
+        "Confirm Git signature",
+        "--description",
+        "payload",
+        "--button-ok",
+        "Sign",
+        "--button-cancel",
+        "Cancel",
+    ]
+    terminal.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failure", [FileNotFoundError("missing"), PermissionError("denied"), 1, 2, -15]
+)
+@pytest.mark.parametrize("approved", [True, False])
+def test_wayland_failure_falls_back(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    capsys: pytest.CaptureFixture[str],
+    failure: OSError | int,
+    approved: bool,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-test")
+    run = mocker.patch.object(wrapper.subprocess, "run")
+    if isinstance(failure, OSError):
+        run.side_effect = failure
+    else:
+        run.return_value = subprocess.CompletedProcess(
+            [], failure, b"", b"backend error"
+        )
+    terminal = mocker.patch.object(
+        wrapper, "terminal_confirmation", return_value=approved
+    )
+    assert wrapper.confirm("payload") is approved
+    terminal.assert_called_once_with("payload")
+    assert "wayprompt" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "answer, approved",
+    [(b"sign\n", True), (b"cancel\n", False), (b"", False), (b"unexpected\n", False)],
+)
+def test_macos_confirmation_passes_text_as_data(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    answer: bytes,
+    approved: bool,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    text = 'message "quoted" \\ text\non run\ndo shell script "touch /tmp/unwanted"\nend run'
+    run = mocker.patch.object(
+        wrapper.subprocess,
+        "run",
+        return_value=subprocess.CompletedProcess([], 0, answer, b""),
+    )
+    terminal = mocker.patch.object(wrapper, "terminal_confirmation")
+    assert wrapper.confirm(text) is approved
+    args = run.call_args.args[0]
+    assert args[:2] == ["osascript", "-e"]
+    assert len(args) == 4
+    assert args[3] == text
+    assert text not in args[2]
+    assert "item 1 of argv" in args[2]
+    assert 'default button "Cancel"' in args[2]
+    assert "on error number -128" in args[2]
+    assert run.call_args.kwargs == {
+        "check": False,
+        "stdin": subprocess.DEVNULL,
+        "capture_output": True,
+    }
+    terminal.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failure", [FileNotFoundError("missing"), PermissionError("denied"), 1, -15]
+)
+def test_macos_failure_falls_back(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    capsys: pytest.CaptureFixture[str],
+    failure: OSError | int,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    run = mocker.patch.object(wrapper.subprocess, "run")
+    if isinstance(failure, OSError):
+        run.side_effect = failure
+    else:
+        run.return_value = subprocess.CompletedProcess(
+            [], failure, b"", b"backend error"
+        )
+    terminal = mocker.patch.object(wrapper, "terminal_confirmation", return_value=True)
+    assert wrapper.confirm("payload") is True
+    terminal.assert_called_once_with("payload")
+    assert "osascript" in capsys.readouterr().err
+
+
+def test_macos_after_wayland_failure(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-test")
+    run = mocker.patch.object(
+        wrapper.subprocess,
+        "run",
+        side_effect=[
+            FileNotFoundError("wayprompt missing"),
+            subprocess.CompletedProcess([], 0, b"sign\n", b""),
+        ],
+    )
+    terminal = mocker.patch.object(wrapper, "terminal_confirmation")
+    assert wrapper.confirm("payload") is True
+    assert [call.args[0][0] for call in run.call_args_list] == [
+        "wayprompt",
+        "osascript",
+    ]
+    terminal.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "answers, approved",
+    [
+        (["Sign\n"], True),
+        (["Cancel\n"], False),
+        (["cancel\n"], False),
+        ([""], False),
+        (["\n", "yes\n", "sign\n", "SIGN\n", "Sign\n"], True),
+    ],
+)
+def test_terminal_requires_explicit_approval(
+    wrapper: ModuleType,
+    mocker: MockerFixture,
+    answers: list[str],
+    approved: bool,
+) -> None:
+    tty = mocker.MagicMock(spec=io.TextIOWrapper)
+    tty.__enter__.return_value = tty
+    tty.isatty.return_value = True
+    tty.readline.side_effect = answers
+    opened = mocker.patch("builtins.open", return_value=tty)
+    assert wrapper.terminal_confirmation("exact description\n") is approved
+    assert opened.call_args_list == [
+        mocker.call("/dev/tty", encoding="utf-8"),
+        mocker.call("/dev/tty", "w", encoding="utf-8"),
+    ]
+    assert tty.readline.call_count == len(answers)
+    assert tty.flush.call_count == len(answers)
+    assert tty.write.call_args_list[0].args == (
+        "Confirm Git signature\n\nexact description\n\n\n",
+    )
+    assert tty.__exit__.call_count == 2
+
+
+@pytest.mark.parametrize("failure", ["open", "not-tty", "read", "write"])
+def test_terminal_unavailable_refuses(
+    wrapper: ModuleType,
+    mocker: MockerFixture,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+) -> None:
+    tty = mocker.MagicMock(spec=io.TextIOWrapper)
+    tty.__enter__.return_value = tty
+    tty.isatty.return_value = failure != "not-tty"
+    opened = mocker.patch("builtins.open", return_value=tty)
+    if failure == "open":
+        opened.side_effect = OSError("no controlling terminal")
+    elif failure == "read":
+        tty.readline.side_effect = OSError("terminal disconnected")
+    elif failure == "write":
+        tty.write.side_effect = OSError("terminal disconnected")
+    assert wrapper.terminal_confirmation("payload") is False
+    assert "refusing to sign" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_terminal_main_preserves_stdin_payload(
+    wrapper: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+    approved: bool,
+) -> None:
+    payload = b"arbitrary\xff\x00\r\nSign\n\ntrailing spaces  \n\n"
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "argv", [str(WRAPPER), "-Y", "sign", "-n", "git", "-"])
+    stdin = io.TextIOWrapper(io.BytesIO(payload))
+    monkeypatch.setattr(sys, "stdin", stdin)
+    mocker.patch.object(wrapper, "description", return_value="payload description")
+    tty = mocker.MagicMock(spec=io.TextIOWrapper)
+    tty.__enter__.return_value = tty
+    tty.isatty.return_value = True
+    tty.readline.return_value = "Sign\n" if approved else "Cancel\n"
+    mocker.patch("builtins.open", return_value=tty)
+    run = mocker.patch.object(
+        wrapper.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)
+    )
+    assert wrapper.main() == (0 if approved else 1)
+    if approved:
+        run.assert_called_once_with(
+            ["ssh-keygen", "-Y", "sign", "-n", "git", "-"],
+            input=payload,
+            check=False,
+        )
+    else:
+        run.assert_not_called()

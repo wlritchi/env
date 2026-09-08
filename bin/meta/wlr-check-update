@@ -76,12 +76,13 @@ update_repo() {
     # Create a temp file with the pre-fetch signers content
     local temp_signers
     temp_signers="$(mktemp)"
-    echo "$signers_content" > "$temp_signers"
+    echo "$signers_content" >"$temp_signers"
     trap 'rm -f "$temp_signers"' RETURN
 
     # gpg.program=/dev/null - disable validation of GPG signatures entirely
+    # Use ssh-keygen directly before the signing wrapper is on PATH.
     # gpg.ssh.allowedSignersFile - only accept SSH signatures from our known-good list
-    if ! git -C "$repo_path" -c gpg.program=/dev/null -c gpg.ssh.allowedSignersFile="$temp_signers" verify-commit "$remote_commit"; then
+    if ! git -C "$repo_path" -c gpg.program=/dev/null -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile="$temp_signers" verify-commit "$remote_commit"; then
         wlr-err "$repo_name: update failed, bad signature"
         return 1
     fi
@@ -93,9 +94,9 @@ update_repo() {
     new_local_commit="$(git -C "$repo_path" rev-parse HEAD)"
 
     if [ "$local_commit" != "$new_local_commit" ]; then
-        return 0  # Updated
+        return 0 # Updated
     fi
-    return 1  # No change
+    return 1 # No change
 }
 
 # Track if any repo was updated

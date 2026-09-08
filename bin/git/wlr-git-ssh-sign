@@ -6,7 +6,7 @@
 # dependencies = []
 # ///
 
-# Dependencies: git, wayprompt, ssh-keygen, ssh-add.
+# Dependencies: git, ssh-keygen, ssh-add; wayprompt or osascript for GUI confirmation.
 
 import getopt
 import os
@@ -95,6 +95,109 @@ def description(payload: bytes) -> str:
     return display("\n".join([*context, "", "Message:", message]))
 
 
+def gui_confirmation(args: list[str], cancelled: set[int]) -> bool | None:
+    try:
+        result = subprocess.run(  # noqa: S603
+            args,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+        )
+    except OSError as error:
+        print(f"wlr-git-ssh-sign: {args[0]} unavailable: {error}", file=sys.stderr)
+        return None
+    if result.returncode == 0:
+        return True
+    if result.returncode in cancelled:
+        return False
+    detail = display(result.stderr.decode("utf-8", errors="replace").strip())
+    print(
+        f"wlr-git-ssh-sign: {args[0]} failed ({result.returncode}): {detail}",
+        file=sys.stderr,
+    )
+    return None
+
+
+def terminal_confirmation(text: str) -> bool:
+    try:
+        with (
+            open("/dev/tty", encoding="utf-8") as reader,
+            open("/dev/tty", "w", encoding="utf-8") as tty,
+        ):
+            if not reader.isatty() or not tty.isatty():
+                raise OSError("/dev/tty is not a terminal")
+            tty.write(f"Confirm Git signature\n\n{text}\n\n")
+            while True:
+                tty.write("Type Sign to sign, or Cancel to cancel: ")
+                tty.flush()
+                answer = reader.readline()
+                if not answer or answer.strip().casefold() == "cancel":
+                    return False
+                if answer.strip() == "Sign":
+                    return True
+    except OSError as error:
+        print(
+            f"wlr-git-ssh-sign: no usable confirmation UI or controlling terminal; "
+            f"refusing to sign: {error}",
+            file=sys.stderr,
+        )
+        return False
+
+
+def confirm(text: str) -> bool:
+    remote = any(
+        os.environ.get(name) for name in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")
+    )
+    if not remote:
+        if os.environ.get("WAYLAND_DISPLAY"):
+            result = gui_confirmation(
+                [
+                    "wayprompt",
+                    "--title",
+                    "Confirm Git signature",
+                    "--description",
+                    text,
+                    "--button-ok",
+                    "Sign",
+                    "--button-cancel",
+                    "Cancel",
+                ],
+                {10, 20},
+            )
+            if result is not None:
+                return result
+        if sys.platform == "darwin":
+            # Pass payload text as data, not as AppleScript source.
+            script = '''on run argv
+try
+    display dialog (item 1 of argv) with title "Confirm Git signature" buttons {"Cancel", "Sign"} default button "Cancel" cancel button "Cancel"
+    return "sign"
+on error number -128
+    return "cancel"
+end try
+end run'''
+            try:
+                result = subprocess.run(  # noqa: S603
+                    ["osascript", "-e", script, text],  # noqa: S607
+                    check=False,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                )
+            except OSError as error:
+                print(
+                    f"wlr-git-ssh-sign: osascript unavailable: {error}", file=sys.stderr
+                )
+            else:
+                if result.returncode == 0:
+                    return result.stdout.strip() == b"sign"
+                print(
+                    "wlr-git-ssh-sign: osascript failed: "
+                    + display(result.stderr.decode("utf-8", errors="replace").strip()),
+                    file=sys.stderr,
+                )
+    return terminal_confirmation(text)
+
+
 def load_key(keyfile: str) -> None:
     public = Path(keyfile)
     if public.suffix != ".pub" and Path(f"{public}.pub").is_file():
@@ -144,20 +247,7 @@ def main() -> int:
                 # Keep ssh-keygen's output path and overwrite confirmation behavior.
                 Path(f"{snapshot}.sig").symlink_to(f"{original}.sig")
                 snapshots.append(str(snapshot))
-            confirmed = capture(
-                [
-                    "wayprompt",
-                    "--title",
-                    "Confirm Git signature",
-                    "--description",
-                    description(payload),
-                    "--button-ok",
-                    "Sign",
-                    "--button-cancel",
-                    "Cancel",
-                ]
-            )
-            if confirmed.returncode:
+            if not confirm(description(payload)):
                 return 1
         if keyfile := values.get("-f"):
             load_key(keyfile)
