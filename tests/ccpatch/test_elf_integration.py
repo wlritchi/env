@@ -131,19 +131,41 @@ def test_semantic_function_discovery_accepts_dollar_names(name: str) -> None:
 def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
-    if not re.search(r'VERSION:"2\.1\.(?:174|175|176|177|178|179)"', source):
+    if not re.search(r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181)"', source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.179"
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.181"
             )
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.179")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.181")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.179"
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.181"
             )
-        pytest.skip("installed Claude Code 2.1.174-2.1.179 binary is already patched")
+        pytest.skip("installed Claude Code 2.1.174-2.1.181 binary is already patched")
     return source, BACKGROUND_PROVIDER_ENV.apply(source)
+
+
+def test_181_preserves_cloud_branch_and_token_count_context(
+    binary_info: tuple[bytes, bool],
+) -> None:
+    source = _entry_source(binary_info[0])
+    if 'VERSION:"2.1.181"' not in source:
+        pytest.skip("requires Claude Code 2.1.181")
+    patched = source
+    for patch_set in default_patch_sets((2, 1, 181)):
+        patched = patch_set.apply(patched)
+    branch = _match(
+        r'if\([\w$]+!==null\)\{let [\w$]+=await [\w$]+\(\);'
+        r'if\(![\w$]+\.valid\)[\s\S]{0,2500}?'
+        r'await [\w$]+\(0\);return\}if\([\w$]+==="stream-json"',
+        source,
+    )[0]
+    assert branch in patched
+    contexts = re.findall(r'source:"count_tokens",agentContext:[\w$]+\(\)', source)
+    assert len(contexts) == 2
+    for context in set(contexts):
+        assert patched.count(context) == source.count(context)
 
 
 def test_patched_binary_help_initializes_on_opt_in_host() -> None:
@@ -155,11 +177,11 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
         pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
     source = _entry_source(path.read_bytes())
     if (
-        not re.search(r'VERSION:"2\.1\.(?:174|175|176|177|178|179)"', source)
+        not re.search(r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181)"', source)
         or "providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.179"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.181"
         )
 
     try:
@@ -305,8 +327,8 @@ def test_178_preserves_upstream_security_and_compaction_fallback(
     binary_info: tuple[bytes, bool],
 ) -> None:
     source = _entry_source(binary_info[0])
-    if not re.search(r'VERSION:"2\.1\.(?:178|179)"', source):
-        pytest.skip("requires Claude Code 2.1.178-2.1.179")
+    if not re.search(r'VERSION:"2\.1\.(?:178|179|181)"', source):
+        pytest.skip("requires Claude Code 2.1.178-2.1.181")
     patched = source
     for patch_set in default_patch_sets((2, 1, 178)):
         patched = patch_set.apply(patched)
@@ -602,7 +624,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
         pristine, pristine.index("model options: dropping duplicate row")
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
-    if re.search(r'VERSION:"2\.1\.(?:175|176|177|178|179)"', pristine):
+    if re.search(r'VERSION:"2\.1\.(?:175|176|177|178|179|181)"', pristine):
         denied = _match(
             rf'if\(!({_ID})\({_ID}\)\)return {_ID}\({_ID}\);', native_resolver
         )

@@ -238,7 +238,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 177), True),
         ((2, 1, 178), True),
         ((2, 1, 179), True),
-        ((2, 1, 180), False),
+        ((2, 1, 181), True),
+        ((2, 1, 182), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -246,6 +247,29 @@ def test_background_provider_environment_is_version_gated(
 ) -> None:
     assert BACKGROUND_PROVIDER_ENV.applies_to(version) is expected
     assert MULTI_PROVIDER_SDK.applies_to(version) is expected
+
+
+@pytest.mark.parametrize("agent_context", ["", ",agentContext:CONTEXT()"])
+def test_count_tokens_preserves_agent_context(agent_context: str) -> None:
+    source = _MULTI_PROVIDER_SRC.replace(
+        'source:"count_tokens"}', f'source:"count_tokens"{agent_context}}}'
+    )
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert f'source:"count_tokens"{agent_context}}}' in patched
+    assert '_ccMultiProviderRoute(CLIENT,_ccRequest)' in patched
+
+
+@pytest.mark.parametrize(
+    "cloud_branch",
+    ["", 'if(cloud){checkAuth();' + 'validate();' * 80 + 'print(`sent\\n`);return}'],
+)
+def test_operational_entry_preserves_cloud_security_branch(cloud_branch: str) -> None:
+    source = _PROVIDER_ENV_SRC.replace(
+        "if(noninteractive){", "if(noninteractive){" + cloud_branch
+    )
+    patched = BACKGROUND_PROVIDER_ENV.apply(source)
+    assert "if(noninteractive){" + cloud_branch in patched
+    assert "Ko(),CB$(_ccProviderWorkerEnv);_ccProviderApplyWorkerFinal();" in patched
 
 
 def test_patch_sets_allow_omitted_version_by_default() -> None:

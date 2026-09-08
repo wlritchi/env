@@ -527,7 +527,7 @@ _PROVIDER_ENV_PREACTION_INITIALIZED = re.compile(
     rf'await (?P<initializer>{_ID})\(\),(?P<marker>{_ID})\("preAction_after_init"\)'
 )
 _PROVIDER_ENV_OPERATIONAL_ENTRY = re.compile(
-    rf'(?P<guard>if\((?P<noninteractive>{_ID})\)\{{.{{0,300}}?)(?P<settings>{_ID})\(\),'
+    rf'(?P<guard>if\((?P<noninteractive>{_ID})\)\{{[\s\S]{{0,2500}}?)(?P<settings>{_ID})\(\),'
     rf'(?P<telemetry>{_ID})\(\);let (?P<start>{_ID})=performance\.now\(\),'
 )
 _PROVIDER_ENV_DELAYED_SETTINGS = re.compile(
@@ -1117,11 +1117,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 180),
+    max_version=(2, 1, 182),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.179) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.181) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1657,7 +1657,8 @@ _MULTI_PROVIDER_SIDE_QUERY = re.compile(
 )
 _MULTI_PROVIDER_COUNT_TOKENS = re.compile(
     rf'let (?P<client>{_ID})=await (?P<factory>{_ID})\(\{{maxRetries:1,model:(?P<model>{_ID}),'
-    rf'source:"count_tokens"\}}\),(?P<betas>{_ID})=(?P<raw_betas>{_ID})\.filter\('
+    rf'source:"count_tokens"(?P<agent_context>,agentContext:{_ID}\(\))?\}}\),'
+    rf'(?P<betas>{_ID})=(?P<raw_betas>{_ID})\.filter\('
     rf'\((?P<beta>{_ID})\)=>(?P<allowed_betas>{_ID})\.has\((?P=beta)\)\),(?P<response>{_ID})=await '
     rf'(?P=client)\.beta\.messages\.countTokens\((?P<request>\{{model:(?P<normalize>{_ID})\('
     rf'(?P=model)\),messages:.{{0,500}}?\}})\)'
@@ -1774,7 +1775,8 @@ def _route_multi_provider_count_tokens(match: re.Match[str]) -> str:
     return (
         "_ccMultiProviderPreflight(_ccEffectiveModel);let "
         f"{match.group('client')}=await {match.group('factory')}({{maxRetries:1,model:"
-        "_ccEffectiveModel,source:\"count_tokens\"}),"
+        '_ccEffectiveModel,source:"count_tokens"'
+        f"{match.group('agent_context') or ''}}}),"
         f"{match.group('betas')}={match.group('raw_betas')}.filter("
         f"({match.group('beta')})=>{match.group('allowed_betas')}.has("
         f"{match.group('beta')})),_ccRequest="
@@ -2028,7 +2030,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 180),
+    max_version=(2, 1, 182),
     requires_version=True,
 )
 
