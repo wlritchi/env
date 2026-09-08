@@ -239,7 +239,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 178), True),
         ((2, 1, 179), True),
         ((2, 1, 181), True),
-        ((2, 1, 182), False),
+        ((2, 1, 182), True),
+        ((2, 1, 183), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -263,13 +264,24 @@ def test_count_tokens_preserves_agent_context(agent_context: str) -> None:
     "cloud_branch",
     ["", 'if(cloud){checkAuth();' + 'validate();' * 80 + 'print(`sent\\n`);return}'],
 )
-def test_operational_entry_preserves_cloud_security_branch(cloud_branch: str) -> None:
+@pytest.mark.parametrize(
+    "warning",
+    [
+        "",
+        'let warning=(args.continue||args.resume||session)&&!enabled()?null:check(model??fallback);'
+        'if(warning&&format!=="json"&&format!=="stream-json")print(warning);',
+    ],
+)
+def test_operational_entry_preserves_cloud_security_branch(
+    cloud_branch: str, warning: str
+) -> None:
     source = _PROVIDER_ENV_SRC.replace(
         "if(noninteractive){", "if(noninteractive){" + cloud_branch
-    )
+    ).replace("let operationalStart", warning + "let operationalStart")
     patched = BACKGROUND_PROVIDER_ENV.apply(source)
     assert "if(noninteractive){" + cloud_branch in patched
     assert "Ko(),CB$(_ccProviderWorkerEnv);_ccProviderApplyWorkerFinal();" in patched
+    assert warning + "let operationalStart" in patched
 
 
 def test_patch_sets_allow_omitted_version_by_default() -> None:
@@ -839,11 +851,20 @@ def test_multi_provider_sdk_runtime_context_and_output_precedence() -> None:
     )
 
 
-def test_multi_provider_attribution_runtime_tracks_worker_model_and_settings() -> None:
+@pytest.mark.parametrize("hoisted_settings", [False, True])
+def test_multi_provider_attribution_runtime_tracks_worker_model_and_settings(
+    hoisted_settings: bool,
+) -> None:
     runtime = shutil.which("node") or shutil.which("bun")
     if runtime is None:
         pytest.skip("no node/bun to evaluate provider attribution")
-    patched = MULTI_PROVIDER_SDK.apply(_MULTI_PROVIDER_SRC)
+    source = _MULTI_PROVIDER_SRC
+    if hoisted_settings:
+        source = source.replace(
+            '_=SETTINGS();if(_.attribution)return{commit:_.attribution.commit??K,pr:_.attribution.pr??q}',
+            '_=SETTINGS(),s=_.attribution;if(s&&(s.commit!==void 0||s.pr!==void 0))return{commit:s.commit??K,pr:s.pr??q}',
+        )
+    patched = MULTI_PROVIDER_SDK.apply(source)
     helper_end = patched.index("function TOP_WINDOW(")
     attribution_start = patched.index("function ATTR()")
     attribution_end = patched.index("function PICK(", attribution_start)

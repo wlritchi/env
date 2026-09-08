@@ -528,7 +528,11 @@ _PROVIDER_ENV_PREACTION_INITIALIZED = re.compile(
 )
 _PROVIDER_ENV_OPERATIONAL_ENTRY = re.compile(
     rf'(?P<guard>if\((?P<noninteractive>{_ID})\)\{{[\s\S]{{0,2500}}?)(?P<settings>{_ID})\(\),'
-    rf'(?P<telemetry>{_ID})\(\);let (?P<start>{_ID})=performance\.now\(\),'
+    rf'(?P<telemetry>{_ID})\(\);'
+    rf'(?P<warning>let (?P<warning_var>{_ID})=\({_ID}\.continue\|\|{_ID}\.resume\|\|{_ID}\)'
+    rf'&&!{_ID}\(\)\?null:{_ID}\({_ID}\?\?{_ID}\);'
+    rf'if\((?P=warning_var)&&{_ID}!=="json"&&{_ID}!=="stream-json"\)'
+    rf'{_ID}\((?P=warning_var)\);)?let (?P<start>{_ID})=performance\.now\(\),'
 )
 _PROVIDER_ENV_DELAYED_SETTINGS = re.compile(
     rf'function (?P<telemetry>{_ID})\(\)\{{(?P<prefix>.{{0,1000}}?Waiting for remote '
@@ -850,6 +854,7 @@ def _replace_provider_operational_entry(match: re.Match[str]) -> str:
         match.group("guard")
         + f"{match.group('settings')}(),{match.group('telemetry')}(_ccProviderWorkerEnv);"
         + "_ccProviderApplyWorkerFinal();"
+        + (match.group("warning") or "")
         + f"let {match.group('start')}=performance.now(),"
     )
 
@@ -1117,11 +1122,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 182),
+    max_version=(2, 1, 183),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.181) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.182) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1709,7 +1714,8 @@ _MULTI_PROVIDER_ATTRIBUTION = re.compile(
     rf"let (?P<model>{_ID})=(?P<current>{_ID})\(\),(?P<label>{_ID})="
     rf'(?P<native_label>[^;]{{1,300}}),(?P<pr>{_ID})=`\\uD83E\\uDD16 Generated with '
     rf'\[Claude Code\]\(\$\{{(?P<url>{_ID})\}}\)`,(?P<commit>{_ID})=`Co-Authored-By: '
-    rf'\$\{{(?P=label)\}} <noreply@anthropic\.com>`,(?P<settings>{_ID})=(?P<load>{_ID})\(\);'
+    rf'\$\{{(?P=label)\}} <noreply@anthropic\.com>`,(?P<settings>{_ID})=(?P<load>{_ID})\(\)'
+    rf'(?P<delimiter>;|,(?={_ID}=(?P=settings)\.attribution;))'
 )
 
 
@@ -1890,7 +1896,7 @@ def _replace_multi_provider_attribution(match: re.Match[str]) -> str:
         f"_ccMultiProviderAttribution({model},_ccNativeAttributionLabel),"
         f"{pr}=`\\uD83E\\uDD16 Generated with [Claude Code](${{{match.group('url')}}})`,"
         f"{commit}=`Co-Authored-By: ${{{label}}} <noreply@${{_ccAttributionDomain}}>`,"
-        f"{settings}={match.group('load')}();"
+        f"{settings}={match.group('load')}(){match.group('delimiter')}"
     )
 
 
@@ -2030,7 +2036,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 182),
+    max_version=(2, 1, 183),
     requires_version=True,
 )
 
