@@ -53,6 +53,7 @@
     ],
     "defaultMode": "auto"
   },
+  "remoteControlAtStartup": false,
   "showThinkingSummaries": true,
   "skipWorkflowUsageWarning": true,
   "statusLine": {
