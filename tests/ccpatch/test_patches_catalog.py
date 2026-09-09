@@ -246,7 +246,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 179), True),
         ((2, 1, 181), True),
         ((2, 1, 182), True),
-        ((2, 1, 183), False),
+        ((2, 1, 183), True),
+        ((2, 1, 184), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(

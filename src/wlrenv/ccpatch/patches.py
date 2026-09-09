@@ -1122,11 +1122,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 183),
+    max_version=(2, 1, 184),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.182) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.183) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -2235,7 +2235,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 183),
+    max_version=(2, 1, 184),
     requires_version=True,
 )
 

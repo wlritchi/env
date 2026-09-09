@@ -67,10 +67,11 @@ def _captures(source: str) -> list[tuple[str, str]]:
 def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> None:
     runtime = shutil.which("node") or shutil.which("bun")
     path = _ROOT / architecture / "original.js"
-    reference = _ROOT / "linux-x64/original.js"
+    reference = Path("/tmp/ccpatch-sweep-2.1.182/linux-x64/original.js")  # noqa: S108 - canonical names for the JavaScript harness
     if runtime is None or not path.is_file() or not reference.is_file():
         pytest.skip(
-            "requires node/bun and CCPATCH_NATIVE_SOURCE_ROOT pristine .182 sources"
+            "requires node/bun, CCPATCH_NATIVE_SOURCE_ROOT pristine sources, "
+            "and the .182 Linux x64 harness baseline"
         )
     source = path.read_text()
     originals = _captures(source)
