@@ -102,6 +102,12 @@ _MULTI_PROVIDER_SRC = (
     "countTokens({model:KA(EFFECTIVE),messages:MSGS,tools:TOOLS});return RESULT.input_tokens"
     "}catch(ERROR){return N(`countTokens API call failed: ${ERROR.message}`),null}})}"
     'function ATTR(){if(MODE()==="remote"){if(ENV.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION)return{commit:"",pr:""};return REMOTE()}let H=CURRENT(),$=ISFIRST(H)?DISPLAY(FIRST.firstParty):ISNATIVE(H)?DISPLAY(H):"Claude",q=`\\uD83E\\uDD16 Generated with [Claude Code](${URL})`,K=`Co-Authored-By: ${$} <noreply@anthropic.com>`,_=SETTINGS();if(_.attribution)return{commit:_.attribution.commit??K,pr:_.attribution.pr??q};if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""};return{commit:K,pr:q}}'
+    'function COMPACT_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}'
+    'function FULL_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}'
+    'function COMPACT_BASH(F){return COMPACT_GIT(F)}'
+    'function BASH_DISPATCH(M,F){if(SHORT(M))return COMPACT_BASH(F);return FULL_GIT(F)}'
+    'var BASH={async prompt({model:M,tools:T}){let F=[];return BASH_DISPATCH(M,F)},isConcurrencySafe(){return!1}};'
+    'async function SERIALIZE_NATIVE(E,T){let o="",s="",a=o+s+""+("inputJSONSchema"in E&&E.inputJSONSchema?`${E.name}:${HASH(E.inputJSONSchema)}`:E.name),l=CACHE(),c=l.get(a);return c}'
     "function PICK(FLAG){let OPTIONS=NATIVE(FLAG),CUSTOM=process.env."
     "ANTHROPIC_CUSTOM_MODEL_OPTION;"
     "function RECOGNIZE(MODEL){let NAME=DISPLAY(MODEL);if(!NAME)return null;"
@@ -257,7 +263,7 @@ def test_count_tokens_preserves_agent_context(agent_context: str) -> None:
     )
     patched = MULTI_PROVIDER_SDK.apply(source)
     assert f'source:"count_tokens"{agent_context}}}' in patched
-    assert '_ccMultiProviderRoute(CLIENT,_ccRequest)' in patched
+    assert '_ccMultiProviderRoute(CLIENT,_ccRequest,{},!0)' in patched
 
 
 @pytest.mark.parametrize(
@@ -738,7 +744,7 @@ def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     assert "_ccMultiProviderRoute(N1,_ccRequest,_ccOptions)" in patched
     assert "_ccMultiProviderRoute(N2,_ccRequest,_ccOptions)" in patched
     assert "_ccMultiProviderRoute(N3,_ccRequest,_ccOptions)" in patched
-    assert "_ccMultiProviderRoute(CLIENT,_ccRequest)" in patched
+    assert "_ccMultiProviderRoute(CLIENT,_ccRequest,{},!0)" in patched
     assert "MESSAGE.message.model!==MODEL" not in patched
     assert "MESSAGE.message.model!==SYNTHETIC" in patched
     assert (
@@ -866,7 +872,7 @@ def test_multi_provider_attribution_runtime_tracks_worker_model_and_settings(
         )
     patched = MULTI_PROVIDER_SDK.apply(source)
     helper_end = patched.index("function TOP_WINDOW(")
-    attribution_start = patched.index("function ATTR()")
+    attribution_start = patched.index("function ATTR(_ccAttributionModel)")
     attribution_end = patched.index("function PICK(", attribution_start)
     script = (
         patched[patched.index("const _ccMultiProviderDefinitions=") : helper_end]
@@ -923,6 +929,28 @@ def test_multi_provider_sdk_context_anchors_fail_loudly() -> None:
         source = _MULTI_PROVIDER_SRC.replace(anchor, "changed", 1)
         with pytest.raises(PatchError, match="multi-provider-sdk"):
             MULTI_PROVIDER_SDK.apply(source)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        'function COMPACT_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}',
+        'function FULL_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}',
+        'function COMPACT_BASH(F){return COMPACT_GIT(F)}',
+        'function BASH_DISPATCH(M,F){if(SHORT(M))return COMPACT_BASH(F);return FULL_GIT(F)}',
+        'async prompt({model:M,tools:T}){let F=[];return BASH_DISPATCH(M,F)},isConcurrencySafe',
+        'async function SERIALIZE_NATIVE(E,T){let o="",s="",a=o+s+""+("inputJSONSchema"in E&&E.inputJSONSchema?`${E.name}:${HASH(E.inputJSONSchema)}`:E.name),l=CACHE(),c=l.get(a);return c}',
+    ],
+)
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_multi_provider_attribution_captures_fail_closed(
+    fragment: str, duplicate: bool
+) -> None:
+    source = _MULTI_PROVIDER_SRC.replace(
+        fragment, fragment + fragment if duplicate else "", 1
+    )
+    with pytest.raises(PatchError):
+        MULTI_PROVIDER_SDK.apply(source)
 
 
 @pytest.mark.parametrize(
@@ -1050,7 +1078,7 @@ def test_multi_provider_sdk_regression_harness(tmp_path: Path, renamed: bool) ->
                 "bindings": bindings,
                 "tokens": patched[
                     patched.index("async function TOKENS(") : patched.index(
-                        "function ATTR()"
+                        "function ATTR(_ccAttributionModel)"
                     )
                 ],
                 "resume": patched[

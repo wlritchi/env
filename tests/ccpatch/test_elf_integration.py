@@ -438,7 +438,7 @@ def test_real_source_routes_multi_provider_sdk(
         rf'let ({_ID})=await {_ID}\(\{{maxRetries:1,model:{_ID},source:"count_tokens"',
         source,
     )[1]
-    assert f"_ccMultiProviderRoute({count_client},_ccRequest)" in patched
+    assert f"_ccMultiProviderRoute({count_client},_ccRequest,{{}},!0)" in patched
     assert "_ccClient.beta.messages.countTokens(_ccOutbound)" in patched
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched

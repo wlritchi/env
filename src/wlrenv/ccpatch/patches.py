@@ -1788,7 +1788,7 @@ def _route_multi_provider_count_tokens(match: re.Match[str]) -> str:
         f"{match.group('beta')})),_ccRequest="
         f"{request},"
         "[_ccClient,_ccOutbound]="
-        f"_ccMultiProviderRoute({match.group('client')},_ccRequest),"
+        f"_ccMultiProviderRoute({match.group('client')},_ccRequest,{{}},!0),"
         f"{match.group('response')}=await _ccClient.beta.messages.countTokens("
         "_ccOutbound)"
     )
@@ -1890,7 +1890,7 @@ def _replace_multi_provider_attribution(match: re.Match[str]) -> str:
     commit = match.group("commit")
     settings = match.group("settings")
     return (
-        f"let {model}={match.group('current')}(),"
+        f"let {model}=_ccAttributionModel??{match.group('current')}(),"
         f"_ccNativeAttributionLabel={match.group('native_label')},"
         f"{{label:{label},domain:_ccAttributionDomain}}="
         f"_ccMultiProviderAttribution({model},_ccNativeAttributionLabel),"
@@ -1898,6 +1898,205 @@ def _replace_multi_provider_attribution(match: re.Match[str]) -> str:
         f"{commit}=`Co-Authored-By: ${{{label}}} <noreply@${{_ccAttributionDomain}}>`,"
         f"{settings}={match.group('load')}(){match.group('delimiter')}"
     )
+
+
+def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
+    """Keep native attribution rules and pass request-local values through Bash."""
+    source = match.group(0)
+
+    def unique(pattern: str, text: str = source) -> re.Match[str]:
+        matches = list(re.finditer(pattern, text))
+        if len(matches) != 1:
+            raise PatchError(
+                f"multi-provider attribution: expected one match, got {len(matches)}: "
+                f"{pattern!r}"
+            )
+        return matches[0]
+
+    def replace(old: str, new: str) -> None:
+        nonlocal source
+        if source.count(old) != 1:
+            raise PatchError("multi-provider attribution: ambiguous replacement")
+        source = source.replace(old, new, 1)
+
+    def function(name: str) -> str:
+        return unique(
+            rf"function {re.escape(name)}\([^)]*\)\{{[\s\S]*?\}}(?=function |var )",
+            source,
+        ).group(0)
+
+    attribution = unique(_MULTI_PROVIDER_ATTRIBUTION.pattern)
+    base_start = source.rfind("function ", 0, attribution.start())
+    base = unique(
+        rf"function (?P<base>{_ID})\(\)", source[base_start : attribution.start()]
+    )
+    base_name = base.group("base")
+    replace(base.group(0), f"function {base_name}(_ccAttributionModel)")
+    replace(attribution.group(0), _replace_multi_provider_attribution(attribution))
+
+    # Discover both git sections by their shared native attribution call.
+    sections = list(
+        re.finditer(
+            rf'function (?P<section>{_ID})\((?P<arg>{_ID})\)\{{if\(!{_ID}\(\)\)'
+            rf'return"";let [^;]{{0,150}}?\{{commit:{_ID},pr:{_ID}\}}=(?P<effective>{_ID})\(\)',
+            source,
+        )
+    )
+    if len(sections) != 2 or len({m.group("effective") for m in sections}) != 1:
+        raise PatchError("multi-provider attribution: git sections changed")
+    effective = sections[0].group("effective")
+    if effective != base_name:
+        wrapper = unique(
+            rf'function {re.escape(effective)}\(\)\{{'
+            rf'(?:if\({_ID}\(\)==="remote"&&{_ID}\.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION\)'
+            rf'return\{{commit:"",pr:""\}};)?let (?P<link>{_ID})={_ID}\(\),'
+            rf'(?P<value>{_ID})={re.escape(base_name)}\(\);return (?P=link)\?'
+            rf'{_ID}\((?P=value),(?P=link)\):(?P=value)\}}',
+            source,
+        ).group(0)
+        replace(
+            wrapper,
+            wrapper.replace("(){", "(_ccAttributionModel){", 1).replace(
+                f"{base_name}()", f"{base_name}(_ccAttributionModel)"
+            ),
+        )
+
+    prompt = unique(
+        rf'async prompt\(\{{model:(?P<model>{_ID}),tools:(?P<tools>{_ID})\}}\)'
+        rf'\{{(?P<body>[\s\S]{{0,500}}?)return (?P<dispatch>{_ID})\((?P=model),'
+        rf'(?P<flags>[\s\S]{{0,200}}?)\)\}},isConcurrencySafe',
+        source,
+    )
+    dispatch = prompt.group("dispatch")
+    dispatch_body = function(dispatch)
+    edge = unique(
+        rf'function {re.escape(dispatch)}\((?P<model>{_ID}),(?P<flags>{_ID})\)'
+        rf'\{{if\({_ID}\((?P=model)\)\)return (?P<compact>{_ID})\((?P=flags)\);',
+        dispatch_body,
+    )
+    compact = edge.group("compact")
+    compact_body = function(compact)
+    flags = edge.group("flags")
+    model = edge.group("model")
+    updated_dispatch = dispatch_body.replace(
+        f"function {dispatch}({model},{flags})",
+        f"function {dispatch}({model},{flags},_ccAttributionSnapshot)",
+        1,
+    ).replace(
+        f"{compact}({flags})", f"{compact}({flags},{model},_ccAttributionSnapshot)", 1
+    )
+    updated_compact = compact_body.replace(
+        "){",
+        ",_ccAttributionModel,_ccAttributionSnapshot){",
+        1,
+    )
+    for section in sections:
+        name, arg = section.group("section", "arg")
+        body = function(name)
+        replace(
+            body,
+            body.replace(
+                f"function {name}({arg})",
+                f"function {name}({arg},_ccAttributionModel,_ccAttributionSnapshot)",
+                1,
+            ).replace(
+                f"{effective}()",
+                f"(_ccAttributionSnapshot??{effective}(_ccAttributionModel))",
+                1,
+            ),
+        )
+        if f"{name}({flags})" in dispatch_body:
+            unique(rf'{re.escape(name)}\({re.escape(flags)}\)', dispatch_body)
+            updated_dispatch = updated_dispatch.replace(
+                f"{name}({flags})", f"{name}({flags},{model},_ccAttributionSnapshot)", 1
+            )
+        else:
+            compact_arg = unique(
+                rf'function {re.escape(compact)}\((?P<arg>{_ID})\)', compact_body
+            ).group("arg")
+            unique(rf'{re.escape(name)}\({re.escape(compact_arg)}\)', compact_body)
+            updated_compact = updated_compact.replace(
+                f"{name}({compact_arg})",
+                f"{name}({compact_arg},_ccAttributionModel,_ccAttributionSnapshot)",
+                1,
+            )
+    replace(dispatch_body, updated_dispatch)
+    replace(compact_body, updated_compact)
+    replace(
+        prompt.group(0),
+        f'async prompt({{model:{prompt.group("model")},tools:{prompt.group("tools")},'
+        '_ccAttributionSnapshot}){_ccAttributionSnapshot??=Object.freeze('
+        f'{effective}({prompt.group("model")}));{prompt.group("body")}return '
+        f'{dispatch}({prompt.group("model")},{prompt.group("flags")},'
+        '_ccAttributionSnapshot)},isConcurrencySafe',
+    )
+
+    # Snapshot before the first await. The cache key and prompt use the same values.
+    serializer = unique(
+        rf'async function (?P<serialize>{_ID})\((?P<tool>{_ID}),(?P<context>{_ID})\)'
+        rf'\{{(?P<prefix>[^{{}}]{{0,600}}?)(?P<key>{_ID})='
+        rf'(?P<key_expr>{_ID}\+{_ID}\+""\+\("inputJSONSchema"in (?P=tool)&&'
+        rf'(?P=tool)\.inputJSONSchema\?`\$\{{(?P=tool)\.name\}}:\$\{{{_ID}'
+        rf'\((?P=tool)\.inputJSONSchema\)\}}`:(?P=tool)\.name\)),'
+        rf'(?P<cache>{_ID})={_ID}\(\),(?P<value>{_ID})=(?P=cache)\.get\((?P=key)\);',
+        source,
+    )
+    context, tool = serializer.group("context", "tool")
+    original = serializer.group(0)
+    replace(
+        original,
+        original.replace(
+            serializer.group("key_expr"),
+            serializer.group("key_expr")
+            + f'+JSON.stringify([{context}.model??null,{context}._ccAttributionSnapshot??null])',
+            1,
+        ),
+    )
+    # Carry the snapshot on each returned schema, including cache hits and stripped schemas.
+    # An enumerable symbol survives object spreads but does not enter the JSON payload.
+    serialize = serializer.group("serialize")
+    declaration = f"async function {serialize}({tool},{context})"
+    replace(
+        declaration,
+        f"async function {serialize}({tool},{context}){{"
+        f'{context}={{...{context},_ccAttributionSnapshot:{tool}.name==="Bash"?'
+        f'Object.freeze({effective}({context}.model)):void 0}};'
+        f"let _ccSchema=await {serialize}_ccInner({tool},{context});"
+        f"if({context}._ccAttributionSnapshot)Object.defineProperty(_ccSchema,"
+        f"_ccAttributionKey,{{value:{context}._ccAttributionSnapshot,enumerable:!0}});"
+        f"return _ccSchema}}async function {serialize}_ccInner({tool},{context})",
+    )
+    # Only the actual Z.ai create request gets the additional system instruction.
+    replace(
+        "function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={})",
+        "function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={},_ccCountOnly=!1)",
+    )
+    replace(
+        "delete _ccOutbound[_ccField];return[_ccCached.client,_ccOutbound,",
+        'delete _ccOutbound[_ccField];if(_ccInfo.provider==="zai"&&!_ccCountOnly)'
+        '_ccOutbound.system=_ccMultiProviderSystemAttribution(_ccRequest.system,_ccRequest.model,'
+        '_ccRequest.tools?.find((_ccTool)=>_ccTool.name==="Bash")?.[_ccAttributionKey]);'
+        'return[_ccCached.client,_ccOutbound,',
+    )
+    system_helper = (
+        'const _ccAttributionKey=Symbol("ccpatch.attribution");'
+        'function _ccMultiProviderSystemAttribution(_ccSystem,_ccModel,_ccSnapshot){'
+        'let _ccMarker="<ccpatch-git-attribution>",_ccEnd="</ccpatch-git-attribution>",'
+        '_ccBlocks=typeof _ccSystem==="string"?[{type:"text",text:_ccSystem}]:'
+        '[...(_ccSystem??[])];_ccBlocks=_ccBlocks.filter((_ccBlock)=>!('
+        '_ccBlock.type==="text"&&_ccBlock.text.startsWith(_ccMarker)&&'
+        '_ccBlock.text.endsWith(_ccEnd)));'
+        f'let _ccAttribution=_ccSnapshot??Object.freeze({effective}(_ccModel)),_ccLines=[];'
+        'if(_ccAttribution.commit)_ccLines.push("End git commit messages with:\\n"+'
+        '_ccAttribution.commit);if(_ccAttribution.pr)_ccLines.push("End PR bodies with:\\n"+'
+        '_ccAttribution.pr);if(_ccLines.length)_ccBlocks.push({type:"text",text:'
+        '_ccMarker+"\\n"+_ccLines.join("\\n")+"\\n"+_ccEnd});return _ccBlocks}'
+    )
+    replace(
+        "function _ccMultiProviderRoute(",
+        system_helper + "function _ccMultiProviderRoute(",
+    )
+    return source
 
 
 def _mark_multi_provider_compaction_source(match: re.Match[str]) -> str:
@@ -1933,8 +2132,8 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
         Patch(
             "select-provider-attribution",
-            _MULTI_PROVIDER_ATTRIBUTION,
-            _replace_multi_provider_attribution,
+            re.compile(r"\A[\s\S]+\Z"),
+            _thread_multi_provider_attribution,
         ),
         Patch(
             "mark-provider-compaction-source",
