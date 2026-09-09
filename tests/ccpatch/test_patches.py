@@ -87,8 +87,11 @@ def test_parse_version() -> None:
     assert parse_version("2.1.170-beta.1") == (2, 1, 170)
 
 
-def test_thinking_render_patches_apply() -> None:
-    out = thinking_expanded((2, 1, 170)).apply(_SOURCE)
+@pytest.mark.parametrize("factory", ["createElement", "jsx"])
+def test_thinking_render_patches_apply(factory: str) -> None:
+    source = _SOURCE.replace("createElement", factory)
+    out = thinking_expanded((2, 1, 186)).apply(source)
+    assert f"q.{factory}(Xy," in out
     assert "isTranscriptMode:true,verbose:true" in out
     assert "return null;" not in out.split("verbose")[0]  # early guard gone
     assert "===null?void 0:void 0" in out  # grouping neutralized

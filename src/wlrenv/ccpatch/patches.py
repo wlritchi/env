@@ -164,7 +164,7 @@ _THINKING_RENDER = (
     Patch(
         name="force-transcript-and-verbose",
         pattern=re.compile(
-            rf"(createElement\({_ID},\{{addMargin:{_ID},param:{_ID},"
+            rf"((?:createElement|jsx)\({_ID},\{{addMargin:{_ID},param:{_ID},"
             rf"isTranscriptMode:){_ID}(,verbose:){_ID}"
         ),
         replacement=r"\1true\2true",
@@ -1122,11 +1122,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 184),
+    max_version=(2, 1, 187),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.183) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.186) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -2235,7 +2235,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 184),
+    max_version=(2, 1, 187),
     requires_version=True,
 )
 
