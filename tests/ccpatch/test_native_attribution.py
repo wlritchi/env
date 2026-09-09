@@ -48,7 +48,9 @@ def _captures(source: str) -> list[tuple[str, str]]:
         captures.append(_function(source, matches[0].start() + 1))
     base = captures[0][0]
     wrapper = re.search(
-        rf"function ({_ID})\(\)\{{let {_ID}={_ID}\(\),{_ID}={re.escape(base)}\(\);",
+        rf"function ({_ID})\(\)\{{let (?:"
+        rf"{_ID}={_ID}\(\),{_ID}={re.escape(base)}\(\)|"
+        rf"{_ID}={re.escape(base)}\(\),{_ID}={_ID}\(\));",
         source,
     )
     assert wrapper is not None
@@ -82,7 +84,16 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
     originals = _captures(source)
     canonical = _captures(reference.read_text())
     names: dict[str, str] = {}
-    for (_, original), (_, baseline) in zip(originals, canonical, strict=True):
+    for index, ((_, original), (_, baseline)) in enumerate(
+        zip(originals, canonical, strict=True)
+    ):
+        if index == len(_ANCHORS):
+            base = originals[0][0]
+            original = re.sub(
+                rf"let ({_ID}={re.escape(base)}\(\)),({_ID}={_ID}\(\));",
+                r"let \2,\1;",
+                original,
+            )
         tokens = re.findall(_ID, original)
         baseline_tokens = re.findall(_ID, baseline)
         assert len(tokens) == len(baseline_tokens)

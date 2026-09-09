@@ -249,7 +249,10 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 183), True),
         ((2, 1, 185), True),
         ((2, 1, 186), True),
-        ((2, 1, 187), False),
+        ((2, 1, 187), True),
+        ((2, 1, 190), True),
+        ((2, 1, 191), True),
+        ((2, 1, 192), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -860,6 +863,35 @@ def test_multi_provider_sdk_runtime_context_and_output_precedence() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "bindings", ["link=LINK(),value=ATTR()", "value=ATTR(),link=LINK()"]
+)
+@pytest.mark.parametrize("suppress_remote", [False, True])
+def test_attribution_wrapper_preserves_native_order(
+    bindings: str, suppress_remote: bool
+) -> None:
+    guard = (
+        'if(MODE()==="remote"&&ENV.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION)'
+        'return{commit:"",pr:""};'
+        if suppress_remote
+        else ""
+    )
+    wrapper = (
+        f"function EFFECTIVE(){{{guard}let {bindings};"
+        "return link?APPEND(value,link):value}"
+    )
+    source = _MULTI_PROVIDER_SRC.replace("}=ATTR();", "}=EFFECTIVE();")
+    source = source.replace("function ATTR(){", wrapper + "function ATTR(){")
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert (
+        wrapper.replace("EFFECTIVE()", "EFFECTIVE(_ccAttributionModel)").replace(
+            "ATTR()", "ATTR(_ccAttributionModel)"
+        )
+        in patched
+    )
+    assert "_ccAttributionSnapshot??EFFECTIVE(_ccAttributionModel)" in patched
+
+
 @pytest.mark.parametrize("hoisted_settings", [False, True])
 def test_multi_provider_attribution_runtime_tracks_worker_model_and_settings(
     hoisted_settings: bool,
@@ -1227,8 +1259,9 @@ def _compact_src(f: _CompactFlavor) -> str:
 @pytest.mark.parametrize(
     "f", _COMPACT_FLAVORS, ids=[fl.label for fl in _COMPACT_FLAVORS]
 )
-def test_compact_session_applies(f: _CompactFlavor) -> None:
-    out = COMPACT_SESSION.apply(_compact_src(f))
+@pytest.mark.parametrize("model_guard", ["ni()", "ni(normalize($))"])
+def test_compact_session_applies(f: _CompactFlavor, model_guard: str) -> None:
+    out = COMPACT_SESSION.apply(_compact_src(f).replace("ni()", model_guard))
     # tool defined with THIS build's constructor and schema namespace, not a literal
     assert f'globalThis.__ccCompactTool={f.builder}({{name:"compact_session"' in out
     assert f"get inputSchema(){{return {f.schema_ns}.object({{}})}}" in out
@@ -1256,7 +1289,7 @@ def test_compact_session_applies(f: _CompactFlavor) -> None:
     assert (
         "if(globalThis.__ccPendingCompact)"
         "return globalThis.__ccPendingCompact=!1,!0;"
-        "if(Ue()&&!ni()&&!X4$($,q))return!1" in out
+        f"if(Ue()&&!{model_guard}&&!X4$($,q))return!1" in out
     )
     assert f'{f.verdict}.level==="compact"||{f.verdict}.level==="blocked"' in out
     # the TodoWrite build is preserved immediately after the injected tool

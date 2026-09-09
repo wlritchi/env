@@ -1122,11 +1122,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 187),
+    max_version=(2, 1, 192),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.186) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.191) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1946,14 +1946,23 @@ def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
         raise PatchError("multi-provider attribution: git sections changed")
     effective = sections[0].group("effective")
     if effective != base_name:
-        wrapper = unique(
-            rf'function {re.escape(effective)}\(\)\{{'
-            rf'(?:if\({_ID}\(\)==="remote"&&{_ID}\.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION\)'
-            rf'return\{{commit:"",pr:""\}};)?let (?P<link>{_ID})={_ID}\(\),'
-            rf'(?P<value>{_ID})={re.escape(base_name)}\(\);return (?P=link)\?'
-            rf'{_ID}\((?P=value),(?P=link)\):(?P=value)\}}',
-            source,
-        ).group(0)
+        wrapper = function(effective)
+        binding_orders = (
+            rf'(?P<link>{_ID})={_ID}\(\),(?P<value>{_ID})={re.escape(base_name)}\(\)',
+            rf'(?P<value>{_ID})={re.escape(base_name)}\(\),(?P<link>{_ID})={_ID}\(\)',
+        )
+        matches = [
+            re.fullmatch(
+                rf'function {re.escape(effective)}\(\)\{{'
+                rf'(?:if\({_ID}\(\)==="remote"&&{_ID}\.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION\)'
+                rf'return\{{commit:"",pr:""\}};)?let {bindings};return (?P=link)\?'
+                rf'{_ID}\((?P=value),(?P=link)\):(?P=value)\}}',
+                wrapper,
+            )
+            for bindings in binding_orders
+        ]
+        if sum(result is not None for result in matches) != 1:
+            raise PatchError("multi-provider attribution: session-link wrapper changed")
         replace(
             wrapper,
             wrapper.replace("(){", "(_ccAttributionModel){", 1).replace(
@@ -2235,7 +2244,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 187),
+    max_version=(2, 1, 192),
     requires_version=True,
 )
 
@@ -2462,11 +2471,11 @@ COMPACT_SESSION = PatchSet(
         ),
         Patch(
             "force-compaction-on-flag",
-            # The source=="auto" skip guard in xXf: if(Ue()&&!ni()&&!X4$($,q))return!1
-            # -- three predicate calls, the last taking (model, window). Consume the
-            # pending-compact flag just before it (lookbehind blocks a second apply).
+            # Match the native skip guard. Its middle predicate can take a normalized model.
+            # Consume the flag before this guard, after the native safety checks.
+            # The lookbehind prevents a second application.
             re.compile(
-                r"(?<!=!1,!0;)if\([\w$]+\(\)&&![\w$]+\(\)&&!"
+                r"(?<!=!1,!0;)if\([\w$]+\(\)&&![\w$]+\((?:[\w$]+\([\w$]+\))?\)&&!"
                 r"[\w$]+\([\w$]+,[\w$]+\)\)return!1"
             ),
             _force_compact,
