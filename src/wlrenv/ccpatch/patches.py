@@ -1123,11 +1123,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 196),
+    max_version=(2, 1, 197),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.195) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.196) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1607,7 +1607,7 @@ _MULTI_PROVIDER_AGENT_IDENTIFIERS = (
         rf'(?:process\.env\.ANTHROPIC_DEFAULT_FABLE_MODEL\|\||'
         rf'function {_ID}\(({_ID})=)'
         rf'(?P<models>{_ID})\(\)'
-        rf'(?(1)\)\{{let {_ID}=\1\.fable5|\.fable5)'
+        rf'(?(1)\)\{{let {_ID}=(?:{_ID}\("fable",\1\)\?\?)?\1\.fable5|\.fable5)'
     ),
     re.compile(
         rf'function (?P<picker>{_ID})\({_ID}=!1\)\{{let {_ID}=new Set,'
@@ -1671,7 +1671,9 @@ _MULTI_PROVIDER_COUNT_TOKENS = re.compile(
 )
 _MULTI_PROVIDER_COUNT_TOKENS_CATCH = re.compile(
     rf'(?P<prefix>async function (?P<function>{_ID})\((?P<messages>{_ID}),(?P<tools>{_ID}),'
-    rf'(?P<model_arg>{_ID})\)\{{return .{{0,200}}?async\(\)=>\{{try\{{.{{0,1800}}?return '
+    rf'(?P<model_arg>{_ID})\)\{{'
+    rf'(?:(?P=messages)={_ID}\((?P=messages)\);let (?P<prepared_tools>{_ID})='
+    rf'{_ID}\((?P=tools)\);)?return .{{0,200}}?async\(\)=>\{{try\{{.{{0,1800}}?return '
     rf'(?P<response>{_ID})\.input_tokens)\}}catch\((?P<error>{_ID})\)\{{'
     rf'(?P<body>(?:return |if\()(?P<logger>{_ID})\(`countTokens API call failed:'
     rf'.{{0,200}}?null(?:;return null)?)\}}\}}\)\}}'
@@ -1823,6 +1825,13 @@ def _surface_multi_provider_count_tokens_error(match: re.Match[str]) -> str:
     if not prefix.endswith(return_suffix):
         raise PatchError("multi-provider-sdk: countTokens return shape changed")
     prefix = prefix[: -len(return_suffix)]
+    # Validate external responses before the native malformed-response fallback.
+    native_guard = f'if(typeof {response}.input_tokens!=="number")return null;'
+    prefix = prefix.replace(
+        native_guard,
+        f"_ccMultiProviderInputTokens(_ccEffectiveModel,{response});" + native_guard,
+        1,
+    )
     return (
         prefix
         + f"return _ccMultiProviderInputTokens(_ccEffectiveModel,{response})}}"
@@ -2255,7 +2264,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 196),
+    max_version=(2, 1, 197),
     requires_version=True,
 )
 

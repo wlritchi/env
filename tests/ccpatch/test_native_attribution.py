@@ -94,6 +94,11 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
                 r"let \2,\1;",
                 original,
             )
+        # Normalize prompt prose only for the identifier comparison.
+        original = original.replace(
+            "and for a completed change, per the pre-ship gate below",
+            "and for a completed change heading to a PR, only after the pre-ship checks below",
+        )
         tokens = re.findall(_ID, original)
         baseline_tokens = re.findall(_ID, baseline)
         assert len(tokens) == len(baseline_tokens)
@@ -130,8 +135,9 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
     helper = patched[helper_start : helper_end + next_original.start()]
 
     def normalize(text: str) -> str:
+        # Keep model ID prefixes intact when a minified identifier is also a word.
         return re.sub(
-            rf"{_ID}(?![\w$]|-Authored-By)",
+            rf"{_ID}(?![\w$]|-Authored-By|-\d)",
             lambda match: names.get(match[0], match[0]),
             text,
         )

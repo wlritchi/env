@@ -254,7 +254,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 191), True),
         ((2, 1, 193), True),
         ((2, 1, 195), True),
-        ((2, 1, 196), False),
+        ((2, 1, 196), True),
+        ((2, 1, 197), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -766,6 +767,84 @@ def test_multi_provider_count_tokens_preserves_native_fallback() -> None:
     )
 
 
+@pytest.mark.parametrize("version", [174, 195, 196])
+def test_count_tokens_preprocessing_and_response_validation(version: int) -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("no node/bun to evaluate countTokens")
+    source = _MULTI_PROVIDER_SRC
+    prefix = "return WRAP(MSGS,TOOLS,async()=>{"
+    if version == 195:
+        prefix = "return MSGS=PREPARE(MSGS),WRAP(MSGS,TOOLS,async()=>{"
+    elif version == 196:
+        prefix = (
+            "MSGS=PREPARE(MSGS);let PREPARED=PREPARE_TOOLS(TOOLS);"
+            "return WRAP(MSGS,PREPARED,async()=>{"
+        )
+        source = source.replace(
+            "messages:MSGS,tools:TOOLS", "messages:MSGS,tools:PREPARED"
+        )
+    source = source.replace("return WRAP(MSGS,TOOLS,async()=>{", prefix)
+    if version >= 195:
+        source = source.replace(
+            "return RESULT.input_tokens",
+            'if(typeof RESULT.input_tokens!=="number")return null;return RESULT.input_tokens',
+        )
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert prefix + "let _ccEffectiveModel;try{" in patched
+    tokens = patched[
+        patched.index("async function TOKENS(") : patched.index("function ATTR(")
+    ]
+    validator = patched[
+        patched.index("function _ccMultiProviderInputTokens(") : patched.index(
+            "function _ccMultiProviderRoute("
+        )
+    ]
+    harness = r'''
+const assert=require("node:assert/strict");
+let response,request,wrapped,preparations=[];
+const RAW=[],ij6=new Set;
+function PREPARE(messages){preparations.push("messages");return [...messages,"prepared"]}
+function PREPARE_TOOLS(tools){preparations.push("tools");return [...tools,"prepared"]}
+function WRAP(messages,tools,callback){wrapped={messages,tools};return callback()}
+function DEFAULT(){return "external"}
+function KA(model){return model}
+function N(){}
+function _ccMultiProviderModelInfo(model){return model==="external"?{}:null}
+function _ccMultiProviderPreflight(){}
+function _ccMultiProviderRoute(client,outbound){request=outbound;return [client,outbound]}
+async function LF(){return {beta:{messages:{countTokens:async()=>response}}}}
+(async()=>{
+    for(const model of ["native","external",undefined]){
+        for(const value of [12,"12",null,undefined]){
+            response={input_tokens:value};
+            if(model!=="native"&&typeof value!=="number"){
+                await assert.rejects(()=>TOKENS([],[],model),{code:"EPROVIDERINCOMPATIBLE"});
+            }else{
+                assert.equal(await TOKENS([],[],model),typeof value==="number"?value:NATIVE_INVALID);
+            }
+            assert.deepEqual(request.messages,wrapped.messages);
+            assert.deepEqual(request.tools,wrapped.tools);
+            assert.deepEqual(request.messages,VERSION>=195?["prepared"]:[]);
+            assert.deepEqual(request.tools,VERSION>=196?["prepared"]:[]);
+        }
+    }
+    assert.deepEqual(preparations,Array.from({length:12},()=>
+        VERSION===196?["messages","tools"]:VERSION===195?["messages"]:[]).flat());
+})().catch(error=>{console.error(error);process.exitCode=1});
+'''
+    harness = harness.replace("NATIVE_INVALID", "null" if version >= 195 else "value")
+    harness = harness.replace("VERSION", str(version))
+    result = subprocess.run(  # noqa: S603 - local runtime regression
+        [runtime, "-e", validator + tokens + harness],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_multi_provider_sdk_transforms_complete_fixture() -> None:
     patched = MULTI_PROVIDER_SDK.apply(_MULTI_PROVIDER_SRC)
 
@@ -1061,10 +1140,11 @@ def test_multi_provider_resume_requires_allowlist_anchor() -> None:
         MULTI_PROVIDER_SDK.apply(source)
 
 
+@pytest.mark.parametrize("default_override", ["", 'OVERRIDE("fable",CATALOG)??'])
 @pytest.mark.parametrize("exempt", [False, True])
 @pytest.mark.parametrize("allowed", [False, True])
 def test_multi_provider_resume_preserves_default_exemption(
-    exempt: bool, allowed: bool
+    exempt: bool, allowed: bool, default_override: str
 ) -> None:
     runtime = shutil.which("node")
     if runtime is None:
@@ -1073,7 +1153,9 @@ def test_multi_provider_resume_preserves_default_exemption(
         '!ALLOW(f)?"not_allowed"', '!EXEMPT(f)&&!ALLOW(f)?"not_allowed"'
     ).replace(
         "process.env.ANTHROPIC_DEFAULT_FABLE_MODEL||MODELS().fable5;",
-        "function FABLE(CATALOG=MODELS()){let MODEL=CATALOG.fable5;return MODEL}",
+        "function FABLE(CATALOG=MODELS()){let MODEL="
+        + default_override
+        + "CATALOG.fable5;return MODEL}",
     )
     patched = MULTI_PROVIDER_SDK.apply(source)
     resume = patched[

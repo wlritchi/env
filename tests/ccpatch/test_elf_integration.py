@@ -132,20 +132,20 @@ def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
     if not re.search(
-        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195)"',
+        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196)"',
         source,
     ):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.195"
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.196"
             )
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.195")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.196")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.195"
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.196"
             )
-        pytest.skip("installed Claude Code 2.1.174-2.1.195 binary is already patched")
+        pytest.skip("installed Claude Code 2.1.174-2.1.196 binary is already patched")
     return source, BACKGROUND_PROVIDER_ENV.apply(source)
 
 
@@ -154,9 +154,9 @@ def test_181_preserves_cloud_branch_and_token_count_context(
 ) -> None:
     source = _entry_source(binary_info[0])
     if not re.search(
-        r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191|193|195)"', source
+        r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191|193|195|196)"', source
     ):
-        pytest.skip("requires Claude Code 2.1.181-2.1.195")
+        pytest.skip("requires Claude Code 2.1.181-2.1.196")
     patched = source
     for patch_set in default_patch_sets((2, 1, 181)):
         patched = patch_set.apply(patched)
@@ -183,13 +183,13 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     source = _entry_source(path.read_bytes())
     if (
         not re.search(
-            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195)"',
+            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196)"',
             source,
         )
         or "providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.195"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.196"
         )
 
     try:
@@ -336,9 +336,10 @@ def test_178_preserves_upstream_security_and_compaction_fallback(
 ) -> None:
     source = _entry_source(binary_info[0])
     if not re.search(
-        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191|193|195)"', source
+        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191|193|195|196)"',
+        source,
     ):
-        pytest.skip("requires Claude Code 2.1.178-2.1.195")
+        pytest.skip("requires Claude Code 2.1.178-2.1.196")
     patched = source
     for patch_set in default_patch_sets((2, 1, 178)):
         patched = patch_set.apply(patched)
@@ -455,6 +456,19 @@ def test_real_source_routes_multi_provider_sdk(
     )[1]
     assert f"_ccMultiProviderRoute({count_client},_ccRequest,{{}},!0)" in patched
     assert "_ccClient.beta.messages.countTokens(_ccOutbound)" in patched
+    native_tokens, patched_tokens = _same_function(
+        source, patched, "`countTokens API call failed:"
+    )
+    native_prefix = native_tokens[: native_tokens.index("async()=>{try{")]
+    assert patched_tokens.startswith(native_prefix)
+    native_guard = re.search(
+        rf'if\(typeof ({_ID})\.input_tokens!=="number"\)return null;', native_tokens
+    )
+    if native_guard:
+        assert (
+            f"_ccMultiProviderInputTokens(_ccEffectiveModel,{native_guard[1]});"
+            + native_guard[0]
+        ) in patched_tokens
     assert '_ccMultiProviderDeniedRequestFields=["fallback_credit_token"]' in patched
     assert "_ccMultiProviderTraceHeaders.includes(_ccName.toLowerCase())" in patched
     assert "function _ccMultiProviderModelProvider(" in patched
@@ -643,7 +657,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
     if re.search(
-        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191|193|195)"',
+        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196)"',
         pristine,
     ):
         denied = _match(
