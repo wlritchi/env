@@ -255,13 +255,15 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 193), True),
         ((2, 1, 195), True),
         ((2, 1, 196), True),
-        ((2, 1, 197), False),
+        ((2, 1, 197), True),
+        ((2, 1, 198), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
     version: tuple[int, ...] | None, expected: bool
 ) -> None:
     assert BACKGROUND_PROVIDER_ENV.applies_to(version) is expected
+    assert MULTI_PROVIDER_SDK.applies_to(version) is expected
     assert MULTI_PROVIDER_SDK.applies_to(version) is expected
 
 
@@ -521,6 +523,7 @@ def test_background_provider_environment_covers_upstream_vertex_region_keys() ->
         "VERTEX_REGION_CLAUDE_4_5_OPUS",
         "VERTEX_REGION_CLAUDE_4_1_OPUS",
         "VERTEX_REGION_CLAUDE_4_0_OPUS",
+        "VERTEX_REGION_CLAUDE_5_SONNET",
         "VERTEX_REGION_CLAUDE_4_6_SONNET",
         "VERTEX_REGION_CLAUDE_4_5_SONNET",
         "VERTEX_REGION_CLAUDE_4_0_SONNET",

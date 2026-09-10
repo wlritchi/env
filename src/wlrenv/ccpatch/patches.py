@@ -586,6 +586,7 @@ _PROVIDER_ENV_VERTEX_REGION_KEYS = (
     "VERTEX_REGION_CLAUDE_4_5_OPUS",
     "VERTEX_REGION_CLAUDE_4_1_OPUS",
     "VERTEX_REGION_CLAUDE_4_0_OPUS",
+    "VERTEX_REGION_CLAUDE_5_SONNET",
     "VERTEX_REGION_CLAUDE_4_6_SONNET",
     "VERTEX_REGION_CLAUDE_4_5_SONNET",
     "VERTEX_REGION_CLAUDE_4_0_SONNET",
@@ -1123,11 +1124,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 197),
+    max_version=(2, 1, 198),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.196) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.197) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -2264,7 +2265,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 197),
+    max_version=(2, 1, 198),
     requires_version=True,
 )
 
