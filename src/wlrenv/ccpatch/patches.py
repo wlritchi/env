@@ -470,7 +470,8 @@ _PROVIDER_ENV_CLAIM_FRAME = re.compile(
 )
 _PROVIDER_ENV_DO_SPAWN = re.compile(
     rf'let (?P<argv>{_ID})=(?P<argv_fn>{_ID})\((?P<job>{_ID}),this\.attempt,'
-    rf'(?P<has_messages>{_ID}),(?P<session>{_ID}),(?P<flags>{_ID})\),'
+    rf'(?P<has_messages>{_ID}),(?P<session>{_ID}),'
+    rf'(?:(?P<transcript_path>{_ID}),)?(?P<flags>{_ID})\),'
     rf'(?P<env>{_ID})=(?P<env_builder>{_ID})\((?P=job),(?P<job_dir>{_ID}),'
     rf'(?P<snapshot>{_ID}),this\.rvSockPath\?\?(?P<rv_sock>{_ID})'
     rf'\((?P=job)\.short\),this\.socketAuth\(\)\);'
@@ -1122,11 +1123,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 192),
+    max_version=(2, 1, 194),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.191) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.193) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -2244,7 +2245,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 192),
+    max_version=(2, 1, 194),
     requires_version=True,
 )
 

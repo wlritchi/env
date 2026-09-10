@@ -252,7 +252,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 187), True),
         ((2, 1, 190), True),
         ((2, 1, 191), True),
-        ((2, 1, 192), False),
+        ((2, 1, 193), True),
+        ((2, 1, 194), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -298,6 +299,19 @@ def test_operational_entry_preserves_cloud_security_branch(
 
 def test_patch_sets_allow_omitted_version_by_default() -> None:
     assert CHANNELS_ENABLED.applies_to(None)
+
+
+@pytest.mark.parametrize("transcript_path", ["", "transcriptPath,"])
+def test_background_provider_respawn_preserves_transcript_path(
+    transcript_path: str,
+) -> None:
+    argv = f"buildArgv(job,this.attempt,messages,session,{transcript_path}flags)"
+    source = _PROVIDER_ENV_SRC.replace(
+        "buildArgv(job,this.attempt,messages,session,flags)", argv
+    )
+    patched = BACKGROUND_PROVIDER_ENV.apply(source)
+    assert argv in patched
+    assert "this.socketAuth(),this.providerEnv);" in patched
 
 
 def test_background_provider_environment_transforms_complete_fixture() -> None:

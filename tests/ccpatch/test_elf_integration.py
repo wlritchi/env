@@ -132,20 +132,20 @@ def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
     if not re.search(
-        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191)"',
+        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193)"',
         source,
     ):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.191"
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.193"
             )
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.191")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.193")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.191"
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.193"
             )
-        pytest.skip("installed Claude Code 2.1.174-2.1.191 binary is already patched")
+        pytest.skip("installed Claude Code 2.1.174-2.1.193 binary is already patched")
     return source, BACKGROUND_PROVIDER_ENV.apply(source)
 
 
@@ -153,8 +153,10 @@ def test_181_preserves_cloud_branch_and_token_count_context(
     binary_info: tuple[bytes, bool],
 ) -> None:
     source = _entry_source(binary_info[0])
-    if not re.search(r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191)"', source):
-        pytest.skip("requires Claude Code 2.1.181-2.1.191")
+    if not re.search(
+        r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191|193)"', source
+    ):
+        pytest.skip("requires Claude Code 2.1.181-2.1.193")
     patched = source
     for patch_set in default_patch_sets((2, 1, 181)):
         patched = patch_set.apply(patched)
@@ -181,13 +183,13 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     source = _entry_source(path.read_bytes())
     if (
         not re.search(
-            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191)"',
+            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193)"',
             source,
         )
         or "providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.191"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.193"
         )
 
     try:
@@ -334,9 +336,9 @@ def test_178_preserves_upstream_security_and_compaction_fallback(
 ) -> None:
     source = _entry_source(binary_info[0])
     if not re.search(
-        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191)"', source
+        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191|193)"', source
     ):
-        pytest.skip("requires Claude Code 2.1.178-2.1.191")
+        pytest.skip("requires Claude Code 2.1.178-2.1.193")
     patched = source
     for patch_set in default_patch_sets((2, 1, 178)):
         patched = patch_set.apply(patched)
@@ -352,7 +354,12 @@ def test_178_preserves_upstream_security_and_compaction_fallback(
 
     for label in ("compact", "reactive-compact"):
         fallback = _match(
-            rf'forkLabel:"{label}",maxTurns:1,fallbackModel:{_ID}\([^;]+?maxOutputTokens:',
+            rf'forkLabel:"{label}",maxTurns:1,fallbackModel:{_ID}\('
+            rf'{_ID}\.(?:toolUseContext\.)?options\.mainLoopModel,'
+            rf'{_ID}\.(?:toolUseContext\.)?options\.fallbackModel\),'
+            rf'(?:maxOutputTokens:Math\.min\({_ID},{_ID}\('
+            rf'{_ID}\.(?:toolUseContext\.)?options\.mainLoopModel\)\),)?'
+            rf'skip(?:Transcript|CacheWrite):!0,skip(?:Transcript|CacheWrite):!0',
             source,
         )[0]
         assert fallback in patched
@@ -637,7 +644,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
     if re.search(
-        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191)"',
+        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191|193)"',
         pristine,
     ):
         denied = _match(

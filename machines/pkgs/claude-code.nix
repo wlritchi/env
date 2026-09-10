@@ -28,24 +28,24 @@
 }:
 
 let
-  version = "2.1.191";
+  version = "2.1.193";
 
   sources = {
     "x86_64-linux" = {
       platform = "linux-x64";
-      hash = "sha512-TSb896ojPXEitnoR6+CKlLCzhe0n11LzxXAIjcbCaQzFB1VDDNbWA8UVCvUnoahtHW7vfnTe1FPjm8zRla3Rxw==";
+      hash = "sha512-Ep9lUfFjYaFTcNoMQ6znYJ7IXldPksbq3leMDeCA93H90mDmNJlDULHhi+BVkUVy4vUskirwuc0MyUjyPH+Ksw==";
     };
     "aarch64-linux" = {
       platform = "linux-arm64";
-      hash = "sha512-i9rmqPRTqkHoZxKjx3DutEZN3g/0ecSd1OYmJn01FOcKsT0Xyc9VCyta0dStTqDYD+9Oj3AhXaooxn1DuK9rMA==";
+      hash = "sha512-xUD0j9zAsNFjJMbcFuOXBMRbEsRtgsGYd5hFY/lcPbTKL1J3goOTLuDIhFJLLNbZ4Axt+wl7bgUEZO50JhugJw==";
     };
     "aarch64-darwin" = {
       platform = "darwin-arm64";
-      hash = "sha512-kxQ0M80Jrnyft8KdXshTFCWXJzJruimPJR9M2a+6ySjBuuZJFzf4vxxsLg4yNU3Adjh8m9gwmPjNCkqrFlDmgg==";
+      hash = "sha512-Vc5iti3tg/1bFD5Ill7p9hi9OakCJg97ctuvlfjzT6v6BTvxheYTo2iegQdItL6+Q7DCQ6/TwCAjBEgNX32NQw==";
     };
     "x86_64-darwin" = {
       platform = "darwin-x64";
-      hash = "sha512-X7tIxjB3rhc7Ko7AHf+JFf97cwLsFZl20KEm7W2NAfFqNz7YVwaIrJvAXThm/vrHiMq1dT+q7d4kSw1b8Yhm3g==";
+      hash = "sha512-/fotLPL1Fu1KTZZA7Klr2A1E/CkeK/cLgz8yVv4fUoO0V9yyV4/f7OdJRduj4PXmkQwIgswAmBgDipJlEok8sg==";
     };
   };
 
