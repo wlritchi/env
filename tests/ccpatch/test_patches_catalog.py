@@ -21,15 +21,18 @@ from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_VERTEX_REGION_KEYS,
     _SYNTAX_DARK_MAP,
     BACKGROUND_PROVIDER_ENV,
+    BACKGROUND_PROVIDER_ENV_198,
     CATPPUCCIN_SYNTAX,
     CHANNELS_ENABLED,
     COMPACT_SESSION,
     DEV_CHANNEL_INHERITANCE,
     MULTI_PROVIDER_SDK,
     THINKING_SUMMARIES_NONINTERACTIVE,
+    THINKING_SUMMARIES_NONINTERACTIVE_198,
     PatchError,
     PatchSet,
     _model_costs_patch,
+    default_patch_sets,
 )
 
 _DEV_CHANNEL_SRC = (
@@ -263,8 +266,10 @@ def test_background_provider_environment_is_version_gated(
     version: tuple[int, ...] | None, expected: bool
 ) -> None:
     assert BACKGROUND_PROVIDER_ENV.applies_to(version) is expected
-    assert MULTI_PROVIDER_SDK.applies_to(version) is expected
-    assert MULTI_PROVIDER_SDK.applies_to(version) is expected
+    assert MULTI_PROVIDER_SDK.applies_to(version) is (
+        expected or version == (2, 1, 198)
+    )
+    assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 199))
 
 
 @pytest.mark.parametrize("agent_context", ["", ",agentContext:CONTEXT()"])
@@ -1281,6 +1286,156 @@ def test_thinking_summaries_ungated_for_noninteractive() -> None:
         'A.thinkingDisplay==="summarized"||A.thinkingDisplay==="omitted")'
         "n8.display=A.thinkingDisplay" in out
     )
+
+
+_THINKING_198_SRC = (
+    'function SETTINGS(){return config().showThinkingSummaries??!1}'
+    'function DISPLAY({explicitDisplay:e,isNonInteractive:t,outputFormat:n,verbose:r})'
+    '{if(e)return e;if(!t)return SETTINGS()?"summarized":void 0;'
+    'if(n==="text"||n==="json"&&!r)return"omitted";return}'
+    'function AGENT(e,{useExactTools:t,forwardSubagentText:n,isAsync:r,'
+    'isNonInteractiveSession:o,sessionDisplayExplicit:s})'
+    '{if(s||!o||t||n||r||e.type==="disabled"||e.display==="omitted")return e;'
+    'return{...e,display:"omitted"}}'
+)
+
+
+def test_198_variants_are_narrowly_selected() -> None:
+    for version in (None, (2, 1, 174), (2, 1, 197)):
+        sets = default_patch_sets(version)
+        assert sets[3] is BACKGROUND_PROVIDER_ENV
+        assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE
+    sets = default_patch_sets((2, 1, 198))
+    assert sets[3] is BACKGROUND_PROVIDER_ENV_198
+    assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE_198
+    for patch_set in (sets[3], sets[6]):
+        assert patch_set.applies_to((2, 1, 198))
+        assert not patch_set.applies_to((2, 1, 197))
+        assert not patch_set.applies_to(None)
+        assert patch_set.max_version == (2, 1, 199)
+
+
+def test_198_provider_respawn_uses_transient_environment() -> None:
+    original = '||job.providerEnv,...job.providerEnv&&{providerEnv:job.providerEnv}'
+    updated = (
+        'try{await fs.access(tombstone(id)),host=!0}catch(error){'
+        'if(!missing(error))return{error:`host-managed tombstone unreadable: ${error}`};host=!1}'
+        'let{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:ignored,...env}=job.providerEnv??{};'
+        'if(host)for(let key of keys)delete env[key];'
+        'let managed=host?{...env,CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:"1"}:env,'
+        'options={...intent&&{intent},providerEnv:managed,'
+        '...job.sessionPermissionRules&&{sessionPermissionRules:job.sessionPermissionRules}};'
+    )
+    source = _PROVIDER_ENV_SRC.replace(original, updated).replace(
+        'fetchSnapshot(job.short,auth?.())',
+        'fetchSnapshot(job.short,hostManaged(job)?void 0:auth?.())',
+    )
+    assert source != _PROVIDER_ENV_SRC
+    patched = BACKGROUND_PROVIDER_ENV_198.apply(source)
+    assert 'fs.access(tombstone(id))' in patched
+    assert 'host-managed tombstone unreadable:' in patched
+    assert 'let options={...intent&&{intent},...job.sessionPermissionRules' in patched
+    assert 'job.providerEnv' not in patched
+    assert 'providerEnv:managed' not in patched
+    runtime = shutil.which("node") or shutil.which("bun")
+    assert runtime is not None
+    guard = next(
+        patch
+        for patch in BACKGROUND_PROVIDER_ENV_198.patches
+        if patch.name == "remove-provider-env-from-respawn-guard"
+    )
+    options_patch = next(
+        patch
+        for patch in BACKGROUND_PROVIDER_ENV_198.patches
+        if patch.name == "remove-provider-env-from-respawn-options"
+    )
+    body = PatchSet(name="respawn", patches=(guard, options_patch)).apply(updated)
+    script = (
+        'async function respawn(hostState){let host;const id="test",intent=null;'
+        'const job=new Proxy({},{get(){throw Error("persisted job read")}});'
+        'const tombstone=x=>x,missing=e=>e.code==="ENOENT";'
+        'const fs={access:async()=>{if(hostState!=="present")'
+        'throw Object.assign(Error(hostState),{code:hostState})}};'
+        + body.replace(
+            '...job.sessionPermissionRules&&{sessionPermissionRules:job.sessionPermissionRules}',
+            '',
+        )
+        + 'return {ok:true}};'
+        + '''
+(async()=>{
+for(const state of ["present","ENOENT","EACCES"])
+for(const value of [undefined,"","0","false","1","true","yes","on"," TRUE "]){
+    if(value===undefined)delete process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST;
+    else process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=value;
+    const result=await respawn(state);
+    const trusted=["1","true","yes","on"," TRUE "].includes(value);
+    const expected=state==="ENOENT"||state==="present"&&trusted;
+    if(!!result.ok!==expected)throw Error(JSON.stringify({state,value,result}));
+}
+})().catch(error=>{console.error(error);process.exitCode=1});
+'''
+    )
+    result = subprocess.run(  # noqa: S603 - runtime is which()-resolved node/bun
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    assert 'fetchSnapshot(job.short,hostManaged(job)?void 0:auth?.())' in patched
+    assert (
+        'UVA(job,snapshot,worker.socketAuth(),spare.claimAuth,_ccProviderEnv)'
+        in patched
+    )
+    assert 'providerEnvVersion:3,providerEnv:SNAP()' in patched
+    with pytest.raises(PatchError, match="respawn-guard"):
+        BACKGROUND_PROVIDER_ENV.apply(source)
+    with pytest.raises(PatchError, match="respawn-guard"):
+        BACKGROUND_PROVIDER_ENV_198.apply(_PROVIDER_ENV_SRC)
+
+
+def test_198_thinking_defaults_and_subagent_filter() -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("no node/bun to check thinking defaults")
+    patched = THINKING_SUMMARIES_NONINTERACTIVE_198.apply(_THINKING_198_SRC)
+    script = (
+        patched
+        + '''
+let enabled;
+function config(){return {showThinkingSummaries:enabled}}
+for(enabled of [undefined,false,true])
+for(const explicitDisplay of [undefined,"omitted","summarized"])
+for(const isNonInteractive of [false,true])
+for(const outputFormat of ["text","json","stream-json"])
+for(const verbose of [false,true]){
+    const actual=DISPLAY({explicitDisplay,isNonInteractive,outputFormat,verbose});
+    const expected=explicitDisplay??(enabled?"summarized":
+        isNonInteractive&&(outputFormat==="text"||outputFormat==="json"&&!verbose)
+        ?"omitted":undefined);
+    if(actual!==expected)throw Error(JSON.stringify({actual,expected}));
+    const thinking={type:"enabled",display:actual};
+    const options={useExactTools:false,forwardSubagentText:false,isAsync:false,
+        isNonInteractiveSession:isNonInteractive,sessionDisplayExplicit:!!explicitDisplay};
+    const agent=AGENT(thinking,options);
+    const agentExpected=enabled||explicitDisplay||!isNonInteractive||actual==="omitted"
+        ?actual:"omitted";
+    if(agent.display!==agentExpected)throw Error("subagent display mismatch");
+    for(const flag of ["useExactTools","forwardSubagentText","isAsync"]){
+        if(AGENT(thinking,{...options,[flag]:true})!==thinking)throw Error(flag);
+    }
+    const disabled={type:"disabled"};
+    if(AGENT(disabled,options)!==disabled)throw Error("disabled thinking changed");
+}
+'''
+    )
+    result = subprocess.run(  # noqa: S603 - runtime is which()-resolved node/bun
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    with pytest.raises(PatchError, match="ungate-thinking-display-default"):
+        THINKING_SUMMARIES_NONINTERACTIVE.apply(_THINKING_198_SRC)
+    with pytest.raises(PatchError, match="ungate-thinking-display-default"):
+        THINKING_SUMMARIES_NONINTERACTIVE_198.apply(
+            'else if(!F6()&&O78())n8.display="summarized"'
+        )
 
 
 def _original_scope_map(var: str = "R9") -> str:

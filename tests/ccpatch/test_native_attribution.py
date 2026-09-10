@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from wlrenv.ccpatch.patches import MULTI_PROVIDER_SDK
+from wlrenv.ccpatch.patches import MULTI_PROVIDER_SDK, default_patch_sets
 
 _ID = r"[A-Za-z_$][\w$]*"
 _ROOT = Path(os.environ.get("CCPATCH_NATIVE_SOURCE_ROOT", "/tmp/ccpatch-sweep-2.1.182"))  # noqa: S108 - read-only captured release sources
@@ -84,6 +84,7 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
     originals = _captures(source)
     canonical = _captures(reference.read_text())
     names: dict[str, str] = {}
+    local_names: dict[str, dict[str, str]] = {}
     for index, ((_, original), (_, baseline)) in enumerate(
         zip(originals, canonical, strict=True)
     ):
@@ -94,17 +95,53 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
                 r"let \2,\1;",
                 original,
             )
-        # Normalize prompt prose only for the identifier comparison.
-        original = original.replace(
-            "and for a completed change, per the pre-ship gate below",
-            "and for a completed change heading to a PR, only after the pre-ship checks below",
-        )
+        if index == 3 and '"tengu_relay_chain_v1"' not in original:
+            # Release .198 removes the command-chaining guidance and its flag.
+            guidance = re.search(
+                rf',({_ID})={_ID}\("tengu_relay_chain_v1",!1\)\?\[\]:\[(.*?)\]\],',
+                baseline,
+            )
+            if guidance is not None:
+                prose = re.sub(rf"\$\{{{_ID}\}}", "${Bash}", guidance[2])
+                assert prose == (
+                    '"When issuing multiple commands:",['
+                    '`If the commands are independent and can run in parallel, make multiple ${Bash} tool calls in a single message. Example: if you need to run "git status" and "git diff", send a single message with two ${Bash} tool calls in parallel.`,'
+                    "`If the commands depend on each other and must run sequentially, use a single ${Bash} call with '&&' to chain them together.`,"
+                    '"Use \';\' only when you need to run commands sequentially but don\'t care if earlier commands fail.",'
+                    '"DO NOT use newlines to separate commands (newlines are ok in quoted strings)."'
+                )
+                baseline = (
+                    baseline[: guidance.start()] + "," + baseline[guidance.end() :]
+                )
+                spread = f",...{guidance[1]},"
+                assert baseline.count(spread) == 1
+                baseline = baseline.replace(spread, ",")
+                # The removed local shifts the remaining minified local names.
+                local_names[originals[index][0]] = {}
+        # Normalize only known prose and call-site changes for name comparison.
+        for before, after in (
+            (
+                "and for a completed change heading to a PR, only after the pre-ship checks below",
+                "and for a completed change, per the pre-ship gate below",
+            ),
+            (',"bash_lean")', ")"),
+            (',"bash_full")', ")"),
+        ):
+            original = original.replace(before, after)
+            baseline = baseline.replace(before, after)
         tokens = re.findall(_ID, original)
         baseline_tokens = re.findall(_ID, baseline)
-        assert len(tokens) == len(baseline_tokens)
+        assert len(tokens) == len(baseline_tokens), (
+            index,
+            len(tokens),
+            len(baseline_tokens),
+        )
         for token, baseline_token in zip(tokens, baseline_tokens, strict=True):
             if token != baseline_token:
-                assert names.setdefault(token, baseline_token) == baseline_token
+                mapping = names
+                if originals[index][0] in local_names and len(token) == 1:
+                    mapping = local_names[originals[index][0]]
+                assert mapping.setdefault(token, baseline_token) == baseline_token
     patched = MULTI_PROVIDER_SDK.apply(source)
     functions: list[str] = []
     for name, original in originals:
@@ -155,5 +192,147 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
         check=False,
         capture_output=True,
         text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "architecture", ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
+)
+def test_native_198_model_and_thinking_semantics(architecture: str) -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    path = _ROOT / architecture / "original.js"
+    if runtime is None or not path.is_file() or _ROOT.name != "2.1.198":
+        pytest.skip("requires .198 captured sources and node/bun")
+    original = path.read_text()
+    patched = original
+    for patch_set in default_patch_sets((2, 1, 198)):
+        patched = patch_set.apply(patched)
+
+    def capture(source: str, anchor: str) -> tuple[str, str]:
+        match = re.search(anchor, source)
+        assert match is not None, anchor
+        return _function(source, match.end())
+
+    resolver_name, resolver = capture(original, r'if\(e\.agentType!==')
+    cap_name = re.search(r'return (' + _ID + r')\(t\)\?', resolver)
+    assert cap_name is not None
+    _, cap = capture(original, rf'function {cap_name[1]}\(')
+    provider = re.search(r'if\((' + _ID + r')\(\)!=="firstParty"', cap)
+    family = re.search(r'return!(' + _ID + r')\(e,t\)', cap)
+    variables = re.search(
+        r'let t=(' + _ID + r')\.slice\(0,\1\.indexOf\((' + _ID + r')\)', cap
+    )
+    definition = re.search(r'e\.agentType!==(' + _ID + r')\.agentType', resolver)
+    assert provider and family and variables and definition
+    _, family_source = capture(original, rf'function {family[1]}\(')
+    for text in (resolver, cap, family_source):
+        assert text in patched
+    agent_name, agent = capture(
+        original, r'function ' + _ID + r'\(e,t,n,r,o\)\{let s=\(\)=>'
+    )
+    assert agent in patched
+    inherit = re.search(r'let s=\(\)=>(' + _ID + r')\(', agent)
+    default = re.search(r'let u=e\?\?(' + _ID + r')\(\)', agent)
+    allow = re.search(r'if\(!(' + _ID + r')\(p\)\)', agent)
+    region = re.search(r'let l=(' + _ID + r')\(t\)', agent)
+    same = re.search(r'if\((' + _ID + r')\(n,t\)\)', agent)
+    remap = re.search(r'let p=c\((' + _ID + r')\((' + _ID + r')\(n\)\)', agent)
+    assert inherit and default and allow and region and same and remap
+    display_name, display = capture(
+        patched, r'explicitDisplay:' + _ID + r',isNonInteractive:'
+    )
+    thinking_name, thinking = capture(
+        patched, r'sessionDisplayExplicit:' + _ID + r'\}\)\{'
+    )
+    setting = re.search(r'if\((' + _ID + r')\(\)\)return"summarized"', display)
+    assert setting is not None
+    dispatch = re.search(
+        rf'(?P<payload>{_ID})=\{{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:'
+        r'process\.env\.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST\}',
+        patched,
+    )
+    assert dispatch is not None
+    host_env = re.search(
+        rf'env:\{{\.\.\.{dispatch["payload"]},(?P<host>\.\.\.{_ID}\('
+        rf'{dispatch["payload"]}\.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST\)&&'
+        rf'{_ID}\.CLAUDE_CODE_HOST_CREDS_FILE&&\{{CLAUDE_CODE_HOST_CREDS_FILE:'
+        rf'{_ID}\.CLAUDE_CODE_HOST_CREDS_FILE\}})',
+        patched,
+    )
+    assert host_env is not None
+    host_check = re.search(r'\.\.\.(' + _ID + r')\(', host_env["host"])
+    assert host_check is not None
+    _, host_check_source = capture(original, rf'function {host_check[1]}\(')
+    host_expression = re.sub(
+        rf'{_ID}\.CLAUDE_CODE_HOST_CREDS_FILE',
+        'process.env.CLAUDE_CODE_HOST_CREDS_FILE',
+        host_env["host"],
+    )
+    dispatch_script = (
+        host_check_source
+        + 'for(const value of [undefined,"0","1","true"]){'
+        + 'if(value===undefined)delete process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST;'
+        + 'else process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=value;'
+        + 'process.env.CLAUDE_CODE_HOST_CREDS_FILE="/host/creds";'
+        + f'let {dispatch[0]};const env={{...{dispatch["payload"]},{host_expression}}};'
+        + 'if((env.CLAUDE_CODE_HOST_CREDS_FILE!==undefined)!==["1","true"].includes(value))throw Error("host credentials");'
+        + 'if(Object.keys(env).some(k=>!["CLAUDE_CODE_HOST_CREDS_FILE","CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"].includes(k)))throw Error("persisted provider env");}'
+        + 'delete process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST;'
+    )
+    script = (
+        dispatch_script + f'let provider="firstParty",enabled=false;'
+        f'const {definition[1]}={{agentType:"Explore"}},{variables[1]}=["haiku","sonnet","opus"],{variables[2]}="opus";'
+        f'function {provider[1]}(){{return provider}}'
+        f'function {inherit[1]}(x){{return x.mainLoopModel}}'
+        f'function {default[1]}(){{return "inherit"}}'
+        f'function {allow[1]}(){{return true}}'
+        f'function {region[1]}(){{return null}}'
+        f'function {same[1]}(){{return false}}'
+        f'function {remap[1]}(x){{return x}}'
+        f'function {remap[2]}(x){{return x}}function {setting[1]}(){{return enabled}}'
+        + family_source
+        + resolver
+        + cap
+        + agent
+        + display
+        + thinking
+        + f'const resolve={resolver_name},select={agent_name},display={display_name},thinking={thinking_name};'
+        + '''
+const explore={agentType:"Explore",source:"built-in",model:"inherit"};
+delete process.env.CLAUDE_CODE_SUBAGENT_MODEL;
+for(provider of ["firstParty","bedrock","vertex","foundry","gateway"])
+for(const parent of ["claude-haiku-4-5","claude-sonnet-4-6","claude-opus-4-8","claude-fable-5","openai:gpt-6-astra","kimi:kimi-k3"]){
+    const capped=provider==="firstParty"&&!/haiku|sonnet|opus/i.test(parent);
+    if(resolve(explore,parent)!==(capped?"opus":"inherit"))throw Error("cap");
+    if(select(resolve(explore,parent),parent)!==(capped?"opus":parent))throw Error("default explore");
+    if(select(undefined,parent)!==parent)throw Error("default agent");
+    for(const explicit of ["openai:gpt-6-astra","kimi:kimi-k3","inherit"]){
+        if(select(resolve(explore,parent),parent,explicit)!==(explicit==="inherit"?parent:explicit))throw Error("explicit");
+    }
+    if(resolve({...explore,source:"user",model:"custom"},parent)!=="custom")throw Error("custom agent");
+    process.env.CLAUDE_CODE_SUBAGENT_MODEL="zai:glm-5.3";
+    if(select(resolve(explore,parent),parent,"opus")!=="zai:glm-5.3")throw Error("env override");
+    delete process.env.CLAUDE_CODE_SUBAGENT_MODEL;
+}
+for(enabled of [false,true])
+for(const explicitDisplay of [undefined,"omitted","summarized"])
+for(const isNonInteractive of [false,true])
+for(const outputFormat of ["text","json","stream-json"])
+for(const verbose of [false,true]){
+    const actual=display({explicitDisplay,isNonInteractive,outputFormat,verbose});
+    const expected=explicitDisplay??(enabled?"summarized":isNonInteractive&&(outputFormat==="text"||outputFormat==="json"&&!verbose)?"omitted":undefined);
+    if(actual!==expected)throw Error("display default");
+    const options={isNonInteractiveSession:isNonInteractive,sessionDisplayExplicit:!!explicitDisplay};
+    const disabled={type:"disabled"};
+    if(thinking(disabled,options)!==disabled||"display" in disabled)throw Error("disabled");
+    const result=thinking({type:"enabled",display:actual},options);
+    const agentExpected=enabled||explicitDisplay||!isNonInteractive||actual==="omitted"?actual:"omitted";
+    if(result.display!==agentExpected)throw Error("agent thinking");
+}
+'''
+    )
+    result = subprocess.run(  # noqa: S603 - local runtime and captured source
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stdout + result.stderr

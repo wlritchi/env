@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NotRequired, TypedDict
 
 Version = tuple[int, ...]
@@ -1128,7 +1128,67 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.197) --------
+# 2.1.198 builds respawn options without a guard. Remove its persisted provider
+# reconstruction. Require a live host context for a host-managed tombstone.
+BACKGROUND_PROVIDER_ENV_198 = replace(
+    BACKGROUND_PROVIDER_ENV,
+    patches=tuple(
+        replace(
+            patch,
+            pattern=re.compile(
+                rf"let\{{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:{_ID},"
+                rf"\.\.\.(?P<env>{_ID})\}}={_ID}\.providerEnv\?\?\{{\}};"
+                rf"if\((?P<host>{_ID})\)for\(let (?P<key>{_ID}) of {_ID}\)"
+                rf"delete (?P=env)\[(?P=key)\];let {_ID}=(?P=host)\?"
+                rf'\{{\.\.\.(?P=env),CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:"1"\}}:'
+                rf"(?P=env),"
+            ),
+            replacement=(
+                'if(\\g<host>&&!["1","true","yes","on"].includes(String('
+                'process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST??"").toLowerCase().trim()))'
+                'return{ok:!1,alive:!1,error:"Host-managed session requires a live host-managed provider context"};let '
+            ),
+        )
+        if patch.name == "remove-provider-env-from-respawn-guard"
+        else replace(
+            patch,
+            replacement=lambda match: (
+                f'{match.group("isolation")}={match.group("source")}==="repl"?'
+                f'"none":{match.group("options")}?.bgIsolation,'
+                f'{match.group("provider")}={{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:'
+                'process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST},'
+            ),
+        )
+        if patch.name == "stop-persisting-provider-env"
+        else replace(
+            patch,
+            pattern=re.compile(
+                rf'providerEnv:{_ID},(?=\.\.\.{_ID}\.sessionPermissionRules&&)'
+            ),
+        )
+        if patch.name == "remove-provider-env-from-respawn-options"
+        else replace(
+            patch,
+            pattern=re.compile(
+                _PROVIDER_ENV_CLAIMED_SPARE_FRAME.pattern.replace(
+                    r"(?P=job)\.short,(?P=auth)\?\.\(\)",
+                    rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)",
+                )
+            ),
+        )
+        if patch.name == "thread-provider-env-through-claimed-spare-frame"
+        else patch
+        for patch in BACKGROUND_PROVIDER_ENV.patches
+    ),
+    verify_absent=(
+        *BACKGROUND_PROVIDER_ENV.verify_absent,
+        re.compile(rf"{_ID}\.providerEnv\?\?\{{\}}"),
+    ),
+    min_version=(2, 1, 198),
+    max_version=(2, 1, 199),
+)
+
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.198) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -2265,7 +2325,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 198),
+    max_version=(2, 1, 199),
     requires_version=True,
 )
 
@@ -2389,6 +2449,49 @@ THINKING_SUMMARIES_NONINTERACTIVE = PatchSet(
         re.compile(r'else if\(![\w$]+\(\)&&[\w$]+\(\)\)[\w$]+\.display="summarized"'),
     ),
     min_version=_V_2_1_151,
+)
+
+
+# 2.1.198 selects the default in a helper and omits non-interactive text/quiet
+# JSON thinking. Let the setting take priority, but keep explicit display choices.
+THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
+    name=THINKING_SUMMARIES_NONINTERACTIVE.name,
+    patches=(
+        Patch(
+            name="ungate-thinking-display-default",
+            pattern=re.compile(
+                rf"(function {_ID}\(\{{explicitDisplay:(?P<explicit>{_ID}),"
+                rf"isNonInteractive:(?P<noninteractive>{_ID}),outputFormat:{_ID},"
+                rf"verbose:{_ID}\}}\)\{{if\((?P=explicit)\)return (?P=explicit);)"
+                rf'if\(!(?P=noninteractive)\)return (?P<setting>{_ID})\(\)\?"summarized":void 0;'
+            ),
+            replacement=r'\1if(\g<setting>())return"summarized";if(!\g<noninteractive>)return;',
+        ),
+        # The new subagent filter must not undo the setting for synchronous agents.
+        Patch(
+            name="preserve-configured-subagent-thinking",
+            pattern=re.compile(
+                rf'(function {_ID}\((?P<thinking>{_ID}),\{{useExactTools:{_ID},'
+                rf'forwardSubagentText:{_ID},isAsync:{_ID},isNonInteractiveSession:{_ID},'
+                rf'sessionDisplayExplicit:{_ID}\}}\)\{{if\()'
+            ),
+            replacement="",
+            identifiers=(
+                re.compile(
+                    rf'function (?P<setting>{_ID})\(\)\{{return {_ID}\(\)\.showThinkingSummaries\?\?!1\}}'
+                ),
+            ),
+            bound_replacement=lambda match, bindings: (
+                match.group(0) + bindings["setting"] + "()||"
+            ),
+        ),
+    ),
+    verify_present=(
+        re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
+    ),
+    min_version=(2, 1, 198),
+    max_version=(2, 1, 199),
+    requires_version=True,
 )
 
 
@@ -2536,9 +2639,13 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
         thinking_expanded(version),
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
-        BACKGROUND_PROVIDER_ENV,
+        BACKGROUND_PROVIDER_ENV_198
+        if version == (2, 1, 198)
+        else BACKGROUND_PROVIDER_ENV,
         MULTI_PROVIDER_SDK,
         CATPPUCCIN_SYNTAX,
-        THINKING_SUMMARIES_NONINTERACTIVE,
+        THINKING_SUMMARIES_NONINTERACTIVE_198
+        if version == (2, 1, 198)
+        else THINKING_SUMMARIES_NONINTERACTIVE,
         COMPACT_SESSION,
     ]
