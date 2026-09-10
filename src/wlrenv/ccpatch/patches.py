@@ -1123,11 +1123,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'_ccProviderSnapshotFromEnv'),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 194),
+    max_version=(2, 1, 196),
     requires_version=True,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.193) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.195) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1673,7 +1673,8 @@ _MULTI_PROVIDER_COUNT_TOKENS_CATCH = re.compile(
     rf'(?P<prefix>async function (?P<function>{_ID})\((?P<messages>{_ID}),(?P<tools>{_ID}),'
     rf'(?P<model_arg>{_ID})\)\{{return .{{0,200}}?async\(\)=>\{{try\{{.{{0,1800}}?return '
     rf'(?P<response>{_ID})\.input_tokens)\}}catch\((?P<error>{_ID})\)\{{'
-    rf'(?P<body>return (?P<logger>{_ID})\(`countTokens API call failed:.{{0,200}}?null)\}}\}}\)\}}'
+    rf'(?P<body>(?:return |if\()(?P<logger>{_ID})\(`countTokens API call failed:'
+    rf'.{{0,200}}?null(?:;return null)?)\}}\}}\)\}}'
 )
 _MULTI_PROVIDER_PICKER = re.compile(
     rf'function (?P<function>{_ID})\((?P<flag>{_ID})\)\{{let (?P<options>{_ID})='
@@ -1721,10 +1722,11 @@ _MULTI_PROVIDER_ATTRIBUTION = re.compile(
 
 
 _MULTI_PROVIDER_COMPACTION_SOURCE = re.compile(
-    rf'function (?P<function>{_ID})\((?P<model>{_ID}),(?P<setting>{_ID})\)\{{let\{{'
+    rf'function (?P<function>{_ID})\((?P<model>{_ID}),(?P<setting>{_ID})\)\{{(?:let\{{'
     rf'source:(?P<source>{_ID})\}}=(?P<resolver>{_ID})\((?P=model),(?P=setting)\);'
     rf'return (?P=source)==="env"\|\|(?P=source)==="settings"\|\|'
-    rf'(?:(?P=source)==="clientdata"\|\|)?(?P=source)==="model-default"\}}'
+    rf'(?:(?P=source)==="clientdata"\|\|)?(?P=source)==="model-default"'
+    rf'|return (?P<direct_resolver>{_ID})\((?P=model),(?P=setting)\)\.source!=="auto")\}}'
 )
 
 
@@ -2112,6 +2114,14 @@ def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
 def _mark_multi_provider_compaction_source(match: re.Match[str]) -> str:
     source = match.group("source")
     model = match.group("model")
+    if match.group("direct_resolver") is not None:
+        return (
+            f"function {match.group('function')}({model},{match.group('setting')}){{"
+            f"let _ccSource={match.group('direct_resolver')}"
+            f"({model},{match.group('setting')}).source;"
+            'return _ccSource!=="auto"||(_ccSource==="auto"&&'
+            f"_ccMultiProviderCatalogInfo({model})!==null)}}"
+        )
     return (
         match.group(0)[:-1]
         + f'||({source}==="auto"&&_ccMultiProviderCatalogInfo({model})!==null)'
@@ -2245,7 +2255,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 194),
+    max_version=(2, 1, 196),
     requires_version=True,
 )
 
@@ -2476,7 +2486,8 @@ COMPACT_SESSION = PatchSet(
             # Consume the flag before this guard, after the native safety checks.
             # The lookbehind prevents a second application.
             re.compile(
-                r"(?<!=!1,!0;)if\([\w$]+\(\)&&![\w$]+\((?:[\w$]+\([\w$]+\))?\)&&!"
+                r"(?<!=!1,!0;)if\([\w$]+\(\)&&!"
+                r"(?:[\w$]+\((?:[\w$]+\([\w$]+\))?\)&&!)?"
                 r"[\w$]+\([\w$]+,[\w$]+\)\)return!1"
             ),
             _force_compact,

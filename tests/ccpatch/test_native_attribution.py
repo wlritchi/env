@@ -130,7 +130,11 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
     helper = patched[helper_start : helper_end + next_original.start()]
 
     def normalize(text: str) -> str:
-        return re.sub(_ID, lambda match: names.get(match[0], match[0]), text)
+        return re.sub(
+            rf"{_ID}(?![\w$]|-Authored-By)",
+            lambda match: names.get(match[0], match[0]),
+            text,
+        )
 
     payload = tmp_path / "native.json"
     payload.write_text(

@@ -253,7 +253,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 190), True),
         ((2, 1, 191), True),
         ((2, 1, 193), True),
-        ((2, 1, 194), False),
+        ((2, 1, 195), True),
+        ((2, 1, 196), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -736,6 +737,33 @@ def test_multi_provider_compaction_source_preserves_known_branch(
         'SOURCE==="model-default"||(SOURCE==="auto"&&'
         '_ccMultiProviderCatalogInfo(MODEL)!==null)'
     ) in patched
+
+
+def test_multi_provider_compaction_source_preserves_direct_predicate() -> None:
+    source = _MULTI_PROVIDER_SRC.replace(
+        'let{source:SOURCE}=RESOLVE(MODEL,SETTING);return SOURCE==="env"||'
+        'SOURCE==="settings"||SOURCE==="model-default"',
+        'return RESOLVE(MODEL,SETTING).source!=="auto"',
+    )
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert (
+        'let _ccSource=RESOLVE(MODEL,SETTING).source;return _ccSource!=="auto"||'
+        '(_ccSource==="auto"&&_ccMultiProviderCatalogInfo(MODEL)!==null)'
+    ) in patched
+
+
+def test_multi_provider_count_tokens_preserves_native_fallback() -> None:
+    body = (
+        'if(N(`countTokens API call failed: ${ERROR.message}`),ENABLED())'
+        'return FALLBACK(MSGS,TOOLS).catch(()=>null);return null'
+    )
+    source = _MULTI_PROVIDER_SRC.replace(
+        'return N(`countTokens API call failed: ${ERROR.message}`),null', body
+    )
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert (
+        'if(_ccMultiProviderModelInfo(_ccEffectiveModel))throw ERROR;' + body in patched
+    )
 
 
 def test_multi_provider_sdk_transforms_complete_fixture() -> None:
@@ -1273,9 +1301,14 @@ def _compact_src(f: _CompactFlavor) -> str:
 @pytest.mark.parametrize(
     "f", _COMPACT_FLAVORS, ids=[fl.label for fl in _COMPACT_FLAVORS]
 )
-@pytest.mark.parametrize("model_guard", ["ni()", "ni(normalize($))"])
+@pytest.mark.parametrize("model_guard", ["ni()", "ni(normalize($))", ""])
 def test_compact_session_applies(f: _CompactFlavor, model_guard: str) -> None:
-    out = COMPACT_SESSION.apply(_compact_src(f).replace("ni()", model_guard))
+    middle = f"!{model_guard}&&" if model_guard else ""
+    out = COMPACT_SESSION.apply(_compact_src(f).replace("!ni()&&", middle))
+    assert (
+        'if(K==="compact")return!1;if(!aT())return!1;if(globalThis.__ccPendingCompact)'
+        in out
+    )
     # tool defined with THIS build's constructor and schema namespace, not a literal
     assert f'globalThis.__ccCompactTool={f.builder}({{name:"compact_session"' in out
     assert f"get inputSchema(){{return {f.schema_ns}.object({{}})}}" in out
@@ -1303,7 +1336,7 @@ def test_compact_session_applies(f: _CompactFlavor, model_guard: str) -> None:
     assert (
         "if(globalThis.__ccPendingCompact)"
         "return globalThis.__ccPendingCompact=!1,!0;"
-        f"if(Ue()&&!{model_guard}&&!X4$($,q))return!1" in out
+        f"if(Ue()&&{middle}!X4$($,q))return!1" in out
     )
     assert f'{f.verdict}.level==="compact"||{f.verdict}.level==="blocked"' in out
     # the TodoWrite build is preserved immediately after the injected tool
