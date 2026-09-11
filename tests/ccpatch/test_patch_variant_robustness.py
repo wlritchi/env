@@ -101,11 +101,11 @@ def test_registry_anchor_rejects_mutations(old: str, new: str) -> None:
 )
 def test_default_variant_boundaries(version: Version | None, modern: bool) -> None:
     selected = default_patch_sets(version)
-    assert len(selected) == 8
-    assert selected[3] is (
-        BACKGROUND_PROVIDER_ENV_198 if modern else BACKGROUND_PROVIDER_ENV
-    )
-    assert selected[6] is (
+    assert len(selected) == 9
+    expected = BACKGROUND_PROVIDER_ENV_198 if modern else BACKGROUND_PROVIDER_ENV
+    assert selected[4].name == expected.name
+    assert selected[4].patches[: len(expected.patches)] == expected.patches
+    assert selected[7] is (
         THINKING_SUMMARIES_NONINTERACTIVE_198
         if modern
         else THINKING_SUMMARIES_NONINTERACTIVE
@@ -113,9 +113,9 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
     if version == (2, 1, 204):
-        assert not selected[3].applies_to(version)
         assert not selected[4].applies_to(version)
-        assert selected[6].applies_to(version)
+        assert not selected[5].applies_to(version)
+        assert selected[7].applies_to(version)
         assert not BACKGROUND_PROVIDER_ENV_198.applies_to(version)
         assert not THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
 
@@ -159,7 +159,7 @@ _CAPTURES = sorted(_CAPTURE_ROOT.glob("2.1.*/*/original.js"))
 def test_checkpoint_thinking_anchors_match_native_capture(capture: Path) -> None:
     source = capture.read_text()
     version = tuple(int(part) for part in capture.parent.parent.name.split("."))
-    patch_set = default_patch_sets(version)[6]
+    patch_set = default_patch_sets(version)[7]
     assert patch_set is THINKING_SUMMARIES_NONINTERACTIVE_198
     patched = patch_set.apply(source)
     assert patched != source

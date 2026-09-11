@@ -1319,8 +1319,8 @@ _THINKING_198_SRC = (
 def test_198_variants_are_narrowly_selected() -> None:
     for version in (None, (2, 1, 174), (2, 1, 197)):
         sets = default_patch_sets(version)
-        assert sets[3] is BACKGROUND_PROVIDER_ENV
-        assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE
+        assert sets[4].name == BACKGROUND_PROVIDER_ENV.name
+        assert sets[7] is THINKING_SUMMARIES_NONINTERACTIVE
     for version in (
         (2, 1, 198),
         (2, 1, 199),
@@ -1330,11 +1330,11 @@ def test_198_variants_are_narrowly_selected() -> None:
         (2, 1, 203),
     ):
         sets = default_patch_sets(version)
-        assert sets[3] is BACKGROUND_PROVIDER_ENV_198
-        assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE_198
-        assert len(sets) == 8
+        assert sets[4].name == BACKGROUND_PROVIDER_ENV_198.name
+        assert sets[7] is THINKING_SUMMARIES_NONINTERACTIVE_198
+        assert len(sets) == 9
         assert all(patch_set.applies_to(version) for patch_set in sets)
-        for patch_set in (sets[3], sets[6]):
+        for patch_set in (sets[4], sets[7]):
             assert not patch_set.applies_to((2, 1, 197))
             assert not patch_set.applies_to(None)
             assert not patch_set.applies_to((2, 1, 204))

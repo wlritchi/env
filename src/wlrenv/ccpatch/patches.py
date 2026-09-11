@@ -19,6 +19,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import NotRequired, TypedDict
 
+from .agents_handoff import agents_view_handoff
+
 Version = tuple[int, ...]
 
 
@@ -334,7 +336,10 @@ _DISPATCH_DEV_CHANNELS = (
 def _dispatch_forward_replacement(m: re.Match[str]) -> str:
     # Insert before the closing `]` of the $UH return array, after the
     # --strict-mcp-config element (captured as group 1).
-    return f"{m.group(1)},...{_DISPATCH_DEV_CHANNELS}]"
+    channels = _DISPATCH_DEV_CHANNELS.replace(
+        "--dangerously-load-development-channels", "--channels"
+    )
+    return f"{m.group(1)},...{_DISPATCH_DEV_CHANNELS},...{channels}]"
 
 
 def _dev_channel_replacement(m: re.Match[str]) -> str:
@@ -440,6 +445,18 @@ _PROVIDER_ENV_SOCKET = re.compile(
     rf'(?P<call>{_ID})\(\{{proto:(?P<proto>{_ID}),op:"dispatch",d:'
     rf'\{{\.\.\.(?P<job>{_ID}),nonce:(?P<nonce>[^}}]+)\}},timeoutMs:5000,'
     rf'auth:await (?P<auth>{_ID})\(\)\}}'
+)
+_PROVIDER_ENV_AGENTS_FALLBACK = re.compile(
+    rf'if\((?P<gate>{_ID})\("tengu_bg_leftarrow_inprocess",!0\)\)'
+    rf'try\{{return await (?P<inprocess>{_ID})\((?P<job>{_ID}),'
+    rf'(?P<context>{_ID}),\{{dispatchDefaults:(?P<defaults>{_ID})'
+    rf'(?:,dispatchExtraArgs:[^{{}}]{{1,500}})?\}}\)\}}'
+    rf'catch\((?P<error>{_ID})\)\{{(?P<log>{_ID})\((?P=error)\)\}}'
+    rf'return (?P<spawn>{_ID})\(\{{args:\["agents",'
+    rf'\.\.\.(?P<serialize>{_ID})\((?P=defaults)\)'
+    rf'(?:,\.\.\._ccAgentsDispatchArgs\(\))?\],'
+    rf'env:\{{CLAUDE_AGENTS_SELECT:(?P=job),'
+    rf'\.\.\.(?P<accessibility>{_ID})\(\)\}}\}}\)'
 )
 _PROVIDER_ENV_SOCKET_RESULT = re.compile(
     rf'if\((?P<response>{_ID})\.ok&&(?P=response)\.op==="dispatch"\)'
@@ -786,6 +803,17 @@ def _replace_provider_socket(match: re.Match[str]) -> str:
         f'd:{{...{match.group("job")},nonce:{match.group("nonce")}}},'
         f'providerEnvVersion:{version},providerEnv:{snapshot["snapshot"]}(),'
         f'timeoutMs:5000,auth:await {match.group("auth")}()}}'
+    )
+
+
+def _replace_provider_agents_fallback(match: re.Match[str]) -> str:
+    snapshot = discover_identifiers(match.string, (_PROVIDER_ENV_PATCHED_SNAPSHOT,))
+    return checked_replace(
+        match.group(0),
+        f'...{match.group("accessibility")}()',
+        f'...{match.group("accessibility")}(),'
+        f'CLAUDE_CODE_PROVIDER_ENV_TRANSIENT:JSON.stringify({snapshot["snapshot"]}())',
+        context="provider agents fallback transport",
     )
 
 
@@ -1314,6 +1342,56 @@ BACKGROUND_PROVIDER_ENV_198 = replace(
     min_version=_PROVIDER_ENV_198_MIN,
     max_version=_PROVIDER_ENV_198_MAX,
 )
+
+
+_PROVIDER_ENV_AGENTS_SETTINGS = re.compile(
+    rf'(?P<prefix>function {_ID}\(\)\{{(?:if\()?{_ID}\(\),'
+    rf'.{{0,350}}?Object\.assign\(process\.env,{_ID}\({_ID}\(\)\.env,"globalConfig"\)\);'
+    rf'for\(let .{{0,650}}?)(?P<record>{_ID}\({_ID}\))(?=[,;}}])'
+)
+
+
+def background_provider_environment(version: Version | None) -> PatchSet:
+    """Include the agents fallback transport from 2.1.195 onwards."""
+    base = _select_patch_variant(
+        version, BACKGROUND_PROVIDER_ENV, BACKGROUND_PROVIDER_ENV_198
+    )
+    if version is not None and version < (2, 1, 195):
+        return base
+    return replace(
+        base,
+        patches=(
+            *base.patches,
+            Patch(
+                "retain-agents-provider-settings-authority",
+                re.compile(
+                    r'let _ccProviderWorkerEnv=_ccProviderCaptureTransport\(\);'
+                ),
+                'let _ccProviderWorkerEnv=_ccProviderCaptureTransport();'
+                'const _ccAgentsProviderEnv=process.env.CLAUDE_AGENTS_SELECT'
+                '?_ccProviderWorkerEnv:null;',
+            ),
+            Patch(
+                "restore-agents-provider-after-settings-writes",
+                _PROVIDER_ENV_AGENTS_SETTINGS,
+                # Restore before native cache and network initialization. Do not
+                # call settings from this hook or change untransported sessions.
+                lambda m: (
+                    m.group("prefix")
+                    + '(_ccAgentsProviderEnv!==null'
+                    + '?_ccProviderApplyFinal(_ccAgentsProviderEnv):void 0),'
+                    + m.group("record")
+                ),
+                expected_matches=(2,),
+            ),
+            Patch(
+                "carry-provider-env-to-agents-fallback",
+                _PROVIDER_ENV_AGENTS_FALLBACK,
+                _replace_provider_agents_fallback,
+            ),
+        ),
+    )
+
 
 # --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.200) --------
 
@@ -2879,9 +2957,8 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
         thinking_expanded(version),
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
-        _select_patch_variant(
-            version, BACKGROUND_PROVIDER_ENV, BACKGROUND_PROVIDER_ENV_198
-        ),
+        agents_view_handoff(version),
+        background_provider_environment(version),
         MULTI_PROVIDER_SDK,
         CATPPUCCIN_SYNTAX,
         _select_patch_variant(
