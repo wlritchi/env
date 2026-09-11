@@ -269,7 +269,8 @@ def test_background_provider_environment_is_version_gated(
     assert MULTI_PROVIDER_SDK.applies_to(version) is (
         expected or version == (2, 1, 198)
     )
-    assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 199))
+    assert MULTI_PROVIDER_SDK.applies_to((2, 1, 199))
+    assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 200))
 
 
 @pytest.mark.parametrize("agent_context", ["", ",agentContext:CONTEXT()"])
@@ -1305,14 +1306,17 @@ def test_198_variants_are_narrowly_selected() -> None:
         sets = default_patch_sets(version)
         assert sets[3] is BACKGROUND_PROVIDER_ENV
         assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE
-    sets = default_patch_sets((2, 1, 198))
-    assert sets[3] is BACKGROUND_PROVIDER_ENV_198
-    assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE_198
-    for patch_set in (sets[3], sets[6]):
-        assert patch_set.applies_to((2, 1, 198))
-        assert not patch_set.applies_to((2, 1, 197))
-        assert not patch_set.applies_to(None)
-        assert patch_set.max_version == (2, 1, 199)
+    for version in ((2, 1, 198), (2, 1, 199)):
+        sets = default_patch_sets(version)
+        assert sets[3] is BACKGROUND_PROVIDER_ENV_198
+        assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE_198
+        assert len(sets) == 8
+        assert all(patch_set.applies_to(version) for patch_set in sets)
+        for patch_set in (sets[3], sets[6]):
+            assert not patch_set.applies_to((2, 1, 197))
+            assert not patch_set.applies_to(None)
+            assert not patch_set.applies_to((2, 1, 200))
+            assert patch_set.max_version == (2, 1, 200)
 
 
 def test_198_provider_respawn_uses_transient_environment() -> None:
@@ -1581,6 +1585,57 @@ def test_compact_session_applies(f: _CompactFlavor, model_guard: str) -> None:
     assert f'{f.verdict}.level==="compact"||{f.verdict}.level==="blocked"' in out
     # the TodoWrite build is preserved immediately after the injected tool
     assert f",{f.todo_tool}={f.builder}({{name:wk" in out
+
+
+@pytest.mark.parametrize(
+    ("registry", "loader", "tool0", "tool1"),
+    [
+        ("n3", "CUf", "frr", "xMl"),
+        ("n4", "x$m", "mrr", "ANl"),
+        ("sq", "O$m", "_rr", "FLl"),
+        ("s5", "P2f", "yrr", "FPl"),
+    ],
+    ids=["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"],
+)
+def test_compact_session_design_tool_registry(
+    registry: str, loader: str, tool0: str, tool1: str
+) -> None:
+    f = _COMPACT_FLAVORS[0]
+    native = (
+        f"function {registry}(){{let e={loader}();return[{tool0},{tool1},...e?[e]:[]]}}"
+    )
+    src = _compact_src(f)
+    start = src.index(f"function {f.registry_fn}()")
+    end = src.index("function xXf", start)
+    out = COMPACT_SESSION.apply(src[:start] + native + src[end:])
+    spread = "...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
+    patched = native.replace("return[", "return[" + spread)
+    assert patched in out
+    assert not COMPACT_SESSION.verify_absent[1].search(out)
+    assert COMPACT_SESSION.verify_absent[1].search(native)
+    with pytest.raises(PatchError, match="define-compact-session-tool"):
+        COMPACT_SESSION.apply(out)
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for registry execution")
+    script = (
+        "let calls=0,design=null;"
+        f"const {tool0}='first',{tool1}='second';"
+        f"function {loader}(){{calls++;return design}}"
+        + patched
+        + f";const results=[{registry}()];"
+        "globalThis.__ccCompactTool='compact';design='design';"
+        f"results.push({registry}());"
+        "console.log(JSON.stringify({calls,results}));"
+    )
+    result = subprocess.run(  # noqa: S603 - Execute only the fixed registry fixture.
+        [node, "-e", script], check=True, capture_output=True, text=True
+    )
+    assert json.loads(result.stdout) == {
+        "calls": 2,
+        "results": [["first", "second"], ["compact", "first", "second", "design"]],
+    }
 
 
 # Members the 2.1.170 harness reads/calls UNCONDITIONALLY on a tool object and that

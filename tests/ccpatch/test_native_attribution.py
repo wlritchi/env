@@ -199,14 +199,17 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
 @pytest.mark.parametrize(
     "architecture", ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
 )
-def test_native_198_model_and_thinking_semantics(architecture: str) -> None:
+def test_native_198_199_model_and_thinking_semantics(architecture: str) -> None:
     runtime = shutil.which("node") or shutil.which("bun")
     path = _ROOT / architecture / "original.js"
-    if runtime is None or not path.is_file() or _ROOT.name != "2.1.198":
-        pytest.skip("requires .198 captured sources and node/bun")
+    if runtime is None or not path.is_file():
+        pytest.skip("requires .198/.199 captured sources and node/bun")
     original = path.read_text()
+    version_match = re.search(r'VERSION:"2\.1\.(198|199)"', original)
+    if version_match is None:
+        pytest.skip("requires .198/.199 captured sources")
     patched = original
-    for patch_set in default_patch_sets((2, 1, 198)):
+    for patch_set in default_patch_sets((2, 1, int(version_match[1]))):
         patched = patch_set.apply(patched)
 
     def capture(source: str, anchor: str) -> tuple[str, str]:
@@ -217,7 +220,7 @@ def test_native_198_model_and_thinking_semantics(architecture: str) -> None:
     resolver_name, resolver = capture(original, r'if\(e\.agentType!==')
     cap_name = re.search(r'return (' + _ID + r')\(t\)\?', resolver)
     assert cap_name is not None
-    _, cap = capture(original, rf'function {cap_name[1]}\(')
+    _, cap = capture(original, rf'function {re.escape(cap_name[1])}\(')
     provider = re.search(r'if\((' + _ID + r')\(\)!=="firstParty"', cap)
     family = re.search(r'return!(' + _ID + r')\(e,t\)', cap)
     variables = re.search(
@@ -225,7 +228,7 @@ def test_native_198_model_and_thinking_semantics(architecture: str) -> None:
     )
     definition = re.search(r'e\.agentType!==(' + _ID + r')\.agentType', resolver)
     assert provider and family and variables and definition
-    _, family_source = capture(original, rf'function {family[1]}\(')
+    _, family_source = capture(original, rf'function {re.escape(family[1])}\(')
     for text in (resolver, cap, family_source):
         assert text in patched
     agent_name, agent = capture(
@@ -263,7 +266,7 @@ def test_native_198_model_and_thinking_semantics(architecture: str) -> None:
     assert host_env is not None
     host_check = re.search(r'\.\.\.(' + _ID + r')\(', host_env["host"])
     assert host_check is not None
-    _, host_check_source = capture(original, rf'function {host_check[1]}\(')
+    _, host_check_source = capture(original, rf'function {re.escape(host_check[1])}\(')
     host_expression = re.sub(
         rf'{_ID}\.CLAUDE_CODE_HOST_CREDS_FILE',
         'process.env.CLAUDE_CODE_HOST_CREDS_FILE',

@@ -542,9 +542,14 @@ _PROVIDER_ENV_DELAYED_SETTINGS = re.compile(
     rf'(?P<settings>{_ID})\(\),await (?P<initialize>{_ID})\(\)'
 )
 _PROVIDER_ENV_STATE_WRITE = re.compile(
-    rf'async function (?P<write>{_ID})\((?P<dir>{_ID}),(?P<state>{_ID})\)\{{let\{{'
-    rf'pinned:(?P<pinned>{_ID}),sortOrder:(?P<sort>{_ID}),stateSortOrder:'
-    rf'(?P<state_sort>{_ID}),\.\.\.(?P<rest>{_ID})\}}=(?P=state);'
+    rf'async function (?P<write>{_ID})\((?P<dir>{_ID}),(?P<state>{_ID})\)\{{let'
+    rf'(?: (?P<cron>{_ID})=(?P=state)\.inFlight\?\.kinds\.includes\("session_cron"\)===!0,'
+    rf'(?P<normalized>{_ID})=(?P=cron)&&!(?P=state)\.selfWake\?'
+    rf'\{{\.\.\.(?P=state),selfWake:!0\}}:!(?P=cron)&&(?P=state)\.selfWake&&'
+    rf'{_ID}\((?P=state)\)\?\{{\.\.\.(?P=state),selfWake:void 0\}}:(?P=state),)?'
+    rf'\{{pinned:(?P<pinned>{_ID}),sortOrder:(?P<sort>{_ID}),stateSortOrder:'
+    rf'(?P<state_sort>{_ID}),(?(normalized)group:{_ID},)'
+    rf'\.\.\.(?P<rest>{_ID})\}}=(?(normalized)(?P=normalized)|(?P=state));'
 )
 _PROVIDER_ENV_STATE_VIEW = re.compile(
     rf'bgIsolation:(?P<job>{_ID})\.bgIsolation,providerEnv:(?P=job)\.providerEnv,'
@@ -1185,7 +1190,7 @@ BACKGROUND_PROVIDER_ENV_198 = replace(
         re.compile(rf"{_ID}\.providerEnv\?\?\{{\}}"),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 199),
+    max_version=(2, 1, 200),
 )
 
 # --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.198) --------
@@ -1769,7 +1774,9 @@ _MULTI_PROVIDER_CONTEXT_WINDOW = re.compile(
 _MULTI_PROVIDER_MAX_OUTPUT = re.compile(
     rf'(?P<prefix>function (?P<function>{_ID})\((?P<model>{_ID})\)\{{let '
     rf'(?P<default>{_ID}),(?P<upper>{_ID}),(?P<normalized>{_ID})='
-    rf'(?P<normalize>{_ID})\((?P=model)\);.{{0,2000}}?let (?P<config>{_ID})='
+    rf'(?P<normalize>{_ID})\((?P=model)\)'
+    rf'(?:,(?P<limits>{_ID})={_ID}\((?P=normalized)\)\?\.max_output_tokens)?;'
+    rf'.{{0,2000}}?let (?P<config>{_ID})='
     rf'(?P<config_fn>{_ID})\((?P=model)\);if\((?P=config)\?\.max_tokens&&'
     rf'(?P=config)\.max_tokens>=4096\)(?P=upper)=(?P=config)\.max_tokens,'
     rf'(?P=default)=Math\.min\((?P=default),(?P=upper)\);)'
@@ -2325,7 +2332,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 199),
+    max_version=(2, 1, 200),
     requires_version=True,
 )
 
@@ -2490,7 +2497,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 199),
+    max_version=(2, 1, 200),
     requires_version=True,
 )
 
@@ -2590,8 +2597,13 @@ COMPACT_SESSION = PatchSet(
         ),
         Patch(
             "register-compact-session-in-toollist",
-            re.compile(r"function ([\w$]+)\(\)\{return\[(?=[\w$]+,)"),
-            _register_compact,
+            # 2.1.199 loads the optional DesignTool before it builds the array.
+            # Preserve that call and its local binding before the compact-tool spread.
+            re.compile(
+                r"function ([\w$]+)\(\)\{(?:let [\w$]+=[\w$]+\(\);)?"
+                r"return\[(?=[\w$]+,)"
+            ),
+            r"\g<0>...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),",
         ),
         Patch(
             "force-compaction-on-flag",
@@ -2624,7 +2636,7 @@ COMPACT_SESSION = PatchSet(
     ),
     verify_absent=(
         re.compile(r'The todo list after the update"\)\}\)\),[\w$]+=[\w$]+\(\{name:'),
-        re.compile(r'function [\w$]+\(\)\{return\[[\w$]+,'),
+        re.compile(r"function [\w$]+\(\)\{(?:let [\w$]+=[\w$]+\(\);)?return\[[\w$]+,"),
         # not double-applied: the injected early-return is never immediately followed
         # by a second copy of itself
         re.compile(r"=!1,!0;if\(globalThis\.__ccPendingCompact\)return globalThis"),
@@ -2640,12 +2652,12 @@ def default_patch_sets(version: Version | None) -> list[PatchSet]:
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
         BACKGROUND_PROVIDER_ENV_198
-        if version == (2, 1, 198)
+        if version is not None and (2, 1, 198) <= version < (2, 1, 200)
         else BACKGROUND_PROVIDER_ENV,
         MULTI_PROVIDER_SDK,
         CATPPUCCIN_SYNTAX,
         THINKING_SUMMARIES_NONINTERACTIVE_198
-        if version == (2, 1, 198)
+        if version is not None and (2, 1, 198) <= version < (2, 1, 200)
         else THINKING_SUMMARIES_NONINTERACTIVE,
         COMPACT_SESSION,
     ]
