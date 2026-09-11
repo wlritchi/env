@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,7 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from wlrenv.ccpatch.patches import MULTI_PROVIDER_SDK, default_patch_sets
+from wlrenv.ccpatch.patches import (
+    MULTI_PROVIDER_SDK,
+    PatchError,
+    _thread_multi_provider_attribution,
+    default_patch_sets,
+)
 
 _ID = r"[A-Za-z_$][\w$]*"
 _ROOT = Path(os.environ.get("CCPATCH_NATIVE_SOURCE_ROOT", "/tmp/ccpatch-sweep-2.1.182"))  # noqa: S108 - read-only captured release sources
@@ -339,3 +345,78 @@ for(const verbose of [false,true]){
         [runtime, "-e", script], capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+_ATTRIBUTION_SOURCE = 'function ATTR(){if(MODE()==="remote"){if(ENV.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION)return{commit:"",pr:""};return REMOTE()}let H=CURRENT(),$=ISFIRST(H)?DISPLAY(FIRST.firstParty):ISNATIVE(H)?DISPLAY(H):"Claude",q=`\\uD83E\\uDD16 Generated with [Claude Code](${URL})`,K=`Co-Authored-By: ${$} <noreply@anthropic.com>`,_=SETTINGS();if(_.attribution)return{commit:_.attribution.commit??K,pr:_.attribution.pr??q};if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""};return{commit:K,pr:q}}function COMPACT_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}function FULL_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}function COMPACT_BASH(F){return COMPACT_GIT(F)}function BASH_DISPATCH(M,F){if(SHORT(M))return COMPACT_BASH(F);return FULL_GIT(F)}var BASH={async prompt({model:M,tools:T}){let F=[];return BASH_DISPATCH(M,F)},isConcurrencySafe(){return!1}};async function SERIALIZE_NATIVE(E,T){let o="",s="",a=o+s+""+("inputJSONSchema"in E&&E.inputJSONSchema?`${E.name}:${HASH(E.inputJSONSchema)}`:E.name),l=CACHE(),c=l.get(a);return c}function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={}){delete _ccOutbound[_ccField];return[_ccCached.client,_ccOutbound,{}]}'
+
+
+def _patch_attribution(source: str) -> str:
+    match = re.fullmatch(r"[\s\S]*", source)
+    assert match is not None
+    return _thread_multi_provider_attribution(match)
+
+
+def test_attribution_generated_output_is_unchanged() -> None:
+    generated = _patch_attribution(_ATTRIBUTION_SOURCE)
+    assert hashlib.sha256(generated.encode()).hexdigest() == (
+        "ba3ae7c0bfda28ae2d689249989de7a9f16f8260659b034a644e5b6f219b799a"
+    )
+
+
+@pytest.mark.parametrize("separator", ["\n", "\nconst unused=0;", "\nlet unused=0;"])
+def test_attribution_function_boundaries(separator: str) -> None:
+    source = _ATTRIBUTION_SOURCE.replace(
+        "}function COMPACT_BASH", "}" + separator + "function COMPACT_BASH"
+    )
+    assert _patch_attribution(source) == _patch_attribution(
+        _ATTRIBUTION_SOURCE
+    ).replace("}function COMPACT_BASH", "}" + separator + "function COMPACT_BASH")
+
+
+def test_attribution_reordered_section_properties() -> None:
+    source = _ATTRIBUTION_SOURCE.replace("{commit:r,pr:o}", "{pr:o,commit:r}")
+    assert _patch_attribution(source) == _patch_attribution(
+        _ATTRIBUTION_SOURCE
+    ).replace("{commit:r,pr:o}", "{pr:o,commit:r}")
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("function ATTR(){", ""),
+        ("function ATTR(){", "function ATTR(x){"),
+        ("return FULL_GIT(F)", "return FULL_GIT(F)+FULL_GIT(F)"),
+        (
+            "return FULL_GIT(F)",
+            "if(F){FULL_GIT(F)}let x=0;return FULL_GIT(F)",
+        ),
+        (
+            "return COMPACT_GIT(F)",
+            "if(F){COMPACT_GIT(F)}const x=0;return COMPACT_GIT(F)",
+        ),
+        ("return COMPACT_GIT(F)", "return COMPACT_GIT(F)+FULL_GIT(F)"),
+        ("return r+o", "return ATTR()+r+o"),
+        ("return COMPACT_BASH(F)", "return COMPACT_BASH(F)+COMPACT_BASH(F)"),
+    ],
+)
+def test_attribution_syntax_mutations_fail_closed(old: str, new: str) -> None:
+    with pytest.raises(PatchError, match="multi-provider attribution"):
+        _patch_attribution(_ATTRIBUTION_SOURCE.replace(old, new))
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_attribution_wrapper_binding_order_is_preserved(reverse: bool) -> None:
+    bindings = "value=ATTR(),link=LINK()" if reverse else "link=LINK(),value=ATTR()"
+    wrapper = (
+        f"function EFFECTIVE(){{let {bindings};return link?SESSION(value,link):value}}"
+    )
+    source = _ATTRIBUTION_SOURCE.replace("=ATTR();", "=EFFECTIVE();").replace(
+        "function COMPACT_GIT", wrapper + "function COMPACT_GIT"
+    )
+    generated = _patch_attribution(source)
+    assert (
+        wrapper.replace("EFFECTIVE()", "EFFECTIVE(_ccAttributionModel)").replace(
+            "ATTR()", "ATTR(_ccAttributionModel)"
+        )
+        in generated
+    )

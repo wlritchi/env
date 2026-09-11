@@ -8,10 +8,12 @@ import pytest
 
 from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_RESPAWN_GUARD,
+    BACKGROUND_PROVIDER_ENV,
     CHANNELS_ENABLED,
     Patch,
     PatchError,
     PatchSet,
+    checked_replace,
     discover_identifiers,
     parse_version,
     thinking_expanded,
@@ -75,11 +77,93 @@ def test_patch_replacement_receives_discovered_bindings() -> None:
                 replacement="unused",
                 identifiers=(re.compile(r"anchor=(?P<callee>[\w$]+)"),),
                 bound_replacement=replace,
+                expected_matches=(1, 2),
             ),
         ),
     )
     assert patch_set.apply("anchor=$fn;CALL(A);CALL(B$)") == "anchor=$fn;$fn(A);$fn(B$)"
     assert patch_set.apply("anchor=other$;CALL(C)") == "anchor=other$;other$(C)"
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_cardinality_checked_before_discovery_or_callbacks(bound: bool) -> None:
+    calls: list[str] = []
+
+    def callback(match: re.Match[str]) -> str:
+        calls.append(match.group())
+        return "changed"
+
+    def bound_callback(match: re.Match[str], bindings: dict[str, str]) -> str:
+        return callback(match)
+
+    patch = Patch(
+        "unique",
+        re.compile("target"),
+        callback,
+        identifiers=(re.compile("missing=(?P<name>x)"),),
+        bound_replacement=bound_callback if bound else None,
+    )
+    with pytest.raises(PatchError, match=r"catalog: patch 'unique'.*got 2"):
+        PatchSet("catalog", (patch,)).apply("target;target")
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("name", "fragment"),
+    [
+        (
+            "send-provider-env-over-socket",
+            'send({proto:P,op:"dispatch",d:{...job,nonce:N},timeoutMs:5000,auth:await auth()}',
+        ),
+        (
+            "acknowledge-provider-env-version",
+            'return respond(socket,{ok:!0,op:operation,short:id,pid:worker.record.pid,',
+        ),
+    ],
+)
+@pytest.mark.parametrize("count", [1, 3])
+def test_captured_two_site_contract_rejects_missing_or_extra_site(
+    name: str, fragment: str, count: int
+) -> None:
+    # All available .182-.199 captures have exactly two sites for these edits.
+    patch = next(p for p in BACKGROUND_PROVIDER_ENV.patches if p.name == name)
+    with pytest.raises(PatchError, match=f"got {count}"):
+        PatchSet("two-site", (patch,)).apply(";".join([fragment] * count))
+
+
+def test_optional_patch_allows_absence_not_duplicates() -> None:
+    patch = Patch("optional", re.compile("target"), "done", required=False)
+    patches = PatchSet("catalog", (patch,))
+    assert patches.apply("other") == "other"
+    assert patches.apply("target") == "done"
+    with pytest.raises(PatchError, match="got 2"):
+        patches.apply("target;target")
+
+
+@pytest.mark.parametrize("counts", [(), (0,), (-1,), (1, 0)])
+def test_invalid_cardinalities_rejected(counts: tuple[int, ...]) -> None:
+    with pytest.raises(ValueError, match="positive cardinalities"):
+        Patch("invalid", re.compile("x"), "y", expected_matches=counts)
+
+
+@pytest.mark.parametrize("source", ["other", "target;target"])
+def test_checked_replace_reports_context(source: str) -> None:
+    with pytest.raises(PatchError, match="inner edit: expected 1 exact occurrences"):
+        checked_replace(source, "target", "done", context="inner edit")
+
+
+def test_checked_replace_handles_intentional_multisite() -> None:
+    assert checked_replace("x;x", "x", "y", context="pair", count=2) == "y;y"
+    with pytest.raises(PatchError):
+        checked_replace("x", "", "y", context="empty")
+
+
+def test_inner_failure_includes_patch_set_and_name() -> None:
+    def callback(match: re.Match[str]) -> str:
+        return checked_replace(match.group(), "absent", "new", context="inner")
+
+    with pytest.raises(PatchError, match="catalog: patch 'edit': inner:"):
+        PatchSet("catalog", (Patch("edit", re.compile("x"), callback),)).apply("x")
 
 
 def test_parse_version() -> None:

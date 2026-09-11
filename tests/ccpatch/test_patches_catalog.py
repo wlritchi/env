@@ -147,7 +147,9 @@ _PROVIDER_ENV_SRC = (
     'auth:await retryAuth()}'
     'if(retryReply.ok&&retryReply.op==="dispatch")return log(),await metric(),'
     '{ok:!0,short:shortName,sessionId:sessionId,idle:idle,name:name,rescued:!0}'
+    # Captured releases acknowledge both fresh and recovered dispatches.
     'return respond(sock,{ok:!0,op:operation,short:short,pid:worker.record.pid,'
+    'return respond(retrySock,{ok:!0,op:retryOperation,short:retryShort,pid:retryWorker.record.pid,'
     'case"dispatch":if(!check(req.auth,control))return respond(sock,{ok:!1,'
     'error:"bad",code:"EAUTH"});if(await pause(0),sock.readableEnded||sock.destroyed)'
     '{metric();return}return wait(handles,sock,"dispatch",req.d.short,req.d.nonce,'
@@ -1518,6 +1520,10 @@ def _compact_src(f: _CompactFlavor) -> str:
         + bld
         + "({name:wk,async description(){return e24},"
         "get inputSchema(){return _x()},async call({todos:H},$){return{data:{}}}});"
+        # Preserve the enabled-name collector from captured registry call sites.
+        f"function NAMES(){{let tools={f.registry_fn}(),"
+        "enabled=tools.map((tool)=>tool.isEnabled());return tools.filter("
+        "(tool,index)=>enabled[index]).map((tool)=>tool.name)}"
         "function "
         + f.registry_fn
         + "(){return["
@@ -1607,12 +1613,13 @@ def test_compact_session_design_tool_registry(
     src = _compact_src(f)
     start = src.index(f"function {f.registry_fn}()")
     end = src.index("function xXf", start)
-    out = COMPACT_SESSION.apply(src[:start] + native + src[end:])
+    collector = src[:start].replace(f"tools={f.registry_fn}()", f"tools={registry}()")
+    out = COMPACT_SESSION.apply(collector + native + src[end:])
     spread = "...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
     patched = native.replace("return[", "return[" + spread)
     assert patched in out
     assert not COMPACT_SESSION.verify_absent[1].search(out)
-    assert COMPACT_SESSION.verify_absent[1].search(native)
+    assert COMPACT_SESSION.verify_absent[1].search(collector + native)
     with pytest.raises(PatchError, match="define-compact-session-tool"):
         COMPACT_SESSION.apply(out)
 

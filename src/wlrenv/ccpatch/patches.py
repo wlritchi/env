@@ -57,6 +57,18 @@ class PatchError(RuntimeError):
     """A patch failed to match, or post-apply verification failed."""
 
 
+def checked_replace(
+    source: str, old: str, new: str, *, context: str, count: int = 1
+) -> str:
+    """Replace an exact fragment only when its cardinality is known."""
+    actual = source.count(old)
+    if not old or actual != count:
+        raise PatchError(
+            f"{context}: expected {count} exact occurrences of {old!r}, got {actual}"
+        )
+    return source.replace(old, new)
+
+
 def parse_version(text: str) -> Version:
     """``"2.1.170"`` -> ``(2, 1, 170)``; a trailing suffix like ``-beta.1`` is dropped."""
     match = re.match(r"\d+(?:\.\d+)*", text)
@@ -68,9 +80,14 @@ class Patch:
     name: str
     pattern: re.Pattern[str]
     replacement: str | Callable[[re.Match[str]], str]
-    required: bool = True  # must match at least once
+    required: bool = True
     identifiers: tuple[re.Pattern[str], ...] = ()
     bound_replacement: Callable[[re.Match[str], dict[str, str]], str] | None = None
+    expected_matches: tuple[int, ...] = (1,)
+
+    def __post_init__(self) -> None:
+        if not self.expected_matches or any(n < 1 for n in self.expected_matches):
+            raise ValueError("expected_matches must contain positive cardinalities")
 
 
 def discover_identifiers(
@@ -115,7 +132,21 @@ class PatchSet:
 
     def apply(self, source: str) -> str:
         for patch in self.patches:
-            bindings = discover_identifiers(source, patch.identifiers)
+            context = f"{self.name}: patch {patch.name!r}"
+            matches = list(patch.pattern.finditer(source))
+            cardinalities = patch.expected_matches + (() if patch.required else (0,))
+            if len(matches) not in cardinalities:
+                detail = "matched nothing; " if not matches else ""
+                raise PatchError(
+                    f"{context} {detail}expected match count {cardinalities}, "
+                    f"got {len(matches)}"
+                )
+            if not matches:
+                continue
+            try:
+                bindings = discover_identifiers(source, patch.identifiers)
+            except PatchError as exc:
+                raise PatchError(f"{context}: {exc}") from exc
             replacement = patch.replacement
             if patch.bound_replacement is not None:
                 bound = patch.bound_replacement
@@ -129,9 +160,10 @@ class PatchSet:
 
                 replacement = replace_bound
 
-            source, n = patch.pattern.subn(replacement, source)
-            if patch.required and n == 0:
-                raise PatchError(f"{self.name}: patch {patch.name!r} matched nothing")
+            try:
+                source = patch.pattern.sub(replacement, source)
+            except PatchError as exc:
+                raise PatchError(f"{context}: {exc}") from exc
         for marker in self.verify_present:
             if marker.search(source) is None:
                 raise PatchError(
@@ -541,6 +573,8 @@ _PROVIDER_ENV_DELAYED_SETTINGS = re.compile(
     rf'\{{(?P<loaded>.{{0,300}}?Remote managed settings loaded, initializing telemetry"\),)'
     rf'(?P<settings>{_ID})\(\),await (?P<initialize>{_ID})\(\)'
 )
+# Keep the known normalization layouts until discovery includes the serialization
+# sink. A rest binding alone does not identify the persisted state object.
 _PROVIDER_ENV_STATE_WRITE = re.compile(
     rf'async function (?P<write>{_ID})\((?P<dir>{_ID}),(?P<state>{_ID})\)\{{let'
     rf'(?: (?P<cron>{_ID})=(?P=state)\.inFlight\?\.kinds\.includes\("session_cron"\)===!0,'
@@ -716,7 +750,9 @@ def _replace_provider_schema(match: re.Match[str]) -> str:
         f"{schema}.union([{schema}.string(),{schema}.null()])).optional(),"
         "timeoutMs:"
     )
-    return match.group(0).replace("timeoutMs:", replacement)
+    return checked_replace(
+        match.group(0), "timeoutMs:", replacement, context="provider schema timeout"
+    )
 
 
 def _replace_provider_socket(match: re.Match[str]) -> str:
@@ -771,9 +807,11 @@ def _replace_provider_redispatch_result(match: re.Match[str]) -> str:
 
 
 def _replace_provider_daemon_ack(match: re.Match[str]) -> str:
-    return match.group(0).replace(
+    return checked_replace(
+        match.group(0),
         f'op:{match.group("op")},',
         f'op:{match.group("op")},providerEnvVersion:{_PROVIDER_ENV_PROTOCOL_VERSION},',
+        context="provider daemon acknowledgement",
     )
 
 
@@ -789,21 +827,27 @@ def _replace_provider_control(match: re.Match[str]) -> str:
         'code:"EPROVIDERENV"});'
     )
     original = match.group(0)
-    original = original.replace(
+    original = checked_replace(
+        original,
         f"if(await {match.group('yield')}(0)",
         f"{capability_check}if(await {match.group('yield')}(0)",
+        context="provider control capability check",
     )
-    return original.replace(
+    return checked_replace(
+        original,
         f'{match.group("dispatch_cb")}({request}.d)',
         f'{match.group("dispatch_cb")}({request}.d,0,void 0,{request}.providerEnv)',
+        context="provider control dispatch callback",
     )
 
 
 def _replace_provider_worker(match: re.Match[str]) -> str:
     env = match.group("env")
-    prefix = match.group(0)[: -len("if(process.env.")].replace(
+    prefix = checked_replace(
+        match.group(0)[: -len("if(process.env.")],
         f'{match.group("socket_auth")}){{',
         f'{match.group("socket_auth")},_ccProviderEnv){{',
+        context="provider worker signature",
     )
     return (
         f"{prefix}let _ccProviderPayload="
@@ -833,10 +877,16 @@ def _provider_final_apply(payload: str) -> str:
 
 
 def _replace_provider_claimed_entry(match: re.Match[str]) -> str:
-    prefix = match.group("prefix").replace(
-        "{",
-        f"{{_ccProviderWorkerEnv=_ccProviderCaptureTransport({match.group('claim')}.env);",
-        1,
+    declaration = (
+        f"async function {match.group('entry')}({match.group('claim')},"
+        f"{match.group('main')}){{"
+    )
+    prefix = checked_replace(
+        match.group("prefix"),
+        declaration,
+        declaration
+        + f"_ccProviderWorkerEnv=_ccProviderCaptureTransport({match.group('claim')}.env);",
+        context="provider claimed-entry declaration",
     )
     return (
         prefix
@@ -886,22 +936,32 @@ def _replace_provider_constructor(match: re.Match[str]) -> str:
 
 def _replace_provider_claimed_spare_frame(match: re.Match[str]) -> str:
     original = match.group(0)
-    original = original.replace(
-        f'{match.group("auth")}){{', f'{match.group("auth")},_ccProviderEnv){{'
+    original = checked_replace(
+        original,
+        f'{match.group("auth")}){{',
+        f'{match.group("auth")},_ccProviderEnv){{',
+        context="provider claimed-spare signature",
     )
-    original = original.replace(
-        f'{match.group("options")});', f'{match.group("options")},_ccProviderEnv);'
+    original = checked_replace(
+        original,
+        f'{match.group("options")});',
+        f'{match.group("options")},_ccProviderEnv);',
+        context="provider claimed-spare options",
     )
-    return original.replace(
+    return checked_replace(
+        original,
         f'{match.group("spare")}.claimAuth))',
         f'{match.group("spare")}.claimAuth,_ccProviderEnv))',
+        context="provider claimed-spare auth",
     )
 
 
 def _replace_provider_manager_dispatch(match: re.Match[str]) -> str:
-    original = match.group(0).replace(
+    original = checked_replace(
+        match.group(0),
         f'{match.group("after_upgrade")})=>',
         f'{match.group("after_upgrade")},_ccProviderEnv)=>',
+        context="provider manager dispatch signature",
     )
     return original + "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);"
 
@@ -926,9 +986,11 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         Patch(
             "remove-provider-env-from-state-writes",
             _PROVIDER_ENV_STATE_WRITE,
-            lambda match: match.group(0).replace(
+            lambda match: checked_replace(
+                match.group(0),
                 f'...{match.group("rest")}',
                 f'providerEnv:_ccProviderEnv,...{match.group("rest")}',
+                context="provider state-write rest binding",
             ),
         ),
         Patch(
@@ -956,6 +1018,7 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
             "send-provider-env-over-socket",
             _PROVIDER_ENV_SOCKET,
             _replace_provider_socket,
+            expected_matches=(2,),  # Primary dispatch and timeout recovery.
         ),
         Patch(
             "reject-stale-daemon-without-file-fallback",
@@ -971,6 +1034,7 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
             "acknowledge-provider-env-version",
             _PROVIDER_ENV_DAEMON_ACK,
             _replace_provider_daemon_ack,
+            expected_matches=(2,),  # Both daemon dispatch acknowledgement paths.
         ),
         Patch(
             "pass-provider-env-to-manager",
@@ -980,7 +1044,12 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         Patch(
             "declare-worker-provider-env",
             _PROVIDER_ENV_MANAGER,
-            lambda match: match.group(0).replace("dispatch;", "dispatch;providerEnv;"),
+            lambda match: checked_replace(
+                match.group(0),
+                "dispatch;",
+                "dispatch;providerEnv;",
+                context="provider worker field declaration",
+            ),
         ),
         Patch(
             "store-worker-provider-env",
@@ -990,13 +1059,16 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         Patch(
             "thread-provider-env-through-spawn",
             _PROVIDER_ENV_STATIC_SPAWN,
-            lambda match: (
-                match.group(0)
-                .replace('"cold")', '"cold",_ccProviderEnv)')
-                .replace(
-                    f'{match.group("options")})',
-                    f'{match.group("options")},_ccProviderEnv)',
-                )
+            lambda match: checked_replace(
+                checked_replace(
+                    match.group(0),
+                    '"cold")',
+                    '"cold",_ccProviderEnv)',
+                    context="provider static spawn signature and constructor",
+                ),
+                f'{match.group("options")})',
+                f'{match.group("options")},_ccProviderEnv)',
+                context="provider static spawn signature and constructor",
             ),
         ),
         Patch(
@@ -1009,22 +1081,22 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         Patch(
             "apply-provider-env-to-claim-frame",
             _PROVIDER_ENV_CLAIM_FRAME,
-            lambda match: (
-                match.group(0)
-                .replace(
-                    f'{match.group("auth")})', f'{match.group("auth")},_ccProviderEnv)'
-                )
-                .replace(
-                    f'{match.group("auth")}){{',
-                    f'{match.group("auth")},_ccProviderEnv){{',
-                )
+            lambda match: checked_replace(
+                match.group(0),
+                f'{match.group("auth")})',
+                f'{match.group("auth")},_ccProviderEnv)',
+                context="provider claim-frame signature and call",
+                count=2,
             ),
         ),
         Patch(
             "apply-provider-env-to-respawns",
             _PROVIDER_ENV_DO_SPAWN,
-            lambda match: match.group(0).replace(
-                "this.socketAuth());", "this.socketAuth(),this.providerEnv);"
+            lambda match: checked_replace(
+                match.group(0),
+                "this.socketAuth());",
+                "this.socketAuth(),this.providerEnv);",
+                context="provider worker respawn auth",
             ),
         ),
         Patch(
@@ -1035,16 +1107,16 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         Patch(
             "thread-provider-env-to-claim-frame",
             _PROVIDER_ENV_BUILD_CLAIM_CALL,
-            lambda match: (
-                match.group(0)
-                .replace(
+            lambda match: checked_replace(
+                checked_replace(
+                    match.group(0),
                     f'{match.group("claim_auth")}){{',
                     f'{match.group("claim_auth")},_ccProviderEnv){{',
-                )
-                .replace(
-                    f'{match.group("auth")});',
-                    f'{match.group("auth")},_ccProviderEnv);',
-                )
+                    context="provider claim-frame wrapper signature and call",
+                ),
+                f'{match.group("auth")});',
+                f'{match.group("auth")},_ccProviderEnv);',
+                context="provider claim-frame wrapper signature and call",
             ),
         ),
         Patch(
@@ -1133,13 +1205,33 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
     requires_version=True,
 )
 
-# 2.1.198 builds respawn options without a guard. Remove its persisted provider
-# reconstruction. Require a live host context for a host-managed tombstone.
-BACKGROUND_PROVIDER_ENV_198 = replace(
-    BACKGROUND_PROVIDER_ENV,
-    patches=tuple(
-        replace(
-            patch,
+
+def _override_patches(
+    patches: tuple[Patch, ...], overrides: dict[str, Patch]
+) -> tuple[Patch, ...]:
+    """Apply named overrides only when each target occurs exactly once."""
+    for name, override in overrides.items():
+        count = sum(patch.name == name for patch in patches)
+        if count != 1 or override.name != name:
+            raise PatchError(
+                f"patch override {name!r}: expected one matching target, got {count}"
+            )
+    return tuple(overrides.get(patch.name, patch) for patch in patches)
+
+
+_PROVIDER_ENV_198_MIN = (2, 1, 198)
+_PROVIDER_ENV_198_MAX = (2, 1, 200)
+_CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
+_CLAIMED_SPARE_AUTH_198 = (
+    rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
+)
+
+
+def _provider_env_198_overrides(patches: tuple[Patch, ...]) -> dict[str, Patch]:
+    base = {patch.name: patch for patch in patches}
+    return {
+        "remove-provider-env-from-respawn-guard": replace(
+            base["remove-provider-env-from-respawn-guard"],
             pattern=re.compile(
                 rf"let\{{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:{_ID},"
                 rf"\.\.\.(?P<env>{_ID})\}}={_ID}\.providerEnv\?\?\{{\}};"
@@ -1153,44 +1245,49 @@ BACKGROUND_PROVIDER_ENV_198 = replace(
                 'process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST??"").toLowerCase().trim()))'
                 'return{ok:!1,alive:!1,error:"Host-managed session requires a live host-managed provider context"};let '
             ),
-        )
-        if patch.name == "remove-provider-env-from-respawn-guard"
-        else replace(
-            patch,
+        ),
+        "stop-persisting-provider-env": replace(
+            base["stop-persisting-provider-env"],
             replacement=lambda match: (
                 f'{match.group("isolation")}={match.group("source")}==="repl"?'
                 f'"none":{match.group("options")}?.bgIsolation,'
                 f'{match.group("provider")}={{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:'
                 'process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST},'
             ),
-        )
-        if patch.name == "stop-persisting-provider-env"
-        else replace(
-            patch,
+        ),
+        "remove-provider-env-from-respawn-options": replace(
+            base["remove-provider-env-from-respawn-options"],
             pattern=re.compile(
                 rf'providerEnv:{_ID},(?=\.\.\.{_ID}\.sessionPermissionRules&&)'
             ),
-        )
-        if patch.name == "remove-provider-env-from-respawn-options"
-        else replace(
-            patch,
+        ),
+        "thread-provider-env-through-claimed-spare-frame": replace(
+            base["thread-provider-env-through-claimed-spare-frame"],
             pattern=re.compile(
-                _PROVIDER_ENV_CLAIMED_SPARE_FRAME.pattern.replace(
-                    r"(?P=job)\.short,(?P=auth)\?\.\(\)",
-                    rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)",
+                checked_replace(
+                    _PROVIDER_ENV_CLAIMED_SPARE_FRAME.pattern,
+                    _CLAIMED_SPARE_AUTH,
+                    _CLAIMED_SPARE_AUTH_198,
+                    context="2.1.198 claimed spare auth fragment",
                 )
             ),
-        )
-        if patch.name == "thread-provider-env-through-claimed-spare-frame"
-        else patch
-        for patch in BACKGROUND_PROVIDER_ENV.patches
+        ),
+    }
+
+
+# 2.1.198 removes the respawn guard and requires a live host provider context.
+BACKGROUND_PROVIDER_ENV_198 = replace(
+    BACKGROUND_PROVIDER_ENV,
+    patches=_override_patches(
+        BACKGROUND_PROVIDER_ENV.patches,
+        _provider_env_198_overrides(BACKGROUND_PROVIDER_ENV.patches),
     ),
     verify_absent=(
         *BACKGROUND_PROVIDER_ENV.verify_absent,
         re.compile(rf"{_ID}\.providerEnv\?\?\{{\}}"),
     ),
-    min_version=(2, 1, 198),
-    max_version=(2, 1, 200),
+    min_version=_PROVIDER_ENV_198_MIN,
+    max_version=_PROVIDER_ENV_198_MAX,
 )
 
 # --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.198) --------
@@ -1980,45 +2077,59 @@ def _replace_multi_provider_attribution(match: re.Match[str]) -> str:
     )
 
 
-def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
-    """Keep native attribution rules and pass request-local values through Bash."""
-    source = match.group(0)
+def _attribution_match(pattern: str, source: str) -> re.Match[str]:
+    matches = list(re.finditer(pattern, source))
+    if len(matches) != 1:
+        raise PatchError(
+            f"multi-provider attribution: expected one match, got {len(matches)}: "
+            f"{pattern!r}"
+        )
+    return matches[0]
 
-    def unique(pattern: str, text: str = source) -> re.Match[str]:
-        matches = list(re.finditer(pattern, text))
-        if len(matches) != 1:
-            raise PatchError(
-                f"multi-provider attribution: expected one match, got {len(matches)}: "
-                f"{pattern!r}"
-            )
-        return matches[0]
 
-    def replace(old: str, new: str) -> None:
-        nonlocal source
-        if source.count(old) != 1:
-            raise PatchError("multi-provider attribution: ambiguous replacement")
-        source = source.replace(old, new, 1)
+def _attribution_function(source: str, name: str) -> str:
+    return _attribution_match(
+        rf"\bfunction {re.escape(name)}\([^)]*\)\{{[\s\S]*?\}}"
+        rf"(?=\s*(?:(?:async )?function\b|var\b|let\b|const\b)|\s*$)",
+        source,
+    ).group(0)
 
-    def function(name: str) -> str:
-        return unique(
-            rf"function {re.escape(name)}\([^)]*\)\{{[\s\S]*?\}}(?=function |var )",
-            source,
-        ).group(0)
 
-    attribution = unique(_MULTI_PROVIDER_ATTRIBUTION.pattern)
-    base_start = source.rfind("function ", 0, attribution.start())
-    base = unique(
-        rf"function (?P<base>{_ID})\(\)", source[base_start : attribution.start()]
+def _attribution_replace(source: str, old: str, new: str) -> str:
+    return checked_replace(source, old, new, context="multi-provider attribution")
+
+
+@dataclass(frozen=True)
+class _AttributionDiscovery:
+    attribution: re.Match[str]
+    base_name: str
+    base_header: str
+    effective: str
+    wrapper: str | None
+    sections: tuple[re.Match[str], ...]
+    prompt: re.Match[str]
+    dispatch_body: str
+    edge: re.Match[str]
+    compact_body: str
+    serializer: re.Match[str]
+
+
+def _discover_multi_provider_attribution(source: str) -> _AttributionDiscovery:
+    attribution = _attribution_match(_MULTI_PROVIDER_ATTRIBUTION.pattern, source)
+    base = _attribution_match(
+        rf"function (?P<base>{_ID})\(\)\{{"
+        rf"(?:(?!\bfunction\b)[\s\S]){{0,2000}}?{re.escape(attribution.group(0))}",
+        source,
     )
     base_name = base.group("base")
-    replace(base.group(0), f"function {base_name}(_ccAttributionModel)")
-    replace(attribution.group(0), _replace_multi_provider_attribution(attribution))
+    base_header = f"function {base_name}()"
+    wrapper: str | None = None
 
     # Discover both git sections by their shared native attribution call.
     sections = list(
         re.finditer(
             rf'function (?P<section>{_ID})\((?P<arg>{_ID})\)\{{if\(!{_ID}\(\)\)'
-            rf'return"";let [^;]{{0,150}}?\{{commit:{_ID},pr:{_ID}\}}=(?P<effective>{_ID})\(\)',
+            rf'return"";let [^;]{{0,150}}?\{{(?:commit:{_ID},pr:{_ID}|pr:{_ID},commit:{_ID})\}}=(?P<effective>{_ID})\(\)',
             source,
         )
     )
@@ -2026,7 +2137,7 @@ def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
         raise PatchError("multi-provider attribution: git sections changed")
     effective = sections[0].group("effective")
     if effective != base_name:
-        wrapper = function(effective)
+        wrapper = _attribution_function(source, effective)
         binding_orders = (
             rf'(?P<link>{_ID})={_ID}\(\),(?P<value>{_ID})={re.escape(base_name)}\(\)',
             rf'(?P<value>{_ID})={re.escape(base_name)}\(\),(?P<link>{_ID})={_ID}\(\)',
@@ -2043,85 +2154,23 @@ def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
         ]
         if sum(result is not None for result in matches) != 1:
             raise PatchError("multi-provider attribution: session-link wrapper changed")
-        replace(
-            wrapper,
-            wrapper.replace("(){", "(_ccAttributionModel){", 1).replace(
-                f"{base_name}()", f"{base_name}(_ccAttributionModel)"
-            ),
-        )
 
-    prompt = unique(
+    prompt = _attribution_match(
         rf'async prompt\(\{{model:(?P<model>{_ID}),tools:(?P<tools>{_ID})\}}\)'
         rf'\{{(?P<body>[\s\S]{{0,500}}?)return (?P<dispatch>{_ID})\((?P=model),'
         rf'(?P<flags>[\s\S]{{0,200}}?)\)\}},isConcurrencySafe',
         source,
     )
     dispatch = prompt.group("dispatch")
-    dispatch_body = function(dispatch)
-    edge = unique(
+    dispatch_body = _attribution_function(source, dispatch)
+    edge = _attribution_match(
         rf'function {re.escape(dispatch)}\((?P<model>{_ID}),(?P<flags>{_ID})\)'
         rf'\{{if\({_ID}\((?P=model)\)\)return (?P<compact>{_ID})\((?P=flags)\);',
         dispatch_body,
     )
     compact = edge.group("compact")
-    compact_body = function(compact)
-    flags = edge.group("flags")
-    model = edge.group("model")
-    updated_dispatch = dispatch_body.replace(
-        f"function {dispatch}({model},{flags})",
-        f"function {dispatch}({model},{flags},_ccAttributionSnapshot)",
-        1,
-    ).replace(
-        f"{compact}({flags})", f"{compact}({flags},{model},_ccAttributionSnapshot)", 1
-    )
-    updated_compact = compact_body.replace(
-        "){",
-        ",_ccAttributionModel,_ccAttributionSnapshot){",
-        1,
-    )
-    for section in sections:
-        name, arg = section.group("section", "arg")
-        body = function(name)
-        replace(
-            body,
-            body.replace(
-                f"function {name}({arg})",
-                f"function {name}({arg},_ccAttributionModel,_ccAttributionSnapshot)",
-                1,
-            ).replace(
-                f"{effective}()",
-                f"(_ccAttributionSnapshot??{effective}(_ccAttributionModel))",
-                1,
-            ),
-        )
-        if f"{name}({flags})" in dispatch_body:
-            unique(rf'{re.escape(name)}\({re.escape(flags)}\)', dispatch_body)
-            updated_dispatch = updated_dispatch.replace(
-                f"{name}({flags})", f"{name}({flags},{model},_ccAttributionSnapshot)", 1
-            )
-        else:
-            compact_arg = unique(
-                rf'function {re.escape(compact)}\((?P<arg>{_ID})\)', compact_body
-            ).group("arg")
-            unique(rf'{re.escape(name)}\({re.escape(compact_arg)}\)', compact_body)
-            updated_compact = updated_compact.replace(
-                f"{name}({compact_arg})",
-                f"{name}({compact_arg},_ccAttributionModel,_ccAttributionSnapshot)",
-                1,
-            )
-    replace(dispatch_body, updated_dispatch)
-    replace(compact_body, updated_compact)
-    replace(
-        prompt.group(0),
-        f'async prompt({{model:{prompt.group("model")},tools:{prompt.group("tools")},'
-        '_ccAttributionSnapshot}){_ccAttributionSnapshot??=Object.freeze('
-        f'{effective}({prompt.group("model")}));{prompt.group("body")}return '
-        f'{dispatch}({prompt.group("model")},{prompt.group("flags")},'
-        '_ccAttributionSnapshot)},isConcurrencySafe',
-    )
-
-    # Snapshot before the first await. The cache key and prompt use the same values.
-    serializer = unique(
+    compact_body = _attribution_function(source, compact)
+    serializer = _attribution_match(
         rf'async function (?P<serialize>{_ID})\((?P<tool>{_ID}),(?P<context>{_ID})\)'
         rf'\{{(?P<prefix>[^{{}}]{{0,600}}?)(?P<key>{_ID})='
         rf'(?P<key_expr>{_ID}\+{_ID}\+""\+\("inputJSONSchema"in (?P=tool)&&'
@@ -2130,22 +2179,141 @@ def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
         rf'(?P<cache>{_ID})={_ID}\(\),(?P<value>{_ID})=(?P=cache)\.get\((?P=key)\);',
         source,
     )
+    return _AttributionDiscovery(
+        attribution,
+        base_name,
+        base_header,
+        effective,
+        wrapper,
+        tuple(sections),
+        prompt,
+        dispatch_body,
+        edge,
+        compact_body,
+        serializer,
+    )
+
+
+def _transform_attribution_rules(source: str, found: _AttributionDiscovery) -> str:
+    source = _attribution_replace(
+        source, found.base_header, f"function {found.base_name}(_ccAttributionModel)"
+    )
+    source = _attribution_replace(
+        source,
+        found.attribution.group(0),
+        _replace_multi_provider_attribution(found.attribution),
+    )
+    if found.wrapper is not None:
+        wrapper = _attribution_replace(
+            found.wrapper,
+            f"function {found.effective}()",
+            f"function {found.effective}(_ccAttributionModel)",
+        )
+        wrapper = _attribution_replace(
+            wrapper, f"{found.base_name}()", f"{found.base_name}(_ccAttributionModel)"
+        )
+        source = _attribution_replace(source, found.wrapper, wrapper)
+    return source
+
+
+def _transform_attribution_prompts(source: str, found: _AttributionDiscovery) -> str:
+    prompt = found.prompt
+    dispatch = prompt.group("dispatch")
+    dispatch_body = found.dispatch_body
+    compact_body = found.compact_body
+    compact, flags, model = found.edge.group("compact", "flags", "model")
+    effective = found.effective
+    updated_dispatch = _attribution_replace(
+        dispatch_body,
+        f"function {dispatch}({model},{flags})",
+        f"function {dispatch}({model},{flags},_ccAttributionSnapshot)",
+    )
+    updated_dispatch = _attribution_replace(
+        updated_dispatch,
+        f"{compact}({flags})",
+        f"{compact}({flags},{model},_ccAttributionSnapshot)",
+    )
+    compact_arg = _attribution_match(
+        rf'function {re.escape(compact)}\((?P<arg>{_ID})\)', compact_body
+    ).group("arg")
+    updated_compact = _attribution_replace(
+        compact_body,
+        f"function {compact}({compact_arg})",
+        f"function {compact}({compact_arg},_ccAttributionModel,_ccAttributionSnapshot)",
+    )
+    for section in found.sections:
+        name, arg = section.group("section", "arg")
+        body = _attribution_function(source, name)
+        updated = _attribution_replace(
+            body,
+            f"function {name}({arg})",
+            f"function {name}({arg},_ccAttributionModel,_ccAttributionSnapshot)",
+        )
+        updated = _attribution_replace(
+            updated,
+            f"{effective}()",
+            f"(_ccAttributionSnapshot??{effective}(_ccAttributionModel))",
+        )
+        source = _attribution_replace(source, body, updated)
+        in_dispatch = f"{name}({flags})" in dispatch_body
+        in_compact = f"{name}({compact_arg})" in compact_body
+        if in_dispatch == in_compact:
+            raise PatchError("multi-provider attribution: ambiguous git section caller")
+        if in_dispatch:
+            updated_dispatch = _attribution_replace(
+                updated_dispatch,
+                f"{name}({flags})",
+                f"{name}({flags},{model},_ccAttributionSnapshot)",
+            )
+        else:
+            updated_compact = _attribution_replace(
+                updated_compact,
+                f"{name}({compact_arg})",
+                f"{name}({compact_arg},_ccAttributionModel,_ccAttributionSnapshot)",
+            )
+    source = _attribution_replace(source, dispatch_body, updated_dispatch)
+    source = _attribution_replace(source, compact_body, updated_compact)
+    for section in found.sections:
+        name = re.escape(section.group("section"))
+        if re.search(rf"(?<![\w$]){name}\({_ID}\)", source):
+            raise PatchError(
+                "multi-provider attribution: unthreaded git section caller"
+            )
+    source = _attribution_replace(
+        source,
+        prompt.group(0),
+        f'async prompt({{model:{prompt.group("model")},tools:{prompt.group("tools")},'
+        '_ccAttributionSnapshot}){_ccAttributionSnapshot??=Object.freeze('
+        f'{effective}({prompt.group("model")}));{prompt.group("body")}return '
+        f'{dispatch}({prompt.group("model")},{prompt.group("flags")},'
+        '_ccAttributionSnapshot)},isConcurrencySafe',
+    )
+
+    return source
+
+
+def _transform_attribution_serializer(source: str, found: _AttributionDiscovery) -> str:
+    # Snapshot before the first await. The cache key and prompt use the same values.
+    serializer = found.serializer
+    effective = found.effective
     context, tool = serializer.group("context", "tool")
     original = serializer.group(0)
-    replace(
+    source = _attribution_replace(
+        source,
         original,
-        original.replace(
+        _attribution_replace(
+            original,
             serializer.group("key_expr"),
             serializer.group("key_expr")
             + f'+JSON.stringify([{context}.model??null,{context}._ccAttributionSnapshot??null])',
-            1,
         ),
     )
     # Carry the snapshot on each returned schema, including cache hits and stripped schemas.
     # An enumerable symbol survives object spreads but does not enter the JSON payload.
     serialize = serializer.group("serialize")
     declaration = f"async function {serialize}({tool},{context})"
-    replace(
+    source = _attribution_replace(
+        source,
         declaration,
         f"async function {serialize}({tool},{context}){{"
         f'{context}={{...{context},_ccAttributionSnapshot:{tool}.name==="Bash"?'
@@ -2155,12 +2323,18 @@ def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
         f"_ccAttributionKey,{{value:{context}._ccAttributionSnapshot,enumerable:!0}});"
         f"return _ccSchema}}async function {serialize}_ccInner({tool},{context})",
     )
+    return source
+
+
+def _transform_attribution_route(source: str, effective: str) -> str:
     # Only the actual Z.ai create request gets the additional system instruction.
-    replace(
+    source = _attribution_replace(
+        source,
         "function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={})",
         "function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={},_ccCountOnly=!1)",
     )
-    replace(
+    source = _attribution_replace(
+        source,
         "delete _ccOutbound[_ccField];return[_ccCached.client,_ccOutbound,",
         'delete _ccOutbound[_ccField];if(_ccInfo.provider==="zai"&&!_ccCountOnly)'
         '_ccOutbound.system=_ccMultiProviderSystemAttribution(_ccRequest.system,_ccRequest.model,'
@@ -2181,11 +2355,22 @@ def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
         '_ccAttribution.pr);if(_ccLines.length)_ccBlocks.push({type:"text",text:'
         '_ccMarker+"\\n"+_ccLines.join("\\n")+"\\n"+_ccEnd});return _ccBlocks}'
     )
-    replace(
+    source = _attribution_replace(
+        source,
         "function _ccMultiProviderRoute(",
         system_helper + "function _ccMultiProviderRoute(",
     )
     return source
+
+
+def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
+    """Keep native attribution rules and pass request-local values through Bash."""
+    source = match.group(0)
+    found = _discover_multi_provider_attribution(source)
+    source = _transform_attribution_rules(source, found)
+    source = _transform_attribution_prompts(source, found)
+    source = _transform_attribution_serializer(source, found)
+    return _transform_attribution_route(source, found.effective)
 
 
 def _mark_multi_provider_compaction_source(match: re.Match[str]) -> str:
@@ -2558,13 +2743,21 @@ def _define_compact_tool(m: re.Match[str]) -> str:
     return f"{m.group(1)}{tool},"
 
 
+_COMPACT_REGISTRY = re.compile(
+    rf"function {_ID}\(\)\{{let (?P<tools>{_ID})=(?P<registry>{_ID})\(\),"
+    rf"(?P<enabled>{_ID})=(?P=tools)\.map\(\((?P<tool>{_ID})\)=>"
+    rf"(?P=tool)\.isEnabled\(\)\);return (?P=tools)\.filter\("
+    rf"\({_ID},(?P<index>{_ID})\)=>(?P=enabled)\[(?P=index)\]\)"
+    rf"\.map\(\((?P<entry>{_ID})\)=>(?P=entry)\.name\)\}}"
+    rf"function (?P=registry)\(\)\{{(?:let {_ID}={_ID}\(\);)?"
+    rf"return\[(?={_ID},)"
+)
+
+
 def _register_compact(m: re.Match[str]) -> str:
-    # m.1 = the tool-registry function name; the array body (from its first tool
-    # identifier on) is preserved by the pattern's lookahead. Prepend the guarded
-    # spread so the compact tool is registered iff it was defined (init-order-proof).
+    # Preserve the collector and the optional DesignTool initializer.
     return (
-        f"function {m.group(1)}()"
-        "{return[...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
+        m.group(0) + "...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
     )
 
 
@@ -2597,13 +2790,8 @@ COMPACT_SESSION = PatchSet(
         ),
         Patch(
             "register-compact-session-in-toollist",
-            # 2.1.199 loads the optional DesignTool before it builds the array.
-            # Preserve that call and its local binding before the compact-tool spread.
-            re.compile(
-                r"function ([\w$]+)\(\)\{(?:let [\w$]+=[\w$]+\(\);)?"
-                r"return\[(?=[\w$]+,)"
-            ),
-            r"\g<0>...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),",
+            _COMPACT_REGISTRY,
+            _register_compact,
         ),
         Patch(
             "force-compaction-on-flag",
@@ -2636,7 +2824,7 @@ COMPACT_SESSION = PatchSet(
     ),
     verify_absent=(
         re.compile(r'The todo list after the update"\)\}\)\),[\w$]+=[\w$]+\(\{name:'),
-        re.compile(r"function [\w$]+\(\)\{(?:let [\w$]+=[\w$]+\(\);)?return\[[\w$]+,"),
+        _COMPACT_REGISTRY,
         # not double-applied: the injected early-return is never immediately followed
         # by a second copy of itself
         re.compile(r"=!1,!0;if\(globalThis\.__ccPendingCompact\)return globalThis"),
@@ -2645,19 +2833,28 @@ COMPACT_SESSION = PatchSet(
 )
 
 
+def _select_patch_variant(
+    version: Version | None, base: PatchSet, variant: PatchSet
+) -> PatchSet:
+    """Select a known variant through its declared version boundaries."""
+    return variant if version is not None and variant.applies_to(version) else base
+
+
 def default_patch_sets(version: Version | None) -> list[PatchSet]:
     """The patch sets applied by ``ccpatch apply`` (order matters)."""
     return [
         thinking_expanded(version),
         CHANNELS_ENABLED,
         DEV_CHANNEL_INHERITANCE,
-        BACKGROUND_PROVIDER_ENV_198
-        if version is not None and (2, 1, 198) <= version < (2, 1, 200)
-        else BACKGROUND_PROVIDER_ENV,
+        _select_patch_variant(
+            version, BACKGROUND_PROVIDER_ENV, BACKGROUND_PROVIDER_ENV_198
+        ),
         MULTI_PROVIDER_SDK,
         CATPPUCCIN_SYNTAX,
-        THINKING_SUMMARIES_NONINTERACTIVE_198
-        if version is not None and (2, 1, 198) <= version < (2, 1, 200)
-        else THINKING_SUMMARIES_NONINTERACTIVE,
+        _select_patch_variant(
+            version,
+            THINKING_SUMMARIES_NONINTERACTIVE,
+            THINKING_SUMMARIES_NONINTERACTIVE_198,
+        ),
         COMPACT_SESSION,
     ]
