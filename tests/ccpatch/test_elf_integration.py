@@ -115,8 +115,20 @@ def _function_at(source: str, position: int) -> tuple[str, str]:
 def _same_function(source: str, patched: str, anchor: str) -> tuple[str, str]:
     match = _match(anchor, source)
     name, original = _function_at(source, match.end())
-    declaration = _match(rf"(?:async )?function {re.escape(name)}\(", patched)
-    _, replacement = _function_at(patched, declaration.end())
+    declarations = list(
+        re.finditer(rf"(?:async )?function {re.escape(name)}\(", patched)
+    )
+    if len(declarations) > 1:
+        original_start = source.rfind(original, 0, match.end() + len(original))
+        assert original_start >= 0
+        context = source[max(0, original_start - 100) : original_start]
+        declarations = [
+            declaration
+            for declaration in declarations
+            if patched[: declaration.start()].endswith(context)
+        ]
+    assert len(declarations) == 1, f"ambiguous function declaration for {name}"
+    _, replacement = _function_at(patched, declarations[0].end())
     return original, replacement
 
 
@@ -129,39 +141,50 @@ def test_semantic_function_discovery_accepts_dollar_names(name: str) -> None:
     assert replacement == f'function {name}(){{return "patched anchor"}}'
 
 
+def test_semantic_function_discovery_disambiguates_reused_names() -> None:
+    source = (
+        'function worker(){return "other"}function boundary(){}'
+        'function worker(){return "semantic anchor"}function next(){}'
+    )
+    patched = source.replace('return "semantic anchor"', 'return "patched anchor"')
+    original, replacement = _same_function(source, patched, "semantic anchor")
+    assert original == 'function worker(){return "semantic anchor"}'
+    assert replacement == 'function worker(){return "patched anchor"}'
+
+
 def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
     if not re.search(
-        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200)"',
+        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202)"',
         source,
     ):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.200"
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.202"
             )
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.200")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.202")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.200"
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.202"
             )
-        pytest.skip("installed Claude Code 2.1.174-2.1.200 binary is already patched")
+        pytest.skip("installed Claude Code 2.1.174-2.1.202 binary is already patched")
     patch_set = (
         BACKGROUND_PROVIDER_ENV_198
-        if re.search(r'VERSION:"2\.1\.(?:198|199|200)"', source)
+        if re.search(r'VERSION:"2\.1\.(?:198|199|200|201|202)"', source)
         else BACKGROUND_PROVIDER_ENV
     )
     return source, patch_set.apply(source)
 
 
-def test_198_200_all_patch_sets_preserve_remote_control_choice(
+def test_198_202_all_patch_sets_preserve_remote_control_choice(
     binary_info: tuple[bytes, bool],
 ) -> None:
     source = _entry_source(binary_info[0])
-    version_match = re.search(r'VERSION:"2\.1\.(198|199|200)"', source)
+    version_match = re.search(r'VERSION:"2\.1\.(198|199|200|201|202)"', source)
     if version_match is None:
-        pytest.skip("requires Claude Code 2.1.198-2.1.200")
+        pytest.skip("requires Claude Code 2.1.198-2.1.202")
     version = (2, 1, int(version_match[1]))
     patch_sets = default_patch_sets(version)
     assert len(patch_sets) == 8
@@ -208,10 +231,10 @@ def test_181_preserves_cloud_branch_and_token_count_context(
 ) -> None:
     source = _entry_source(binary_info[0])
     if not re.search(
-        r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191|193|195|196|197|198|199|200)"',
+        r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202)"',
         source,
     ):
-        pytest.skip("requires Claude Code 2.1.181-2.1.200")
+        pytest.skip("requires Claude Code 2.1.181-2.1.202")
     patched = source
     version_match = re.search(r'VERSION:"2\.1\.(\d+)"', source)
     assert version_match is not None
@@ -241,13 +264,13 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     source = _entry_source(path.read_bytes())
     if (
         not re.search(
-            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200)"',
+            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202)"',
             source,
         )
         or "providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.200"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.202"
         )
 
     try:
@@ -277,7 +300,7 @@ def test_real_source_secures_background_provider_environment(
     supported_region_keys = {
         key for key in _PROVIDER_ENV_EXPLICIT_KEYS if key.startswith("VERTEX_REGION_")
     }
-    if not re.search(r'VERSION:"2\.1\.(?:197|198|199|200)"', source):
+    if not re.search(r'VERSION:"2\.1\.(?:197|198|199|200|201|202)"', source):
         supported_region_keys.remove("VERTEX_REGION_CLAUDE_5_SONNET")
     assert vertex_region_keys == supported_region_keys
     assert '"CLAUDE_CODE_CERT_STORE"' in patched
@@ -325,7 +348,7 @@ def test_real_source_secures_background_provider_environment(
         rf"providerEnv:{_ID}\.providerEnv",
         (
             rf'{_ID}\.providerEnv\?\?\{{\}}'
-            if re.search(r'VERSION:"2\.1\.(?:198|199|200)"', source)
+            if re.search(r'VERSION:"2\.1\.(?:198|199|200|201|202)"', source)
             else rf"\.\.\.{_ID}\.providerEnv&&\{{providerEnv:{_ID}\.providerEnv\}}"
         ),
     ):
@@ -402,10 +425,10 @@ def test_178_preserves_upstream_security_and_compaction_fallback(
 ) -> None:
     source = _entry_source(binary_info[0])
     if not re.search(
-        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200)"',
+        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202)"',
         source,
     ):
-        pytest.skip("requires Claude Code 2.1.178-2.1.200")
+        pytest.skip("requires Claude Code 2.1.178-2.1.202")
     patched = source
     version_match = re.search(r'VERSION:"2\.1\.(\d+)"', source)
     assert version_match is not None
@@ -595,7 +618,7 @@ def test_real_source_routes_multi_provider_sdk(
         f"{limits[1]}={limits[2]}=_ccProviderModel.maxOutputTokens"
         not in output_resolver
     )
-    if re.search(r'VERSION:"2\.1\.(?:199|200)"', source):
+    if re.search(r'VERSION:"2\.1\.(?:199|200|201|202)"', source):
         native_limits = _match(
             rf'{_ID}={_ID}\({_ID}\)\?\.max_output_tokens;'
             rf'if\(({_ID})\){_ID}=\1\.default,{_ID}=\1\.upper;',
@@ -743,7 +766,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
     if re.search(
-        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200)"',
+        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202)"',
         pristine,
     ):
         denied = _match(

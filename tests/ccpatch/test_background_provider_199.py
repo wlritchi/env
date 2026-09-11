@@ -99,6 +99,62 @@ _PROVIDER_HELPERS = (
 )
 
 
+@pytest.mark.parametrize("cloud_groups", [False, True], ids=["198-201", "202"])
+def test_provider_snapshot_retains_cloud_credentials_and_tombstones(
+    cloud_groups: bool,
+) -> None:
+    source = _PROVIDER_HELPERS
+    if cloud_groups:
+        source = source.replace(
+            'recognized=new Set(),allowlist=[];',
+            'cloudCredentials=["AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY",'
+            '"AWS_SESSION_TOKEN"],cloudConfig=[...cloudCredentials,"AWS_PROFILE",'
+            '"AWS_CONFIG_FILE","AWS_SHARED_CREDENTIALS_FILE",'
+            '"GOOGLE_APPLICATION_CREDENTIALS","GOOGLE_CLOUD_PROJECT"];'
+            'recognized=new Set(),allowlist=[];',
+        )
+        source = 'let recognized,allowlist;' + source
+    patch = next(
+        patch
+        for patch in BACKGROUND_PROVIDER_ENV_198.patches
+        if patch.name == "snapshot-transient-provider-env"
+    )
+    patched, count = patch.pattern.subn(patch.replacement, source)
+    assert count == 1
+    runtime = shutil.which("node") or shutil.which("bun")
+    assert runtime is not None
+    script = (
+        'const process={env:{AWS_ACCESS_KEY_ID:"requester",'
+        'AWS_SECRET_ACCESS_KEY:"secret",AWS_SESSION_TOKEN:""}};'
+        + patched
+        + f'const cloudGroups={str(cloud_groups).lower()};'
+        + '''
+const payload=snapshot();
+if(cloudGroups){
+    if(payload.AWS_ACCESS_KEY_ID!=="requester"||payload.AWS_SECRET_ACCESS_KEY!=="secret"
+        ||payload.AWS_SESSION_TOKEN!=="")throw Error("cloud credentials missing");
+    const retained=_ccProviderRetain(payload);
+    payload.AWS_ACCESS_KEY_ID="mutated";
+    process.env={AWS_ACCESS_KEY_ID:"daemon",AWS_PROFILE:"stale"};
+    _ccProviderApplyFinal(retained);
+    if(process.env.AWS_ACCESS_KEY_ID!=="requester"||"AWS_PROFILE" in process.env)
+        throw Error("snapshot or tombstone changed");
+    process.env={};
+    const empty=snapshot();
+    for(const key of cloudCredentials)if(empty[key]!==null)throw Error("missing tombstone");
+    process.env={AWS_ACCESS_KEY_ID:"daemon",AWS_SECRET_ACCESS_KEY:"daemon",
+        AWS_SESSION_TOKEN:"daemon"};
+    _ccProviderApplyFinal(empty);
+    for(const key of cloudCredentials)if(key in process.env)throw Error("stale credential");
+}else if("AWS_ACCESS_KEY_ID" in payload)throw Error("legacy registry changed");
+'''
+    )
+    result = subprocess.run(  # noqa: S603 - runtime is a resolved node/bun executable
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("asynchronous", [False, True], ids=["199", "200"])
 @pytest.mark.parametrize(
     "ca_changed,mtls_changed",

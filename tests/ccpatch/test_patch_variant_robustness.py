@@ -93,11 +93,14 @@ def test_registry_anchor_rejects_mutations(old: str, new: str) -> None:
         ((2, 1, 198), True),
         ((2, 1, 199), True),
         ((2, 1, 200), True),
-        ((2, 1, 201), False),
+        ((2, 1, 201), True),
+        ((2, 1, 202), True),
+        ((2, 1, 203), False),
     ],
 )
 def test_default_variant_boundaries(version: Version | None, modern: bool) -> None:
     selected = default_patch_sets(version)
+    assert len(selected) == 8
     assert selected[3] is (
         BACKGROUND_PROVIDER_ENV_198 if modern else BACKGROUND_PROVIDER_ENV
     )
@@ -108,9 +111,12 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     )
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
-    if version == (2, 1, 201):
+    if version == (2, 1, 203):
         assert not selected[3].applies_to(version)
+        assert not selected[4].applies_to(version)
         assert selected[6].applies_to(version)
+        assert not BACKGROUND_PROVIDER_ENV_198.applies_to(version)
+        assert not THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
 
 
 def test_named_overrides_preserve_order_and_unchanged_patches() -> None:
@@ -138,6 +144,22 @@ def test_named_overrides_reject_missing_duplicate_and_misnamed_targets() -> None
 
 _CAPTURE_ROOT = Path(__file__).resolve().parents[2] / "build" / "sweep-resume"
 _CAPTURES = sorted(_CAPTURE_ROOT.glob("2.1.*/*/original.js"))
+
+
+@pytest.mark.parametrize(
+    "capture",
+    [path for path in _CAPTURES if path.parent.parent.name in {"2.1.201", "2.1.202"}],
+    ids=lambda path: str(path.relative_to(_CAPTURE_ROOT)),
+)
+def test_checkpoint_thinking_anchors_match_native_capture(capture: Path) -> None:
+    source = capture.read_text()
+    version = tuple(int(part) for part in capture.parent.parent.name.split("."))
+    patch_set = default_patch_sets(version)[6]
+    assert patch_set is THINKING_SUMMARIES_NONINTERACTIVE_198
+    patched = patch_set.apply(source)
+    assert patched != source
+    with pytest.raises(PatchError, match="ungate-thinking-display-default"):
+        patch_set.apply(patched)
 
 
 @pytest.mark.parametrize(

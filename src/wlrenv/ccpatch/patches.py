@@ -412,7 +412,13 @@ _PROVIDER_ENV_GROUPS = re.compile(
     r'\["ANTHROPIC_MODEL",'
     rf'(?P<model_tail>.{{0,3000}}?)\],(?P<custom_models>{_ID})='
     r'\["ANTHROPIC_CUSTOM_MODEL_OPTION",'
-    rf'(?P<custom_model_tail>.{{0,1000}}?)\],(?P<recognized>{_ID})=new Set'
+    rf'(?P<custom_model_tail>.{{0,1000}}?)\],'
+    rf'(?:(?P<cloud_credentials>{_ID})=\["AWS_ACCESS_KEY_ID",'
+    rf'"AWS_SECRET_ACCESS_KEY","AWS_SESSION_TOKEN"\],'
+    rf'(?P<cloud_config>{_ID})=\[\.\.\.(?P=cloud_credentials),'
+    rf'"AWS_PROFILE","AWS_CONFIG_FILE","AWS_SHARED_CREDENTIALS_FILE",'
+    rf'"GOOGLE_APPLICATION_CREDENTIALS","GOOGLE_CLOUD_PROJECT"\];)?'
+    rf'(?P<recognized>{_ID})=new Set'
 )
 _PROVIDER_ENV_SNAPSHOT = re.compile(
     rf'function (?P<snapshot>{_ID})\(\)\{{let (?P<result>{_ID})=\{{\}};'
@@ -679,6 +685,11 @@ def _provider_key_sources(source: str) -> tuple[str, ...]:
         groups.group("skip_auth"),
         groups.group("models"),
         groups.group("custom_models"),
+        *(
+            (groups.group("cloud_credentials"), groups.group("cloud_config"))
+            if groups.group("cloud_credentials") is not None
+            else ()
+        ),
     )
 
 
@@ -1225,7 +1236,7 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 201)
+_PROVIDER_ENV_198_MAX = (2, 1, 203)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
 _CLAIMED_SPARE_AUTH_198 = (
     rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
@@ -2529,7 +2540,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 201),
+    max_version=(2, 1, 203),
     requires_version=True,
 )
 
@@ -2694,7 +2705,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 201),
+    max_version=(2, 1, 203),
     requires_version=True,
 )
 

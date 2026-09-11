@@ -265,6 +265,8 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 199), False),
         ((2, 1, 200), False),
         ((2, 1, 201), False),
+        ((2, 1, 202), False),
+        ((2, 1, 203), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -272,7 +274,8 @@ def test_background_provider_environment_is_version_gated(
 ) -> None:
     assert BACKGROUND_PROVIDER_ENV.applies_to(version) is expected
     assert MULTI_PROVIDER_SDK.applies_to(version) is (
-        expected or version in ((2, 1, 198), (2, 1, 199), (2, 1, 200))
+        expected
+        or version in ((2, 1, 198), (2, 1, 199), (2, 1, 200), (2, 1, 201), (2, 1, 202))
     )
 
 
@@ -1309,7 +1312,7 @@ def test_198_variants_are_narrowly_selected() -> None:
         sets = default_patch_sets(version)
         assert sets[3] is BACKGROUND_PROVIDER_ENV
         assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE
-    for version in ((2, 1, 198), (2, 1, 199), (2, 1, 200)):
+    for version in ((2, 1, 198), (2, 1, 199), (2, 1, 200), (2, 1, 201), (2, 1, 202)):
         sets = default_patch_sets(version)
         assert sets[3] is BACKGROUND_PROVIDER_ENV_198
         assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE_198
@@ -1318,8 +1321,10 @@ def test_198_variants_are_narrowly_selected() -> None:
         for patch_set in (sets[3], sets[6]):
             assert not patch_set.applies_to((2, 1, 197))
             assert not patch_set.applies_to(None)
-            assert not patch_set.applies_to((2, 1, 201))
-            assert patch_set.max_version == (2, 1, 201)
+            assert not patch_set.applies_to((2, 1, 203))
+            assert patch_set.max_version == (2, 1, 203)
+        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 203))
+        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 203)
 
 
 def test_198_provider_respawn_uses_transient_environment() -> None:
@@ -1398,11 +1403,42 @@ for(const value of [undefined,"","0","false","1","true","yes","on"," TRUE "]){
         BACKGROUND_PROVIDER_ENV_198.apply(_PROVIDER_ENV_SRC)
 
 
-def test_198_thinking_defaults_and_subagent_filter() -> None:
+@pytest.mark.parametrize(
+    ("setting", "config", "display", "agent", "modern_locals"),
+    [
+        ("SETTINGS", "config", "DISPLAY", "AGENT", False),
+        ("XJr", "Rr", "yOi", "_Oi", False),
+        ("JXr", "Pr", "yLi", "_Li", False),
+        ("N7n", "Ln", "PLs", "MLs", True),
+        ("BVn", "On", "MPs", "NPs", True),
+    ],
+    ids=[
+        "synthetic-198",
+        "201-linux-x64",
+        "201-linux-arm64",
+        "202-linux-x64",
+        "202-linux-arm64",
+    ],
+)
+def test_198_thinking_defaults_and_subagent_filter(
+    setting: str, config: str, display: str, agent: str, modern_locals: bool
+) -> None:
     runtime = shutil.which("node") or shutil.which("bun")
     if runtime is None:
         pytest.skip("no node/bun to check thinking defaults")
-    patched = THINKING_SUMMARIES_NONINTERACTIVE_198.apply(_THINKING_198_SRC)
+    # Use helper names and local bindings from sweep-resume native captures.
+    bindings = {
+        "SETTINGS": setting,
+        "config": config,
+        "DISPLAY": display,
+        "AGENT": agent,
+    }
+    if modern_locals:
+        bindings.update({"n": "r", "r": "n", "s": "i"})
+    source = re.sub(
+        r"[\w$]+", lambda match: bindings.get(match[0], match[0]), _THINKING_198_SRC
+    )
+    patched = THINKING_SUMMARIES_NONINTERACTIVE_198.apply(source)
     script = (
         patched
         + '''
@@ -1430,8 +1466,17 @@ for(const verbose of [false,true]){
     }
     const disabled={type:"disabled"};
     if(AGENT(disabled,options)!==disabled)throw Error("disabled thinking changed");
+    const omitted={type:"enabled",display:"omitted"};
+    if(AGENT(omitted,options)!==omitted)throw Error("omitted thinking changed");
+    const explicit={type:"enabled",display:"summarized"};
+    if(AGENT(explicit,{...options,sessionDisplayExplicit:true})!==explicit)
+        throw Error("explicit display changed");
 }
 '''
+    )
+    harness_bindings = {"config": config, "DISPLAY": display, "AGENT": agent}
+    script = re.sub(
+        r"[\w$]+", lambda match: harness_bindings.get(match[0], match[0]), script
     )
     result = subprocess.run(  # noqa: S603 - runtime is which()-resolved node/bun
         [runtime, "-e", script], capture_output=True, text=True, timeout=30

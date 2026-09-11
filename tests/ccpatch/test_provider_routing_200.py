@@ -27,7 +27,14 @@ def test_native_200_routing_evidence() -> None:
     root = os.environ.get("CCPATCH_NATIVE_SOURCE_ROOT")
     if root is None:
         pytest.skip("requires pristine .200 CCPATCH_NATIVE_SOURCE_ROOT")
-    source = (Path(root) / "linux-x64/original.js").read_text()
+    path = Path(root) / "linux-x64/original.js"
+    if Path(root).name != "2.1.200":
+        captured = Path(root).parent / "2.1.200/linux-x64/original.js"
+        if captured.is_file():
+            path = captured
+    source = path.read_text()
+    if 'VERSION:"2.1.200"' not in source:
+        pytest.skip("requires pristine .200 CCPATCH_NATIVE_SOURCE_ROOT")
     assert _RESOLVER + _OVERRIDE in source
     assert _NONSTREAM in source
     assert _STREAM in source

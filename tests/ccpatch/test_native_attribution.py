@@ -175,6 +175,18 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
         ):
             original = original.replace(before, after)
             baseline = baseline.replace(before, after)
+        if index == 1 and "includeOutboundOnly:" in original:
+            # Keep the new opt-in path in the captured runtime privacy tests.
+            baseline = baseline.replace(
+                f"function {canonical[index][0]}(){{",
+                f"function {canonical[index][0]}({{includeOutboundOnly:_outbound=!1}}={{}}){{",
+            )
+            baseline = re.sub(
+                rf"if\(({_ID})\(\)\)\{{let",
+                r"if(\1()||_outbound){let",
+                baseline,
+            ).replace(".outboundOnly)", ".outboundOnly&&!_outbound)")
+            local_names[originals[index][0]] = {}
         tokens = re.findall(_ID, original)
         baseline_tokens = re.findall(_ID, baseline)
         assert len(tokens) == len(baseline_tokens), (
