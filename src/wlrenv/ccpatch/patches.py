@@ -571,7 +571,11 @@ _PROVIDER_ENV_DELAYED_SETTINGS = re.compile(
     rf'function (?P<telemetry>{_ID})\(\)\{{(?P<prefix>.{{0,1000}}?Waiting for remote '
     rf'managed settings before telemetry init"\),)(?P<wait>{_ID})\(\)\.then\(async\(\)=>'
     rf'\{{(?P<loaded>.{{0,300}}?Remote managed settings loaded, initializing telemetry"\),)'
-    rf'(?P<settings>{_ID})\(\),await (?P<initialize>{_ID})\(\)'
+    rf'(?P<before_initialize>(?P<settings>{_ID})\(\)(?:,|;'
+    rf'let\[(?P<ca_changed>{_ID}),(?P<mtls_changed>{_ID})\]='
+    rf'await Promise\.all\(\[{_ID}\(\),{_ID}\(\)\]\);'
+    rf'if\((?P=ca_changed)\|\|(?P=mtls_changed)\){_ID}\(\),{_ID}\(\);))'
+    rf'await (?P<initialize>{_ID})\(\)'
 )
 # Keep the known normalization layouts until discovery includes the serialization
 # sink. A rest binding alone does not identify the persisted state object.
@@ -920,7 +924,8 @@ def _replace_provider_delayed_settings(match: re.Match[str]) -> str:
     return (
         f"function {match.group('telemetry')}(_ccProviderWorkerEnv){{{match.group('prefix')}"
         f"{match.group('wait')}().then(async()=>{{{match.group('loaded')}"
-        f"{match.group('settings')}(),_ccProviderApplyWorkerFinal(),"
+        f"{match.group('before_initialize')}_ccProviderApplyWorkerFinal()"
+        f"{match.group('before_initialize')[-1]}"
         f"await {match.group('initialize')}()"
     )
 
@@ -1220,7 +1225,7 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 200)
+_PROVIDER_ENV_198_MAX = (2, 1, 201)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
 _CLAIMED_SPARE_AUTH_198 = (
     rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
@@ -1290,7 +1295,7 @@ BACKGROUND_PROVIDER_ENV_198 = replace(
     max_version=_PROVIDER_ENV_198_MAX,
 )
 
-# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.198) --------
+# --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.200) --------
 
 _MODEL_COSTS_RE = re.compile(
     r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
@@ -1805,9 +1810,11 @@ _MULTI_PROVIDER_THINKING_FILTER = re.compile(
     rf"(?P=message)\.message\.model!==(?P<synthetic>{_ID})&&"
     rf"(?P=message)\.message\.model!==(?P=model)\)\}}"
 )
+# Release .200 passes the finalized request directly. Keep late EXTRA_BODY.model
+# values literal; upstream resolves the selected model before the extra-body merge.
 _MULTI_PROVIDER_NONSTREAMING = re.compile(
     rf'let (?P<response>{_ID})=await (?P<client>{_ID})\.beta\.messages\.create\('
-    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),model:(?P<normalize>[\w$]+)\((?P=finalized)\.model\)\}}),'
+    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),model:(?P<normalize>[\w$]+)\((?P=finalized)\.model\)\}}|{_ID}),'
     rf'(?P<options>\{{signal:(?P<signal>{_ID})\.signal,timeout:(?P<timeout>{_ID}),'
     rf'\.\.\.Object\.keys\((?P<headers>{_ID})\)\.length>0&&\{{headers:(?P=headers)\}}\}})'
 )
@@ -2142,15 +2149,20 @@ def _discover_multi_provider_attribution(source: str) -> _AttributionDiscovery:
             rf'(?P<link>{_ID})={_ID}\(\),(?P<value>{_ID})={re.escape(base_name)}\(\)',
             rf'(?P<value>{_ID})={re.escape(base_name)}\(\),(?P<link>{_ID})={_ID}\(\)',
         )
+        returns = (
+            rf'return (?P=link)\?{_ID}\((?P=value),(?P=link)\):(?P=value)',
+            rf'if\(!(?P=link)\)return (?P=value);return '
+            rf'{_ID}\((?P=value),(?P=link)\.url,{_ID}\((?P=link)\)\)',
+        )
         matches = [
             re.fullmatch(
                 rf'function {re.escape(effective)}\(\)\{{'
                 rf'(?:if\({_ID}\(\)==="remote"&&{_ID}\.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION\)'
-                rf'return\{{commit:"",pr:""\}};)?let {bindings};return (?P=link)\?'
-                rf'{_ID}\((?P=value),(?P=link)\):(?P=value)\}}',
+                rf'return\{{commit:"",pr:""\}};)?let {bindings};{result}\}}',
                 wrapper,
             )
             for bindings in binding_orders
+            for result in returns
         ]
         if sum(result is not None for result in matches) != 1:
             raise PatchError("multi-provider attribution: session-link wrapper changed")
@@ -2517,7 +2529,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 200),
+    max_version=(2, 1, 201),
     requires_version=True,
 )
 
@@ -2682,7 +2694,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 200),
+    max_version=(2, 1, 201),
     requires_version=True,
 )
 

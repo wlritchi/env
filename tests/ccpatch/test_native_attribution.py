@@ -15,6 +15,8 @@ import pytest
 from wlrenv.ccpatch.patches import (
     MULTI_PROVIDER_SDK,
     PatchError,
+    _attribution_function,
+    _discover_multi_provider_attribution,
     _thread_multi_provider_attribution,
     default_patch_sets,
 )
@@ -89,12 +91,50 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
     source = path.read_text()
     originals = _captures(source)
     canonical = _captures(reference.read_text())
+    session_object = re.search(
+        rf"if\(!{_ID}\)return {_ID};return {_ID}\({_ID},{_ID}\.url,({_ID})\({_ID}\)\)",
+        originals[len(_ANCHORS)][1],
+    )
+    if session_object is not None:
+        # Update the comparison fixture, not the captured runtime functions.
+        name, baseline = canonical[1]
+        for arguments, session_id in (
+            ("e,t", "e"),
+            ("e.bridgeSessionId,e.sessionIngressUrl", "e.bridgeSessionId"),
+        ):
+            before = f"return vb({arguments})"
+            assert baseline.count(before) == 1
+            baseline = baseline.replace(
+                before, f"return{{url:vb({arguments}),sessionId:{session_id}}}"
+            )
+        canonical[1] = name, baseline
+        name, baseline = canonical[2]
+        assert baseline.startswith(f"function {name}(e,t){{return")
+        baseline = baseline.replace(
+            f"function {name}(e,t){{return",
+            f"function {name}(e,t,n){{let r=n??t;return",
+        )
+        assert baseline.endswith("${t}`:t}}")
+        canonical[2] = name, baseline.removesuffix("${t}`:t}}") + "${r}`:r}}"
+        name, baseline = canonical[len(_ANCHORS)]
+        assert baseline == "function npt(){let e=MJa(),t=SUp();return e?bUp(t,e):t}"
+        canonical[len(_ANCHORS)] = (
+            name,
+            "function npt(){let e=SUp(),t=MJa();if(!t)return e;"
+            "return bUp(e,t.url,_nativeSessionLabel(t))}",
+        )
+        originals.append(
+            (session_object[1], _attribution_function(source, session_object[1]))
+        )
+        canonical.append(
+            ("_nativeSessionLabel", "function _nativeSessionLabel(e){return null}")
+        )
     names: dict[str, str] = {}
     local_names: dict[str, dict[str, str]] = {}
     for index, ((_, original), (_, baseline)) in enumerate(
         zip(originals, canonical, strict=True)
     ):
-        if index == len(_ANCHORS):
+        if index == len(_ANCHORS) and session_object is None:
             base = originals[0][0]
             original = re.sub(
                 rf"let ({_ID}={re.escape(base)}\(\)),({_ID}={_ID}\(\));",
@@ -402,6 +442,90 @@ def test_attribution_reordered_section_properties() -> None:
 def test_attribution_syntax_mutations_fail_closed(old: str, new: str) -> None:
     with pytest.raises(PatchError, match="multi-provider attribution"):
         _patch_attribution(_ATTRIBUTION_SOURCE.replace(old, new))
+
+
+@pytest.mark.parametrize("version", ["2.1.199", "2.1.200"])
+def test_captured_attribution_session_wrapper_runtime(version: str) -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    path = Path(__file__).resolve().parents[2] / "build/sweep-resume" / version
+    path /= "linux-x64/original.js"
+    if runtime is None or not path.is_file():
+        pytest.skip("requires node/bun and captured .199/.200 sources")
+    source = path.read_text()
+    found = _discover_multi_provider_attribution(source)
+    assert found.wrapper is not None
+    wrapper = found.wrapper
+    link = re.search(rf",({_ID})=({_ID})\(\);", wrapper)
+    assert link is not None
+    append = re.search(
+        rf"return ({_ID})\(" if version == "2.1.200" else rf"\?({_ID})\(", wrapper
+    )
+    assert append is not None
+    functions = _attribution_function(source, append[1])
+    if version == "2.1.200":
+        label = re.search(rf"\.url,({_ID})\(", wrapper)
+        assert label is not None
+        label_body = _attribution_function(source, label[1])
+        assert re.fullmatch(rf"function {_ID}\({_ID}\)\{{return null\}}", label_body)
+        functions += label_body.replace(
+            "return null", 'events.push("label");return null'
+        )
+    patched = wrapper.replace(
+        f"{found.effective}()", f"{found.effective}(_ccAttributionModel)"
+    ).replace(f"{found.base_name}()", f"{found.base_name}(_ccAttributionModel)")
+    synthetic = _ATTRIBUTION_SOURCE.replace(
+        "=ATTR();", f"={found.effective}();"
+    ).replace(
+        "function COMPACT_GIT",
+        wrapper.replace(f"{found.base_name}()", "ATTR()") + "function COMPACT_GIT",
+    )
+    assert patched.replace(f"{found.base_name}(", "ATTR(") in _patch_attribution(
+        synthetic
+    )
+    script = (
+        'const assert=require("node:assert/strict");let events=[],session=null;'
+        f'function {found.base_name}(model){{events.push(model);return {{commit:model,pr:"PR"}}}}'
+        f'function {link[2]}(){{events.push("link");return session}}'
+        + functions
+        + patched
+        + f'let absent={found.effective}("zai:glm-5.3");'
+        + 'assert.deepEqual(absent,{commit:"zai:glm-5.3",pr:"PR"});'
+        + 'assert.deepEqual(events,["zai:glm-5.3","link"]);events=[];'
+        + (
+            'session={url:"https://session",sessionId:"id"};'
+            if version == "2.1.200"
+            else 'session="https://session";'
+        )
+        + f'let present={found.effective}("openai:gpt-5.6-sol");'
+        + 'assert.deepEqual(present,{commit:"openai:gpt-5.6-sol\\nClaude-Session: https://session",pr:"PR\\n\\nhttps://session"});'
+        + 'assert.deepEqual(events,'
+        + json.dumps(
+            ["openai:gpt-5.6-sol", "link"] + (["label"] if version == "2.1.200" else [])
+        )
+        + ');'
+    )
+    result = subprocess.run(  # noqa: S603 - local runtime and captured attribution functions
+        [runtime, "-e", script], capture_output=True, text=True, timeout=20, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "if(link)return value;return SESSION(value,link.url,LABEL(link))",
+        "if(!link)return link;return SESSION(value,link.url,LABEL(link))",
+        "if(!link)return value;return SESSION(value,link.url,LABEL(value))",
+        "if(!link)return value;return SESSION(value,link.uri,LABEL(link))",
+    ],
+)
+def test_attribution_session_object_wrapper_fails_closed(mutation: str) -> None:
+    wrapper = f"function EFFECTIVE(){{let value=ATTR(),link=LINK();{mutation}}}"
+    source = _ATTRIBUTION_SOURCE.replace("=ATTR();", "=EFFECTIVE();").replace(
+        "function COMPACT_GIT", wrapper + "function COMPACT_GIT"
+    )
+    with pytest.raises(PatchError, match="session-link wrapper changed"):
+        _patch_attribution(source)
 
 
 @pytest.mark.parametrize("reverse", [False, True])

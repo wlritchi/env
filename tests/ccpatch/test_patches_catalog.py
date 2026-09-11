@@ -262,6 +262,9 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 196), True),
         ((2, 1, 197), True),
         ((2, 1, 198), False),
+        ((2, 1, 199), False),
+        ((2, 1, 200), False),
+        ((2, 1, 201), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -269,10 +272,8 @@ def test_background_provider_environment_is_version_gated(
 ) -> None:
     assert BACKGROUND_PROVIDER_ENV.applies_to(version) is expected
     assert MULTI_PROVIDER_SDK.applies_to(version) is (
-        expected or version == (2, 1, 198)
+        expected or version in ((2, 1, 198), (2, 1, 199), (2, 1, 200))
     )
-    assert MULTI_PROVIDER_SDK.applies_to((2, 1, 199))
-    assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 200))
 
 
 @pytest.mark.parametrize("agent_context", ["", ",agentContext:CONTEXT()"])
@@ -1308,7 +1309,7 @@ def test_198_variants_are_narrowly_selected() -> None:
         sets = default_patch_sets(version)
         assert sets[3] is BACKGROUND_PROVIDER_ENV
         assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE
-    for version in ((2, 1, 198), (2, 1, 199)):
+    for version in ((2, 1, 198), (2, 1, 199), (2, 1, 200)):
         sets = default_patch_sets(version)
         assert sets[3] is BACKGROUND_PROVIDER_ENV_198
         assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE_198
@@ -1317,8 +1318,8 @@ def test_198_variants_are_narrowly_selected() -> None:
         for patch_set in (sets[3], sets[6]):
             assert not patch_set.applies_to((2, 1, 197))
             assert not patch_set.applies_to(None)
-            assert not patch_set.applies_to((2, 1, 200))
-            assert patch_set.max_version == (2, 1, 200)
+            assert not patch_set.applies_to((2, 1, 201))
+            assert patch_set.max_version == (2, 1, 201)
 
 
 def test_198_provider_respawn_uses_transient_environment() -> None:
