@@ -95,7 +95,8 @@ def test_registry_anchor_rejects_mutations(old: str, new: str) -> None:
         ((2, 1, 200), True),
         ((2, 1, 201), True),
         ((2, 1, 202), True),
-        ((2, 1, 203), False),
+        ((2, 1, 203), True),
+        ((2, 1, 204), False),
     ],
 )
 def test_default_variant_boundaries(version: Version | None, modern: bool) -> None:
@@ -111,7 +112,7 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     )
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
-    if version == (2, 1, 203):
+    if version == (2, 1, 204):
         assert not selected[3].applies_to(version)
         assert not selected[4].applies_to(version)
         assert selected[6].applies_to(version)
@@ -148,7 +149,11 @@ _CAPTURES = sorted(_CAPTURE_ROOT.glob("2.1.*/*/original.js"))
 
 @pytest.mark.parametrize(
     "capture",
-    [path for path in _CAPTURES if path.parent.parent.name in {"2.1.201", "2.1.202"}],
+    [
+        path
+        for path in _CAPTURES
+        if path.parent.parent.name in {"2.1.201", "2.1.202", "2.1.203"}
+    ],
     ids=lambda path: str(path.relative_to(_CAPTURE_ROOT)),
 )
 def test_checkpoint_thinking_anchors_match_native_capture(capture: Path) -> None:

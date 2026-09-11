@@ -189,7 +189,8 @@ _THINKING_RENDER = (
     Patch(
         name="drop-thinking-early-return",
         pattern=re.compile(
-            rf'(case"thinking":\{{)if\(!{_ID}(?:&&!{_ID})+\)return null;'
+            rf'(case"thinking":\{{)if\(!{_ID}(?:&&!{_ID})+\)'
+            r'(?:return null;|\{return null;?\})'
         ),
         replacement=r"\1",
     ),
@@ -224,9 +225,7 @@ def thinking_expanded(version: Version | None) -> PatchSet:
         name="thinking-expanded",
         patches=patches,
         verify_present=(re.compile(r"isTranscriptMode:true,verbose:true"),),
-        verify_absent=(
-            re.compile(rf'case"thinking":\{{if\(!{_ID}(?:&&!{_ID})+\)return null;'),
-        ),
+        verify_absent=(_THINKING_RENDER[0].pattern,),
     )
 
 
@@ -469,12 +468,21 @@ _PROVIDER_ENV_WORKER = re.compile(
     rf'function (?P<env_builder>{_ID})\((?P<job>{_ID}),(?P<job_dir>{_ID}),'
     rf'(?P<snapshot_path>{_ID}),(?P<rv_sock>{_ID}),(?P<socket_auth>{_ID})\)'
     rf'\{{let (?P<ambient>{_ID})=\{{\.\.\.process\.env\}},(?P<env>{_ID})='
-    rf'\{{\.\.\.(?P=ambient),(?P<body>.{{0,2000}}?)\}};if\(process\.env\.'
+    rf'\{{\.\.\.(?P=ambient),(?P<body>.{{0,2000}}?)\}}'
+    rf'(?P<path_normalization>,(?P<path_key>{_ID})=Object\.hasOwn\((?P=ambient),"PATH"\)'
+    rf'\?"PATH":Object\.keys\((?P=ambient)\)\.find\(\((?P<path_candidate>{_ID})\)=>'
+    rf'(?P=path_candidate)\.toUpperCase\(\)==="PATH"\),'
+    rf'(?P<path_value>{_ID})=(?P=job)\.env\?\.PATH\|\|'
+    rf'\((?P=path_key)\?(?P=ambient)\[(?P=path_key)\]:void 0\);'
+    rf'for\(let (?P<path_entry>{_ID}) of Object\.keys\((?P=env)\)\)'
+    rf'if\((?P=path_entry)\.toUpperCase\(\)==="PATH"\)delete (?P=env)\[(?P=path_entry)\];'
+    rf'if\((?P=path_value)\)(?P=env)\[(?P=path_key)\?\?"PATH"\]=(?P=path_value))?'
+    rf';if\(process\.env\.'
 )
 _PROVIDER_ENV_WORKER_FINAL = re.compile(
     rf'(?P<prefix>function (?P<env_builder>{_ID})\((?P<job>{_ID}),(?P<job_dir>{_ID}),'
     rf'(?P<snapshot_path>{_ID}),(?P<rv_sock>{_ID}),(?P<socket_auth>{_ID}),'
-    rf'_ccProviderEnv\)\{{.{{0,500}}?let _ccProviderPayload=.{{0,5000}}?)'
+    rf'_ccProviderEnv\)\{{.{{0,1500}}?let _ccProviderPayload=.{{0,5000}}?)'
     rf'return (?P<env>{_ID})\}}'
 )
 _PROVIDER_ENV_PATCHED_SNAPSHOT = re.compile(
@@ -879,9 +887,10 @@ def _replace_provider_worker_final(match: re.Match[str]) -> str:
     env = match.group("env")
     return (
         match.group("prefix")
+        + f'if({match.group("job")}.launch.mode!=="exec"){{'
         + f"for(let _ccKey of _ccProviderKeys())delete {env}[_ccKey];"
         + "for(let[_ccKey,_ccValue]of Object.entries(_ccProviderPayload))"
-        + f"if(_ccValue!==null){env}[_ccKey]=_ccValue;return {env}}}"
+        + f"if(_ccValue!==null){env}[_ccKey]=_ccValue;}}return {env}}}"
     )
 
 
@@ -1236,7 +1245,7 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 203)
+_PROVIDER_ENV_198_MAX = (2, 1, 204)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
 _CLAIMED_SPARE_AUTH_198 = (
     rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
@@ -1792,6 +1801,7 @@ _MULTI_PROVIDER_AGENT_IDENTIFIERS = (
         rf'function (?P<picker>{_ID})\({_ID}=!1\)\{{let {_ID}=new Set,'
         rf'{_ID}={_ID}\({_ID}\)\.filter\(\({_ID}\)=>\{{'
         rf'if\({_ID}\.value===null\)return!0;if\({_ID}\.has\({_ID}\.value\)\)'
+        rf'(?:\{{if\(({_ID})!==null\)\2\.duplicates\+\+;)?'
         rf'return {_ID}\(`model options: dropping duplicate row '
     ),
 )
@@ -2196,7 +2206,7 @@ def _discover_multi_provider_attribution(source: str) -> _AttributionDiscovery:
     serializer = _attribution_match(
         rf'async function (?P<serialize>{_ID})\((?P<tool>{_ID}),(?P<context>{_ID})\)'
         rf'\{{(?P<prefix>[^{{}}]{{0,600}}?)(?P<key>{_ID})='
-        rf'(?P<key_expr>{_ID}\+{_ID}\+""\+\("inputJSONSchema"in (?P=tool)&&'
+        rf'(?P<key_expr>{_ID}\+{_ID}\+""\+(?:{_ID}\+)?\("inputJSONSchema"in (?P=tool)&&'
         rf'(?P=tool)\.inputJSONSchema\?`\$\{{(?P=tool)\.name\}}:\$\{{{_ID}'
         rf'\((?P=tool)\.inputJSONSchema\)\}}`:(?P=tool)\.name\)),'
         rf'(?P<cache>{_ID})={_ID}\(\),(?P<value>{_ID})=(?P=cache)\.get\((?P=key)\);',
@@ -2540,7 +2550,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 203),
+    max_version=(2, 1, 204),
     requires_version=True,
 )
 
@@ -2705,7 +2715,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 203),
+    max_version=(2, 1, 204),
     requires_version=True,
 )
 

@@ -172,13 +172,42 @@ def test_parse_version() -> None:
 
 
 @pytest.mark.parametrize("factory", ["createElement", "jsx"])
-def test_thinking_render_patches_apply(factory: str) -> None:
-    source = _SOURCE.replace("createElement", factory)
+@pytest.mark.parametrize(
+    "guard_body", ["return null;", "{return null}", "{return null;}"]
+)
+def test_thinking_render_patches_apply(factory: str, guard_body: str) -> None:
+    source = _SOURCE.replace("createElement", factory).replace(
+        "return null;", guard_body
+    )
     out = thinking_expanded((2, 1, 186)).apply(source)
     assert f"q.{factory}(Xy," in out
     assert "isTranscriptMode:true,verbose:true" in out
-    assert "return null;" not in out.split("verbose")[0]  # early guard gone
+    assert out == source.replace(f"if(!Ab&&!Cd){guard_body}", "").replace(
+        "isTranscriptMode:Rs,verbose:Tu", "isTranscriptMode:true,verbose:true"
+    ).replace("?ob_(Yz):", "?void 0:")
     assert "===null?void 0:void 0" in out  # grouping neutralized
+
+
+@pytest.mark.parametrize(
+    "guard_body", ["return null;", "{return null}", "{return null;}"]
+)
+def test_thinking_guard_verification(guard_body: str) -> None:
+    source = _SOURCE.replace("return null;", guard_body)
+    patches = thinking_expanded((2, 1, 203))
+    verification_only = PatchSet(
+        "thinking-verification", (), verify_absent=patches.verify_absent
+    )
+    with pytest.raises(PatchError, match="forbidden marker"):
+        verification_only.apply(source)
+
+
+@pytest.mark.parametrize(
+    "guard_body", ["{return null;extra()}", "{return null", "return null}"]
+)
+def test_thinking_guard_rejects_nonmatching_bodies(guard_body: str) -> None:
+    source = _SOURCE.replace("return null;", guard_body)
+    with pytest.raises(PatchError, match="drop-thinking-early-return"):
+        thinking_expanded((2, 1, 203)).apply(source)
 
 
 def test_version_gating_excludes_ungroup_below_2_1_151() -> None:

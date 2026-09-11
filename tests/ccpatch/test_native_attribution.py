@@ -18,6 +18,7 @@ from wlrenv.ccpatch.patches import (
     _attribution_function,
     _discover_multi_provider_attribution,
     _thread_multi_provider_attribution,
+    _transform_attribution_serializer,
     default_patch_sets,
 )
 
@@ -406,6 +407,121 @@ def _patch_attribution(source: str) -> str:
     match = re.fullmatch(r"[\s\S]*", source)
     assert match is not None
     return _thread_multi_provider_attribution(match)
+
+
+@pytest.mark.parametrize("strict_prefix", ["", 'strict+'])
+def test_attribution_cache_key_retains_native_dimensions(strict_prefix: str) -> None:
+    source = _ATTRIBUTION_SOURCE.replace('o+s+""+', 'o+s+""+' + strict_prefix)
+    found = _discover_multi_provider_attribution(source)
+    generated = _patch_attribution(source)
+    assert (
+        found.serializer.group("key_expr")
+        + '+JSON.stringify([T.model??null,T._ccAttributionSnapshot??null])'
+    ) in generated
+
+
+@pytest.mark.parametrize("version", ["2.1.202", "2.1.203"])
+@pytest.mark.parametrize("architecture", ["linux-x64", "linux-arm64"])
+def test_captured_sdk_serializer_strict_cache(
+    version: str, architecture: str, tmp_path: Path
+) -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    path = Path(__file__).resolve().parents[2] / "build/sweep-resume" / version
+    path /= architecture + "/original.js"
+    if runtime is None or not path.is_file():
+        pytest.skip("requires node/bun and captured .202/.203 sources")
+    source = path.read_text()
+    found = _discover_multi_provider_attribution(source)
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert found.serializer.group("key_expr") in patched
+    serializer = found.serializer
+    name = serializer.group("serialize")
+    original = _function(source, serializer.start() + len(f"async function {name}("))[1]
+    transformed = _transform_attribution_serializer(source, found)
+    start = transformed.index(f"async function {name}(")
+    inner_start = transformed.index(f"async function {name}_ccInner(")
+    wrapper = transformed[start:inner_start]
+    inner = _function(
+        transformed, inner_start + len(f"async function {name}_ccInner(")
+    )[1]
+    # Keep the native serializer body intact except for the added cache dimension.
+    assert (
+        inner.replace(name + "_ccInner", name, 1).replace(
+            '+JSON.stringify([t.model??null,t._ccAttributionSnapshot??null])', "", 1
+        )
+        == original
+    )
+    calls = set(re.findall(r"(?<![\w$.])(" + _ID + r")\(", original))
+    calls.discard(name)
+    calls -= {"if", "Set"}
+    cache_fn = re.search(rf'{serializer.group("cache")}=({_ID})\(\)', original)
+    assert cache_fn is not None
+    provider = re.search(r"let " + _ID + r"=(" + _ID + r")\(\)", original)
+    assert provider is not None
+    description = re.search(r"description:await (" + _ID + r")\(", original)
+    assert description is not None
+    strict = re.search(r't\.model&&(' + _ID + r')\(t\.model\)\?"X:"', original)
+    validator = re.search(
+        r"let " + _ID + r"=(" + _ID + r")\([\w$]+\);if\([\w$]+\.ok\)", original
+    )
+    if version == "2.1.203":
+        assert strict is not None and validator is not None
+    stubs = "".join(f"function {call}(){{return false}}" for call in sorted(calls))
+    stubs += (
+        f"function {cache_fn[1]}(){{return cache}}"
+        f'function {provider[1]}(){{return "firstParty"}}'
+        f"async function {description[1]}(tool,context){{await Promise.resolve();"
+        'return context._ccAttributionSnapshot?.commit??"native"}'
+        f"function {found.effective}(model){{return {{commit:model+suffix,pr:suffix}}}}"
+    )
+    if strict is not None and validator is not None:
+        stubs += (
+            f"function {strict[1]}(){{return strictEnabled}}"
+            f"function {validator[1]}(schema){{return {{ok:compatible,schema:{{...schema,converted:true}}}}}}"
+        )
+    script = (
+        'const assert=require("node:assert/strict");'
+        'let cache=new Map(),strictEnabled=false,compatible=true,suffix="A";'
+        'const _ccAttributionKey=Symbol("attribution");'
+        + stubs
+        + wrapper
+        + inner
+        + f"const serialize={name};"
+        + '''
+(async()=>{
+    const tool={name:"Bash",inputJSONSchema:{type:"object"},strict:true};
+    const first=serialize(tool,{model:"zai:glm-5.3"});
+    suffix="B";
+    const second=serialize(tool,{model:"openai:gpt-6-astra"});
+    const [a,b]=await Promise.all([first,second]);
+    assert.equal(a.description,"zai:glm-5.3A");
+    assert.equal(b.description,"openai:gpt-6-astraB");
+    assert.equal(a[_ccAttributionKey].commit,a.description);
+    assert.equal(b[_ccAttributionKey].commit,b.description);
+    assert(!JSON.stringify(a).includes("attribution"));
+    const hit=await serialize(tool,{model:"openai:gpt-6-astra"});
+    assert.deepEqual(hit,b);
+    strictEnabled=true;
+    const strictSchema=await serialize(tool,{model:"openai:gpt-6-astra"});
+'''
+        + (
+            'assert.equal(strictSchema.strict,true);'
+            'assert.equal(strictSchema.input_schema.converted,true);'
+            'assert.equal(cache.size,3);'
+            'compatible=false;suffix="C";'
+            'const invalid=await serialize(tool,{model:"openai:gpt-6-astra"});'
+            'assert.equal(invalid.strict,undefined);'
+            if strict is not None
+            else 'assert.equal(cache.size,2);'
+        )
+        + '})().catch(e=>{console.error(e);process.exitCode=1});'
+    )
+    script_path = tmp_path / "serializer.cjs"
+    script_path.write_text(script)
+    result = subprocess.run(  # noqa: S603 - captured serializer and local runtime
+        [runtime, str(script_path)], capture_output=True, text=True, timeout=20
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_attribution_generated_output_is_unchanged() -> None:

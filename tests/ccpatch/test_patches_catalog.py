@@ -267,6 +267,7 @@ def test_dev_channel_required_no_op_fails() -> None:
         ((2, 1, 201), False),
         ((2, 1, 202), False),
         ((2, 1, 203), False),
+        ((2, 1, 204), False),
     ),
 )
 def test_background_provider_environment_is_version_gated(
@@ -275,7 +276,15 @@ def test_background_provider_environment_is_version_gated(
     assert BACKGROUND_PROVIDER_ENV.applies_to(version) is expected
     assert MULTI_PROVIDER_SDK.applies_to(version) is (
         expected
-        or version in ((2, 1, 198), (2, 1, 199), (2, 1, 200), (2, 1, 201), (2, 1, 202))
+        or version
+        in (
+            (2, 1, 198),
+            (2, 1, 199),
+            (2, 1, 200),
+            (2, 1, 201),
+            (2, 1, 202),
+            (2, 1, 203),
+        )
     )
 
 
@@ -1312,7 +1321,14 @@ def test_198_variants_are_narrowly_selected() -> None:
         sets = default_patch_sets(version)
         assert sets[3] is BACKGROUND_PROVIDER_ENV
         assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE
-    for version in ((2, 1, 198), (2, 1, 199), (2, 1, 200), (2, 1, 201), (2, 1, 202)):
+    for version in (
+        (2, 1, 198),
+        (2, 1, 199),
+        (2, 1, 200),
+        (2, 1, 201),
+        (2, 1, 202),
+        (2, 1, 203),
+    ):
         sets = default_patch_sets(version)
         assert sets[3] is BACKGROUND_PROVIDER_ENV_198
         assert sets[6] is THINKING_SUMMARIES_NONINTERACTIVE_198
@@ -1321,10 +1337,10 @@ def test_198_variants_are_narrowly_selected() -> None:
         for patch_set in (sets[3], sets[6]):
             assert not patch_set.applies_to((2, 1, 197))
             assert not patch_set.applies_to(None)
-            assert not patch_set.applies_to((2, 1, 203))
-            assert patch_set.max_version == (2, 1, 203)
-        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 203))
-        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 203)
+            assert not patch_set.applies_to((2, 1, 204))
+            assert patch_set.max_version == (2, 1, 204)
+        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 204))
+        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 204)
 
 
 def test_198_provider_respawn_uses_transient_environment() -> None:

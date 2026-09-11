@@ -294,3 +294,104 @@ def test_delayed_settings_rejects_unknown_async_layout(native: str) -> None:
         if patch.name == "restore-provider-env-after-delayed-settings"
     )
     assert patch.pattern.search(_DELAYED_PREFIX + native + "await initialize()") is None
+
+
+_WORKER_203 = (
+    'function build(job,dir,snapshot,sock,auth){let ambient={...process.env},'
+    'env={...ambient,...job.env,CLAUDE_CODE_SESSION_KIND:"bg",BROWSER:"true"},'
+    'pathKey=Object.hasOwn(ambient,"PATH")?"PATH":Object.keys(ambient).find((key)=>'
+    'key.toUpperCase()==="PATH"),pathValue=job.env?.PATH||(pathKey?ambient[pathKey]:void 0);'
+    'for(let key of Object.keys(env))if(key.toUpperCase()==="PATH")delete env[key];'
+    'if(pathValue)env[pathKey??"PATH"]=pathValue;'
+    'if(process.env.CLAUDE_CONFIG_DIR)env.CLAUDE_CONFIG_DIR=process.env.CLAUDE_CONFIG_DIR;'
+    'for(let key of ["CLAUDE_CODE_BRIDGE_SESSION_ID","CLAUDE_BG_RV_AUTH"])'
+    'if(!job.env?.[key])delete env[key];'
+    'if(ambient.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST){'
+    'delete env.ANTHROPIC_AUTH_TOKEN;'
+    'const key=ambient.CLAUDE_CODE_HOST_AUTH_ENV_VAR;if(key)delete env[key];'
+    'for(let key of urls)delete env[key]'
+    '}else if(env.ANTHROPIC_BASE_URL!==ambient.ANTHROPIC_BASE_URL){'
+    'for(let key of urls)delete env[key];'
+    'if(ambient.ANTHROPIC_BASE_URL)delete env.ANTHROPIC_AUTH_TOKEN}'
+    'if(auth)env.CLAUDE_BG_RV_AUTH=auth.rvAuth,env.CLAUDE_BG_PTY_AUTH=auth.ptyAuth;'
+    'if(snapshot)delete env.CLAUDE_CODE_OAUTH_TOKEN;'
+    'if(job.launch.mode==="exec"){for(let key of Object.keys(env))'
+    'if(key.startsWith("CLAUDE_")&&key!=="CLAUDE_JOB_DIR"&&key!=="CLAUDE_CONFIG_DIR"'
+    '&&key!=="CLAUDE_BG_PTY_AUTH"||key.startsWith("OTEL_"))delete env[key];'
+    'if(delete env.BROWSER,env.ANTHROPIC_BASE_URL)delete env.ANTHROPIC_AUTH_TOKEN;'
+    'for(let key of urls)delete env[key];env.CLAUDE_PTY_HOST_EXEC="1"}return env}'
+)
+
+
+def test_203_worker_preserves_path_security_and_transient_auth() -> None:
+    source = (
+        _PROVIDER_HELPERS.replace(
+            'urls=["ANTHROPIC_BASE_URL","ANTHROPIC_VERTEX_BASE_URL"]',
+            'urls=["ANTHROPIC_BASE_URL","_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",'
+            '"ANTHROPIC_CUSTOM_HEADERS"]',
+        )
+        + _WORKER_203
+    )
+    names = (
+        "snapshot-transient-provider-env",
+        "scrub-worker-provider-env",
+        "restore-provider-env-after-native-worker-scrubs",
+    )
+    for name in names:
+        patch = next(p for p in BACKGROUND_PROVIDER_ENV_198.patches if p.name == name)
+        source, count = patch.pattern.subn(patch.replacement, source)
+        assert count == 1, name
+    runtime = shutil.which("node") or shutil.which("bun")
+    assert runtime is not None
+    script = (
+        source
+        + '''
+    const assert=require("node:assert/strict");
+    const original=process.env;
+    for(const casing of ["PATH","Path"])
+    for(const mode of ["claude","exec"])
+    for(const host of [false,true])
+    for(const suppliedPath of [false,true]){
+        process.env={ANTHROPIC_BASE_URL:"https://daemon.invalid",
+            ANTHROPIC_AUTH_TOKEN:"stale-token",AWS_BEARER_TOKEN_BEDROCK:"stale-cloud",
+            CLAUDE_CODE_BRIDGE_SESSION_ID:"private-bridge",CLAUDE_BG_RV_AUTH:"stale-rv",
+            OTEL_SECRET:"private-telemetry",[casing]:"/daemon/bin"};
+        if(host)Object.assign(process.env,{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:"1",
+            CLAUDE_CODE_HOST_AUTH_ENV_VAR:"HOST_SECRET",HOST_SECRET:"private-host"});
+        const payload=Object.fromEntries(_ccProviderKeys().map(key=>[key,null]));
+        Object.assign(payload,{ANTHROPIC_BASE_URL:"https://request.invalid",
+            ANTHROPIC_AUTH_TOKEN:"request-token",ANTHROPIC_API_KEY:"request-key",
+            ANTHROPIC_CUSTOM_HEADERS:"X-Test: requester",
+            _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL:"1"});
+        const job={launch:{mode},env:suppliedPath?{PATH:"/request/bin"}:{}};
+        const env=build(job,"dir",null,"sock",{rvAuth:"fresh-rv",ptyAuth:"fresh-pty"},payload);
+        assert.equal(env[casing],suppliedPath?"/request/bin":"/daemon/bin");
+        assert.deepEqual(Object.keys(env).filter(k=>k.toUpperCase()==="PATH"),[casing]);
+        assert.equal(env.HOST_SECRET,undefined);
+        assert.equal(env.CLAUDE_CODE_BRIDGE_SESSION_ID,undefined);
+        assert.equal(env.CLAUDE_BG_PTY_AUTH,"fresh-pty");
+        if(mode==="exec"){
+            for(const key of ["ANTHROPIC_BASE_URL","ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_CUSTOM_HEADERS","_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
+                "CLAUDE_CODE_PROVIDER_ENV_TRANSIENT","CLAUDE_BG_RV_AUTH","OTEL_SECRET"])
+                assert.equal(env[key],undefined,key);
+            assert.equal(env.CLAUDE_PTY_HOST_EXEC,"1");
+        }else{
+            assert.equal(env.ANTHROPIC_BASE_URL,payload.ANTHROPIC_BASE_URL);
+            assert.equal(env.ANTHROPIC_AUTH_TOKEN,payload.ANTHROPIC_AUTH_TOKEN);
+            assert.equal(env.AWS_BEARER_TOKEN_BEDROCK,undefined);
+            assert.equal(env.CLAUDE_BG_RV_AUTH,"fresh-rv");
+            assert.deepEqual(JSON.parse(env.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT),payload);
+        }
+        for(const key of ["CLAUDE_CODE_SESSION_ACCESS_TOKEN","CLAUDE_CODE_BRIDGE_SESSION_ID"]){
+            assert(!_ccProviderKeys().includes(key));
+            assert.throws(()=>_ccRequireProviderEnv({[key]:"private"}));
+        }
+    }
+    process.env=original;
+    '''
+    )
+    result = subprocess.run(  # noqa: S603 - runtime is a resolved node/bun executable
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
