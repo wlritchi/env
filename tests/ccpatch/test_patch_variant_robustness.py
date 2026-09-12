@@ -96,7 +96,10 @@ def test_registry_anchor_rejects_mutations(old: str, new: str) -> None:
         ((2, 1, 201), True),
         ((2, 1, 202), True),
         ((2, 1, 203), True),
-        ((2, 1, 204), False),
+        ((2, 1, 204), True),
+        ((2, 1, 205), True),
+        ((2, 1, 206), True),
+        ((2, 1, 207), False),
     ],
 )
 def test_default_variant_boundaries(version: Version | None, modern: bool) -> None:
@@ -112,7 +115,7 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     )
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
-    if version == (2, 1, 204):
+    if version == (2, 1, 207):
         assert not selected[4].applies_to(version)
         assert not selected[5].applies_to(version)
         assert selected[7].applies_to(version)

@@ -1273,7 +1273,7 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 204)
+_PROVIDER_ENV_198_MAX = (2, 1, 207)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
 _CLAIMED_SPARE_AUTH_198 = (
     rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
@@ -1396,13 +1396,17 @@ def background_provider_environment(version: Version | None) -> PatchSet:
 # --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.200) --------
 
 _MODEL_COSTS_RE = re.compile(
-    r"(\},[\w$]+=[\w$]+;[\w$]+=\{)(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
+    r"(\},[\w$]+=[\w$]+;"
+    r"(?:[\w$]+=new Set\([\w$]+\);)?[\w$]+=\{)"
+    r"(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
 )
 
 
 def _model_costs_patch(model_costs: ModelCostsByModel) -> Patch:
     # Claude Code computes statusline/session cost from its own per-model table.
     # Claude Code lowercases model IDs before cost lookup. Use normalized qualified IDs.
+    # Keep native entries and the catalogue spread last so native prices take precedence.
+    # Do not add provider IDs to the native catalogue's validation set.
     table = ",".join(
         f"{json.dumps(model.lower(), separators=(',', ':'))}:"
         f"{{inputTokens:{costs['inputTokens']},"
@@ -2628,7 +2632,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 204),
+    max_version=(2, 1, 207),
     requires_version=True,
 )
 
@@ -2793,7 +2797,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 204),
+    max_version=(2, 1, 207),
     requires_version=True,
 )
 

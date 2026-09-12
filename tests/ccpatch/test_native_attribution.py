@@ -130,6 +130,54 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
         canonical.append(
             ("_nativeSessionLabel", "function _nativeSessionLabel(e){return null}")
         )
+    template_helpers = re.search(
+        rf"## Summary\n\$\{{({_ID})\(\)\}}\n\n## Test plan\n\$\{{({_ID})\(\)\}}",
+        originals[6][1],
+    )
+    if template_helpers is not None:
+        name, baseline = canonical[6]
+        gate_name: str | None = None
+        for helper_name, fixture_name, enabled, disabled in (
+            (
+                template_helpers[1],
+                "_nativePRSummary",
+                "<1-2 plain sentences: what this change does and why>",
+                "<1-3 bullet points>",
+            ),
+            (
+                template_helpers[2],
+                "_nativePRTestPlan",
+                "<1-2 lines: what you verified and how (commands run, behavior observed); note anything unverified>",
+                "[Bulleted markdown checklist of TODOs for testing the pull request...]",
+            ),
+        ):
+            helper = _attribution_function(source, helper_name)
+            gate = re.fullmatch(
+                rf"function {re.escape(helper_name)}\(\)\{{return ({_ID})\(\)\?"
+                + re.escape(json.dumps(enabled) + ":" + json.dumps(disabled))
+                + r"\}",
+                helper,
+            )
+            assert gate is not None, helper
+            assert gate_name is None or gate_name == gate[1]
+            gate_name = gate[1]
+            originals.append((helper_name, helper))
+            canonical.append(
+                (
+                    fixture_name,
+                    f"function {fixture_name}(){{return _nativePRGate()?"
+                    + json.dumps(enabled)
+                    + ":"
+                    + json.dumps(disabled)
+                    + "}",
+                )
+            )
+            assert baseline.count(disabled) == 1
+            baseline = baseline.replace(disabled, f"${{{fixture_name}()}}")
+        assert gate_name is not None
+        originals.append((gate_name, _attribution_function(source, gate_name)))
+        canonical.append(("_nativePRGate", "function _nativePRGate(){return!1}"))
+        canonical[6] = name, baseline
     names: dict[str, str] = {}
     local_names: dict[str, dict[str, str]] = {}
     for index, ((_, original), (_, baseline)) in enumerate(
@@ -173,6 +221,8 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
             ),
             (',"bash_lean")', ")"),
             (',"bash_full")', ")"),
+            ('("bash_lean")', "()"),
+            ('("bash_full")', "()"),
         ):
             original = original.replace(before, after)
             baseline = baseline.replace(before, after)
@@ -187,6 +237,22 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
                 r"if(\1()||_outbound){let",
                 baseline,
             ).replace(".outboundOnly)", ".outboundOnly&&!_outbound)")
+            local_names[originals[index][0]] = {}
+        if index == 7 and '"X:"' in original:
+            # Compare the new strict-schema path without changing captured code.
+            baseline = baseline.replace(
+                'i="",a=o+s+""+',
+                'i="",_strict=t.model&&_nativeStrict(t.model)?"X:":"",a=o+s+""+_strict+',
+            ).replace('let d=ct("tengu_tool_pear",!1),f=', 'let f=')
+            before = 'd&&e.strict===!0&&t.model&&eBe(t.model))c.strict=!0;'
+            assert baseline.count(before) == 1
+            baseline = baseline.replace(
+                before,
+                't.model&&_nativeStrict(t.model)){if(e.strict===!0){'
+                'let _validated=_nativeValidate(f);if(_validated.ok)c.strict=!0,c.input_schema=_validated.schema;'
+                'else _nativeWarn(`Tool ${e.name} has strict: true but its schema is not strict-compatible (${_validated.reason}); sending non-strict`,{level:"warn"})}'
+                'else if(e.strictInputJSONSchema&&ct("tengu_structured_output_strict",!1))c.strict=!0,c.input_schema=e.strictInputJSONSchema}',
+            )
             local_names[originals[index][0]] = {}
         tokens = re.findall(_ID, original)
         baseline_tokens = re.findall(_ID, baseline)
@@ -420,7 +486,7 @@ def test_attribution_cache_key_retains_native_dimensions(strict_prefix: str) -> 
     ) in generated
 
 
-@pytest.mark.parametrize("version", ["2.1.202", "2.1.203"])
+@pytest.mark.parametrize("version", ["2.1.202", "2.1.203", "2.1.206"])
 @pytest.mark.parametrize("architecture", ["linux-x64", "linux-arm64"])
 def test_captured_sdk_serializer_strict_cache(
     version: str, architecture: str, tmp_path: Path
@@ -429,7 +495,7 @@ def test_captured_sdk_serializer_strict_cache(
     path = Path(__file__).resolve().parents[2] / "build/sweep-resume" / version
     path /= architecture + "/original.js"
     if runtime is None or not path.is_file():
-        pytest.skip("requires node/bun and captured .202/.203 sources")
+        pytest.skip("requires node/bun and captured .202/.203/.206 sources")
     source = path.read_text()
     found = _discover_multi_provider_attribution(source)
     patched = MULTI_PROVIDER_SDK.apply(source)
@@ -464,7 +530,7 @@ def test_captured_sdk_serializer_strict_cache(
     validator = re.search(
         r"let " + _ID + r"=(" + _ID + r")\([\w$]+\);if\([\w$]+\.ok\)", original
     )
-    if version == "2.1.203":
+    if version in {"2.1.203", "2.1.206"}:
         assert strict is not None and validator is not None
     stubs = "".join(f"function {call}(){{return false}}" for call in sorted(calls))
     stubs += (

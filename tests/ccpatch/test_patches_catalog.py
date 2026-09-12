@@ -284,6 +284,9 @@ def test_background_provider_environment_is_version_gated(
             (2, 1, 201),
             (2, 1, 202),
             (2, 1, 203),
+            (2, 1, 204),
+            (2, 1, 205),
+            (2, 1, 206),
         )
     )
 
@@ -1328,6 +1331,9 @@ def test_198_variants_are_narrowly_selected() -> None:
         (2, 1, 201),
         (2, 1, 202),
         (2, 1, 203),
+        (2, 1, 204),
+        (2, 1, 205),
+        (2, 1, 206),
     ):
         sets = default_patch_sets(version)
         assert sets[4].name == BACKGROUND_PROVIDER_ENV_198.name
@@ -1337,10 +1343,10 @@ def test_198_variants_are_narrowly_selected() -> None:
         for patch_set in (sets[4], sets[7]):
             assert not patch_set.applies_to((2, 1, 197))
             assert not patch_set.applies_to(None)
-            assert not patch_set.applies_to((2, 1, 204))
-            assert patch_set.max_version == (2, 1, 204)
-        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 204))
-        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 204)
+            assert not patch_set.applies_to((2, 1, 207))
+            assert patch_set.max_version == (2, 1, 207)
+        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 207))
+        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 207)
 
 
 def test_198_provider_respawn_uses_transient_environment() -> None:
