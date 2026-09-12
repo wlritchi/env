@@ -154,16 +154,50 @@ _PROVIDER_ENV_SRC = (
     'error:"bad",code:"EAUTH"});if(await pause(0),sock.readableEnded||sock.destroyed)'
     '{metric();return}return wait(handles,sock,"dispatch",req.d.short,req.d.nonce,'
     'req.timeoutMs,dispatchCb(req.d)'
-    'Worker{dispatch;spawnPty;getAuthSnapshot;via;record;'
+    'class Worker{dispatch;spawnPty;getAuthSnapshot;via;record;'
     'constructor(job,spawn,authFn,via,record){this.dispatch=job;'
+    'this.spawnPty=spawn;this.getAuthSnapshot=authFn;this.via=via;'
+    'this.record={sessionId:job.sessionId,...record}}'
     'static spawn(job,spawn,authFn,options){let worker=new Worker(job,spawn??defaultSpawn(),'
-    'authFn,"cold");'
+    'authFn,"cold");worker.doSpawn(job.reattachEnv);return worker}'
     'static claim(job,options){let worker=new Worker(job,options.spawnPty,'
-    'options.getAuthSnapshot,"spare",{pid:spare.pid,cliVersion:BUILD.VERSION});'
+    'options.getAuthSnapshot,"spare",{pid:spare.pid,cliVersion:BUILD.VERSION});return worker}'
+    'static adopt(job,roster){let worker=new Worker(job,void 0,void 0,"adopted",roster);'
+    'worker.rvAuth=roster.rvAuth;'
+    'if(worker.connectRv(),roster.pendingRespawn==="upgrade")'
+    'worker.transitionTo({kind:"upgrading"});return worker}'
     'static buildClaimFrame(job,snapshot,auth){let dir=jobDir(job.short),'
-    'env=buildEnv(job,dir,snapshot,rvSock(job.short),auth);'
+    'env=buildEnv(job,dir,snapshot,rvSock(job.short),auth);return{env,argv:[]}}'
+    'async doSpawn(reattachEnv,afterUpgrade){'
     'let argv=buildArgv(job,this.attempt,messages,session,flags),'
     'env=buildEnv(job,dir,snapshot,this.rvSockPath??rvSock(job.short),this.socketAuth());'
+    'this.spawnPty(argv,env)}'
+    'async respawnIfIdleStale(pinned,trigger="sweep"){'
+    'if(this.dispatch.launch.mode==="exec")return{respawned:!1,reason:"not-stale"};'
+    'return this.shutdownWorker(),{respawned:!0}}'
+    'async retireIfSettled(grace,pinned){return{retired:!1,reason:"not-settled"}}'
+    'fireAuthRekey(){this.transitionTo({kind:"upgrading"});this.sigtermWorker()}'
+    'rekeyForAuthMismatch(reason){this.fireAuthRekey()}'
+    'onExit(code,signal){if(this.isDetached)return;if(this.phase.kind==="retired")return;'
+    'this.doSpawn()}'
+    'connectRv(){if(this.rv||this.isDetached||this.record.outcome)return;'
+    'this.rv=connectRv(this.rvSockPath??rvSock(this.dispatch.short),(event)=>{'
+    'if(event.type==="heartbeat")this.lastRvHeartbeat=Date.now();'
+    'else if(event.type==="done")this.settle(event.outcome)},'
+    '()=>void this.checkPid(),()=>{this.workerReady=!0},this.rvAuth)}'
+    'clearLiveness(){if(this.pidPoll)clearInterval(this.pidPoll);'
+    'this.rv?.close(),this.rv=void 0}}'
+    'function stall(worker,socket,dispatch,closed,pending){let job=worker.dispatch;'
+    'worker.kill("SIGTERM");dispatch({...job,attachStallRespawns:1,launch:ok?next:job.launch})}'
+    'function rvServer(){net.createServer((socket)=>{current?.destroy(),current=socket;'
+    'socket.on("data",(data)=>{receiveRv(data)})})}'
+    'function receiveRv(request){if(request.role==="supervisor"){'
+    'if("auth"in request&&validateRvAuth(request.auth,rvToken))authenticated=!0;return}'
+    'if(rvToken&&!authenticated&&request.type!=="repaint"){'
+    'sendRv({type:"reply-rejected"});return}'
+    'if(request.type==="shutdown"){sendRv({type:"shutting-down"});return}}'
+    'function rvHello(){return{proto:RV_PROTO,role:"supervisor",supervisorPid:process.pid}}'
+    'function rvState(){return{sessionId:currentSession(),gates:{}}}'
     'function W0q(job,spare,spawn,auth){let worker=Worker.claim(job,{pid:spare.hostPid,'
     'ptySockPath:spare.ptySock,spawnPty:spawn,getAuthSnapshot:auth});'
     'return fetchSnapshot(job.short,auth?.()).then((snapshot)=>send(spare.claimSock,'
@@ -375,7 +409,8 @@ def test_background_provider_environment_transforms_complete_fixture() -> None:
     )
     assert "dispatchCb(req.d,0,void 0,req.providerEnv)" in patched
     assert (
-        'new Worker(job,spawn??defaultSpawn(),authFn,"cold",_ccProviderEnv)' in patched
+        'new Worker(job,spawn??defaultSpawn(),authFn,"cold",void 0,_ccProviderEnv)'
+        in patched
     )
     assert "this.socketAuth(),this.providerEnv" in patched
     assert "Worker.claim(job," in patched and "_ccProviderEnv" in patched
@@ -527,11 +562,74 @@ def test_background_provider_environment_worker_creation_rejects_absent_payload(
     patched = BACKGROUND_PROVIDER_ENV.apply(_PROVIDER_ENV_SRC)
     markers = {
         "claimed spare": "Worker.buildClaimFrame(job,snapshot,auth,_ccProviderEnv)",
-        "cold worker": 'new Worker(job,spawn??defaultSpawn(),authFn,"cold",_ccProviderEnv)',
+        "cold worker": 'new Worker(job,spawn??defaultSpawn(),authFn,"cold",void 0,_ccProviderEnv)',
         "worker respawn": "this.socketAuth(),this.providerEnv",
     }
     assert markers[worker_path] in patched
     assert "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);" in patched
+
+
+@pytest.mark.parametrize("via", ["cold", "spare", "adopted"])
+def test_background_provider_environment_constructor_handles_missing_payload(
+    via: str,
+) -> None:
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("no node/bun to evaluate the provider constructor")
+    patched = BACKGROUND_PROVIDER_ENV.apply(_PROVIDER_ENV_SRC)
+    helpers = patched[
+        patched.index("function _ccProviderKeys()") : patched.index("function SNAP()")
+    ]
+    constructor = patched[
+        patched.index("constructor(job,") : patched.index("static spawn(job,")
+    ]
+    guards = patched[
+        patched.index("_ccProviderWarn(){") : patched.index("_ccProviderCancel(){")
+    ]
+    script = (
+        'let OLD=[],SEL=[],URLS=[],CREDS=[],SKIP=[],MODELS=[],CUSTOM=[];'
+        + helpers
+        + 'class Worker{'
+        + constructor
+        + guards
+        + '};try{let worker=new Worker({launch:{mode:"claude"}},undefined,undefined,'
+        + json.dumps(via)
+        + ',{pid:123});console.log(JSON.stringify({providerEnv:worker.providerEnv,'
+        + 'pid:worker.record.pid,blocked:worker._ccProviderBlocked()}));'
+        + 'worker._ccProviderBlocked()}catch(error){console.log(error.code)}'
+    )
+    proc = subprocess.run(  # noqa: S603 - runtime is which()-resolved node/bun
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+    assert proc.returncode == 0, proc.stderr
+    if via == "adopted":
+        assert json.loads(proc.stdout) == {
+            "providerEnv": None,
+            "pid": 123,
+            "blocked": True,
+        }
+        assert proc.stderr.count("Live session retained") == 1
+        assert "automatic respawn disabled" in proc.stderr
+        assert (
+            'async doSpawn(reattachEnv,afterUpgrade){if(this._ccProviderBlocked())return;'
+            in patched
+        )
+        assert (
+            'async respawnIfIdleStale(pinned,trigger="sweep"){if(this._ccProviderBlocked())return{respawned:!1,reason:"provider-unavailable"};'
+            in patched
+        )
+        assert (
+            'roster.pendingRespawn==="upgrade"&&!worker._ccProviderBlocked()' in patched
+        )
+        assert 'fireAuthRekey(){if(this._ccProviderBlocked())return;' in patched
+        assert (
+            'rekeyForAuthMismatch(reason){if(this._ccProviderBlocked())return;'
+            in patched
+        )
+        assert 'this._ccProviderBlocked()&&this.phase.kind!=="retiring"' in patched
+    else:
+        assert proc.stdout.strip() == "EPROVIDERENV"
+        assert proc.stderr == ""
 
 
 def test_background_provider_environment_covers_upstream_vertex_region_keys() -> None:

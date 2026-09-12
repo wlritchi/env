@@ -756,6 +756,10 @@ def _replace_provider_snapshot(match: re.Match[str]) -> str:
         "if(!_ccAllowed.has(_ccKey)||(_ccValue!==null&&"
         f'typeof _ccValue!=="string"))throw {invalid_error};'
         "return _ccProviderEnv}"
+        'function _ccProviderMac(_ccToken,_ccReply){return require("crypto")'
+        '.createHmac("sha256",_ccToken).update(JSON.stringify(['
+        '"cc-provider-snapshot",_ccReply.proto,_ccReply.version,_ccReply.sessionId,'
+        '_ccReply.nonce,_ccReply.payload])).digest("hex")}'
         "function _ccProviderRetain(_ccProviderEnv){"
         "return Object.freeze({..._ccRequireProviderEnv(_ccProviderEnv)})}"
         "function _ccProviderCaptureTransport(_ccEnv=process.env){let _ccSerialized="
@@ -982,7 +986,8 @@ def _replace_provider_constructor(match: re.Match[str]) -> str:
     return (
         f'constructor({match.group("job")},{match.group("spawn")},'
         f'{match.group("auth")},{match.group("via")},{match.group("record")},'
-        f'_ccProviderEnv){{this.providerEnv=_ccProviderRetain(_ccProviderEnv);this.dispatch='
+        f'_ccProviderEnv){{this.providerEnv={match.group("via")}==="adopted"&&'
+        '_ccProviderEnv===void 0?null:_ccProviderRetain(_ccProviderEnv);this.dispatch='
         f'{match.group("job")};'
     )
 
@@ -1017,6 +1022,169 @@ def _replace_provider_manager_dispatch(match: re.Match[str]) -> str:
         context="provider manager dispatch signature",
     )
     return original + "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);"
+
+
+def _replace_provider_stall_respawn(match: re.Match[str]) -> str:
+    worker = match.group("worker")
+    dispatch = match.group("dispatch")
+    original = match.group(0)
+    original = checked_replace(
+        original,
+        f'let {match.group("job")}={worker}.dispatch;',
+        f'if({worker}._ccProviderBlocked())return;'
+        f'let _ccProviderEnv={worker}.providerEnv;'
+        f'let {match.group("job")}={worker}.dispatch;',
+        context="provider attach-stall guard",
+    )
+    return checked_replace(
+        original,
+        f':{match.group("job")}.launch}})',
+        f':{match.group("job")}.launch}},0,void 0,_ccProviderEnv)',
+        context=f"provider attach-stall {dispatch} snapshot",
+    )
+
+
+def _provider_rv_protocol(source: str) -> str:
+    return discover_identifiers(
+        source,
+        (re.compile(r'proto:(?P<proto>[\w$]+),role:"supervisor",supervisorPid:'),),
+    )["proto"]
+
+
+def _replace_provider_rv_worker(match: re.Match[str]) -> str:
+    request = match.group("request")
+    token = match.group("token")
+    authenticated = match.group("authenticated")
+    send = match.group("send")
+    session = discover_identifiers(
+        match.string,
+        (re.compile(r'sessionId:(?P<session>[\w$]+)\(\),gates:\{'),),
+    )["session"]
+    validator = discover_identifiers(
+        match.string,
+        (
+            re.compile(
+                r'"auth"in [\w$]+&&(?P<validator>[\w$]+)\([\w$]+\.auth,'
+                + re.escape(token)
+                + r'\)'
+            ),
+        ),
+    )["validator"]
+    protocol = _provider_rv_protocol(match.string)
+    original = match.group(0)
+    anchor = f'if({request}.type==="shutdown")'
+    handler = (
+        f'if({request}.type==="cc-provider-snapshot-request"){{'
+        f'if(typeof {token}!=="string"||!{token}||{authenticated}!==!0||'
+        f'!{validator}({request}.auth,{token})||{request}.proto!=={protocol}||'
+        f'{request}.version!==3||{request}.sessionId!=={session}()||'
+        f'typeof {request}.nonce!=="string"||!/^[a-f0-9]{{64}}$/.test({request}.nonce))return;'
+        'try{let _ccReply={type:"cc-provider-snapshot",'
+        f'proto:{protocol},version:3,sessionId:{session}(),nonce:{request}.nonce,'
+        'payload:_ccProviderWorkerEnv};'
+        f'_ccReply.mac=_ccProviderMac({token},_ccReply);{send}(_ccReply)'
+        '}catch{}return}'
+    )
+    return checked_replace(
+        original, anchor, handler + anchor, context="provider RV worker request"
+    )
+
+
+def _replace_provider_lifecycle(match: re.Match[str]) -> str:
+    original = match.group(0)
+    protocol = _provider_rv_protocol(match.string)
+
+    def replace(old: str, new: str) -> None:
+        nonlocal original
+        original = checked_replace(original, old, new, context="provider lifecycle")
+
+    methods = (
+        '_ccProviderWarn(){if(this._ccProviderWarned)return;this._ccProviderWarned=!0;'
+        'console.error("[bg] Original provider snapshot unavailable. Live session retained; '
+        'automatic respawn disabled. Re-dispatch from the original provider session when ready.")}'
+        '_ccProviderBlocked(){if(this.dispatch.launch.mode==="exec"||this.providerEnv!=null)'
+        'return!1;this._ccProviderWarn();return!0}'
+        '_ccProviderCancel(){clearTimeout(this._ccProviderTimer);'
+        'this._ccProviderTimer=void 0;this._ccProviderNonce=void 0}'
+        '_ccProviderRequest(){this._ccProviderCancel();'
+        'if(this.providerEnv!=null||this.dispatch.launch.mode==="exec")return;'
+        'if(typeof this.rvAuth!=="string"||!this.rvAuth){this._ccProviderWarn();return}'
+        'let _ccNonce=require("crypto").randomBytes(32).toString("hex");'
+        'this._ccProviderNonce=_ccNonce;'
+        'this._ccProviderTimer=setTimeout(()=>{if(this._ccProviderNonce!==_ccNonce)return;'
+        'this._ccProviderCancel();this._ccProviderWarn()},5000);this._ccProviderTimer.unref();'
+        f'this.rv?.send({{type:"cc-provider-snapshot-request",proto:{protocol},version:3,'
+        'sessionId:this.record.sessionId,nonce:_ccNonce,auth:this.rvAuth})}'
+        '_ccProviderReply(_ccReply){if(_ccReply.type!=="cc-provider-snapshot")return!1;'
+        'if(!this._ccProviderNonce||_ccReply.nonce!==this._ccProviderNonce)return!0;'
+        f'if(_ccReply.proto!=={protocol}||_ccReply.version!==3||'
+        '_ccReply.sessionId!==this.record.sessionId)return!0;'
+        'try{if(typeof _ccReply.mac!=="string"||!/^[a-f0-9]{64}$/.test(_ccReply.mac))return!0;'
+        'let _ccExpected=_ccProviderMac(this.rvAuth,_ccReply);'
+        'if(!require("crypto").timingSafeEqual(Buffer.from(_ccExpected,"hex"),'
+        'Buffer.from(_ccReply.mac,"hex")))return!0;'
+        'this._ccProviderCancel();this.providerEnv=_ccProviderRetain(_ccReply.payload)'
+        '}catch{this._ccProviderWarn()}return!0}'
+    )
+    replace('connectRv(){', methods + 'connectRv(){')
+    callback = re.search(
+        r'\((?P<event>[\w$]+)\)=>\{if\((?P=event)\.type==="heartbeat"\)', original
+    )
+    if callback is None:
+        raise PatchError("provider lifecycle: RV callback absent")
+    event = callback.group("event")
+    replace(
+        callback.group(0),
+        f'({event})=>{{if(this._ccProviderReply({event}))return;if({event}.type==="heartbeat")',
+    )
+    replace(
+        '()=>void this.checkPid(),()=>{',
+        '()=>{this._ccProviderCancel();void this.checkPid()},()=>{'
+        'this._ccProviderCancel();queueMicrotask(()=>{if(this.rv)this._ccProviderRequest()});',
+    )
+    replace('clearLiveness(){', 'clearLiveness(){this._ccProviderCancel();')
+    original, count = re.subn(
+        r'(async respawnIfIdleStale\([^)]*\)\{)',
+        r'\1if(this._ccProviderBlocked())return{respawned:!1,reason:"provider-unavailable"};',
+        original,
+    )
+    if count != 1:
+        raise PatchError("provider lifecycle: stale respawn guard absent")
+    original, count = re.subn(
+        r'(async retireIfSettled\([^)]*\)\{)',
+        r'\1if(this._ccProviderBlocked())return{retired:!1,reason:"provider-unavailable"};',
+        original,
+    )
+    if count != 1:
+        raise PatchError("provider lifecycle: retirement guard absent")
+    for method in ("fireAuthRekey", "rekeyForAuthMismatch"):
+        original = re.sub(
+            rf'({method}\([^)]*\)\{{)',
+            r'\1if(this._ccProviderBlocked())return;',
+            original,
+        )
+    original, count = re.subn(
+        r'(async doSpawn\([^)]*\)\{)',
+        r'\1if(this._ccProviderBlocked())return;',
+        original,
+    )
+    if count != 1:
+        raise PatchError("provider lifecycle: spawn guard absent")
+    original, count = re.subn(
+        r'(onExit\((?P<code>[\w$]+),(?P<signal>[\w$]+)\)\{if\(this.isDetached\)return;if\(this.phase.kind==="retired"\)return;)',
+        r'\1if(this._ccProviderBlocked()&&this.phase.kind!=="retiring")return this.settle(\g<code>===0?"done":"crashed");',
+        original,
+    )
+    if count != 1:
+        raise PatchError("provider lifecycle: exit guard absent")
+    original, count = re.subn(
+        r'(?P<worker>[\w$]+)\.connectRv\(\),(?P<roster>[\w$]+)\.pendingRespawn==="upgrade"',
+        r'\g<worker>.connectRv(),\g<roster>.pendingRespawn==="upgrade"&&!\g<worker>._ccProviderBlocked()',
+        original,
+    )
+    if count != 1:
+        raise PatchError("provider lifecycle: pending upgrade guard absent")
+    return original
 
 
 BACKGROUND_PROVIDER_ENV = PatchSet(
@@ -1116,7 +1284,7 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
                 checked_replace(
                     match.group(0),
                     '"cold")',
-                    '"cold",_ccProviderEnv)',
+                    '"cold",void 0,_ccProviderEnv)',
                     context="provider static spawn signature and constructor",
                 ),
                 f'{match.group("options")})',
@@ -1225,6 +1393,45 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
             _PROVIDER_ENV_DELAYED_SETTINGS,
             _replace_provider_delayed_settings,
         ),
+        Patch(
+            "preserve-provider-on-attach-stall-respawn",
+            re.compile(
+                r'function [\w$]+\((?P<worker>[\w$]+),[\w$]+,'
+                r'(?P<dispatch>[\w$]+),[\w$]+,[\w$]+\)\{'
+                r'let (?P<job>[\w$]+)=(?P=worker)\.dispatch;'
+                r'[^\n]*?attachStallRespawns:[^\n]*?:(?P=job)\.launch\}\)'
+            ),
+            _replace_provider_stall_respawn,
+        ),
+        Patch(
+            "ignore-replaced-worker-rv-socket-data",
+            re.compile(
+                r'(?P<prefix>\.createServer\(\((?P<socket>[\w$]+)\)=>\{'
+                r'(?P<current>[\w$]+)\?\.destroy\(\),[\s\S]*?'
+                r'(?P=socket)\.on\("data",\([\w$]+\)=>\{)'
+            ),
+            lambda match: (
+                match.group("prefix")
+                + f'if({match.group("current")}!=={match.group("socket")})return;'
+            ),
+        ),
+        Patch(
+            "serve-authenticated-provider-snapshot-on-worker-rv",
+            re.compile(
+                r'if\((?P<token>[\w$]+)&&!(?P<authenticated>[\w$]+)&&'
+                r'(?P<request>[\w$]+)\.type!=="repaint"\)\{[^\n]*?'
+                r'if\((?P=request)\.type==="shutdown"\)\{'
+                r'(?P<send>[\w$]+)\(\{type:"shutting-down"\}\);'
+            ),
+            _replace_provider_rv_worker,
+        ),
+        Patch(
+            "retain-adopted-provider-and-gate-unresolved-respawns",
+            re.compile(
+                r'class [\w$]+\{dispatch;providerEnv;[\s\S]*?clearLiveness\(\)\{[^}]+\}\}'
+            ),
+            _replace_provider_lifecycle,
+        ),
     ),
     verify_present=(
         re.compile(r'function _ccProviderKeys\(\)\{if\('),
@@ -1243,7 +1450,10 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'"VERTEX_REGION_CLAUDE_4_0_SONNET"'),
         re.compile(r'protocol mismatch\. Restart the stale Claude Code daemon'),
         re.compile(r'for\(let _ccKey of _ccProviderKeys\(\)\)delete process\.env'),
-        re.compile(r'this\.providerEnv=_ccProviderRetain\(_ccProviderEnv\)'),
+        re.compile(r'this\.providerEnv=[\w$]+==="adopted"&&'),
+        re.compile(r'"cold",void 0,_ccProviderEnv'),
+        re.compile(r'function _ccProviderMac\('),
+        re.compile(r'_ccProviderReply\(_ccReply\)'),
         re.compile(r'providerEnv:_ccProviderEnv,\.\.\.[\w$]+'),
     ),
     verify_absent=(
