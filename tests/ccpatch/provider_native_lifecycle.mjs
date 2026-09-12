@@ -220,7 +220,11 @@ const flush = async () => {
   for (let index = 0; index < 20; index++) await Promise.resolve();
 };
 
-if (scenario === "stall-unresolved" || scenario === "stall-recovered") {
+export { ctx, Worker, fixture, job, roster, payload, errors };
+
+if (scenario.startsWith("process-")) {
+  // The process harness replaces transport and OS boundaries before adoption.
+} else if (scenario === "stall-unresolved" || scenario === "stall-recovered") {
   const worker = await Worker.adopt("test", roster, ctx.spawnPty);
   if (scenario === "stall-recovered") worker.providerEnv = Object.freeze({ ...payload });
   Object.assign(ctx, {

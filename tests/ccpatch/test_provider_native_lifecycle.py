@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -58,9 +62,15 @@ def native_lifecycle_source() -> dict[str, str]:
             patched.index("function bx_(") : patched.index("async function fbp(")
         ],
         "worker": worker,
+        "client": patched[patched.index("function qRp(") : patched.index("var WRp,")],
+        "lines": patched[patched.index("function aRo(") : patched.index("var w_p,")],
+        "environment": patched[
+            patched.index("function eLp(") : patched.index("async function Vua(")
+        ],
         "helpers": registry + helpers,
         "sweeps": patched[orphan_start:orphan_end] + patched[manager_start:manager_end],
         "adoption": adoption,
+        "auth": patched[patched.index("function QTe(") : patched.index("var Yxd,")],
         "endpoint": patched[
             patched.index("async function Jxy(") : patched.index("async function nkd(")
         ],
@@ -124,3 +134,64 @@ def test_native_provider_lifecycle(
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(
+    os.environ.get("CCPATCH_PROCESS_INTEGRATION") != "1",
+    reason="opt in with CCPATCH_PROCESS_INTEGRATION=1; extracted native Unix transport",
+)
+@pytest.mark.parametrize("scenario", ["handoff", "wrong-auth"])
+def test_native_provider_process_takeover(
+    native_lifecycle_source: dict[str, str], scenario: str
+) -> None:
+    """Run native transport in child processes, not the full CLI or PTY host.
+
+    CLI startup also initializes telemetry, auth, and other integrations. This
+    bounded harness does not run that startup path. No provider request is needed
+    to test the memory-only snapshot protocol. All credentials are synthetic.
+    """
+    runtime = shutil.which("node")
+    if runtime is None or sys.platform != "linux":
+        pytest.skip("requires node, Linux /proc, and Unix sockets")
+    # Keep socket paths below the Unix socket length limit.
+    with tempfile.TemporaryDirectory(prefix="ccp-") as directory:
+        scratch = Path(directory)
+        fixture = scratch / "native.json"
+        fixture.write_text(json.dumps(native_lifecycle_source))
+        env = {"PATH": str(Path(runtime).parent), "LANG": "C.UTF-8"}
+        for key in (
+            "HOME",
+            "CLAUDE_CONFIG_DIR",
+            "XDG_CONFIG_HOME",
+            "XDG_STATE_HOME",
+            "XDG_CACHE_HOME",
+            "XDG_RUNTIME_DIR",
+            "TMPDIR",
+        ):
+            target = scratch / key.lower()
+            target.mkdir(mode=0o700)
+            env[key] = str(target)
+        with subprocess.Popen(  # noqa: S603 - Isolated local test processes only.
+            [
+                runtime,
+                str(Path(__file__).with_name("provider_process_lifecycle.mjs")),
+                str(fixture),
+                scenario,
+            ],
+            cwd=scratch,
+            env=env,
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as process:
+            try:
+                stdout, stderr = process.communicate(timeout=30)
+                assert process.returncode == 0, stdout + stderr
+            finally:
+                # Kill the test process group even if the controller has exited.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
