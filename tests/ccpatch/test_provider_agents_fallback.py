@@ -37,10 +37,10 @@ _HELPERS = (
 )
 
 
-def _fallback_patch() -> Patch:
+def _fallback_patch(version: tuple[int, int, int] = (2, 1, 203)) -> Patch:
     return next(
         patch
-        for patch in background_provider_environment((2, 1, 203)).patches
+        for patch in background_provider_environment(version).patches
         if patch.name == "carry-provider-env-to-agents-fallback"
     )
 
@@ -130,7 +130,7 @@ def test_fallback_rejects_unrelated_dispatch(source: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "version", [(2, 1, 182), (2, 1, 193), (2, 1, 195), (2, 1, 203)]
+    "version", [(2, 1, 182), (2, 1, 193), (2, 1, 195), (2, 1, 203), (2, 1, 207)]
 )
 def test_fallback_version_boundary(version: tuple[int, int, int]) -> None:
     names = {patch.name for patch in background_provider_environment(version).patches}
@@ -289,19 +289,30 @@ function check(){
 
 def test_cached_native_fallback_cardinality() -> None:
     root = Path(__file__).resolve().parents[2] / "build" / "sweep-resume"
-    paths = sorted(root.glob("2.*/linux-x64/original.js"))
+    paths = sorted(
+        path
+        for path in root.glob("2.*/*/original.js")
+        if tuple(int(part) for part in path.parent.parent.name.split("."))
+        <= (2, 1, 207)
+    )
     if not paths:
         pytest.skip("No cached native release sources")
     for path in paths:
-        version = tuple(int(part) for part in path.parent.parent.name.split("."))
+        major, minor, patch = (int(part) for part in path.parent.parent.name.split("."))
+        version = (major, minor, patch)
         source = path.read_text()
         matches = list(_fallback_patch().pattern.finditer(source))
         assert len(matches) == int(version >= (2, 1, 195)), path
         if version >= (2, 1, 195):
+            settings_name = (
+                "initialize-provider-before-native-settings"
+                if version == (2, 1, 207)
+                else "restore-agents-provider-after-settings-writes"
+            )
             settings_patch = next(
                 patch
                 for patch in background_provider_environment(version).patches
-                if patch.name == "restore-agents-provider-after-settings-writes"
+                if patch.name == settings_name
             )
             settings_matches = list(settings_patch.pattern.finditer(source))
             assert len(settings_matches) == 2, path
@@ -322,4 +333,16 @@ def test_cached_native_fallback_cardinality() -> None:
             )
             forwarded, count = handoff.pattern.subn(handoff.replacement, source)
             assert count == 1, path
-            assert len(list(_fallback_patch().pattern.finditer(forwarded))) == 1, path
+            fallback = _fallback_patch(version)
+            assert len(list(fallback.pattern.finditer(forwarded))) == 1, path
+            snapshot = next(
+                patch
+                for patch in background_provider_environment(version).patches
+                if patch.name == "snapshot-transient-provider-env"
+            )
+            forwarded, count = snapshot.pattern.subn(snapshot.replacement, forwarded)
+            assert count == 1, path
+            patched, count = fallback.pattern.subn(fallback.replacement, forwarded)
+            assert count == 1, path
+            assert patched != forwarded
+            assert fallback.pattern.search(patched) is None, path

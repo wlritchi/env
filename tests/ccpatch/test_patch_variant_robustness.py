@@ -99,7 +99,7 @@ def test_registry_anchor_rejects_mutations(old: str, new: str) -> None:
         ((2, 1, 204), True),
         ((2, 1, 205), True),
         ((2, 1, 206), True),
-        ((2, 1, 207), False),
+        ((2, 1, 207), True),
     ],
 )
 def test_default_variant_boundaries(version: Version | None, modern: bool) -> None:
@@ -107,7 +107,28 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     assert len(selected) == 9
     expected = BACKGROUND_PROVIDER_ENV_198 if modern else BACKGROUND_PROVIDER_ENV
     assert selected[4].name == expected.name
-    assert selected[4].patches[: len(expected.patches)] == expected.patches
+    if version == (2, 1, 207):
+        obsolete = {
+            "restore-provider-env-after-settings-initializer",
+            "restore-provider-env-at-operational-entry",
+            "restore-provider-env-after-delayed-settings",
+        }
+        retained = tuple(
+            patch for patch in expected.patches if patch.name not in obsolete
+        )
+        assert selected[4].patches[: len(retained)] == retained
+        names = {patch.name for patch in selected[4].patches}
+        assert names.isdisjoint(obsolete)
+        assert {
+            "initialize-provider-before-native-settings",
+            "filter-provider-settings-with-native-policy",
+            "install-provider-native-policy-boundary",
+            "reset-provider-initialization-on-spare-claim",
+            "avoid-provider-reset-after-claimed-entry",
+            "carry-provider-env-to-agents-fallback",
+        } <= names
+    else:
+        assert selected[4].patches[: len(expected.patches)] == expected.patches
     assert selected[7] is (
         THINKING_SUMMARIES_NONINTERACTIVE_198
         if modern
@@ -116,11 +137,12 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
     if version == (2, 1, 207):
-        assert not selected[4].applies_to(version)
-        assert not selected[5].applies_to(version)
-        assert selected[7].applies_to(version)
-        assert not BACKGROUND_PROVIDER_ENV_198.applies_to(version)
-        assert not THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
+        assert sum(len(patch_set.patches) for patch_set in selected) == 76
+        assert selected[4].max_version == (2, 1, 208)
+        assert BACKGROUND_PROVIDER_ENV_198.applies_to(version)
+        assert THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
+        assert not selected[4].applies_to((2, 1, 208))
+        assert not selected[7].applies_to((2, 1, 208))
 
 
 def test_named_overrides_preserve_order_and_unchanged_patches() -> None:

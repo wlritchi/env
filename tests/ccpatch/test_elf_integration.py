@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ from wlrenv.ccpatch.patches import (
     COMPACT_SESSION,
     MULTI_PROVIDER_SDK,
     PatchError,
+    background_provider_environment,
     default_patch_sets,
 )
 
@@ -156,37 +158,49 @@ def _provider_sources(binary_info: tuple[bytes, bool]) -> tuple[str, str]:
     binary_bytes, explicit = binary_info
     source = _entry_source(binary_bytes)
     if not re.search(
-        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206)"',
+        r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206|207)"',
         source,
     ):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.206"
+                "CCPATCH_TEST_BINARY must be pristine Claude Code 2.1.174-2.1.207"
             )
-        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.206")
+        pytest.skip("installed binary is not pristine Claude Code 2.1.174-2.1.207")
     if re.search(rf"providerEnvVersion:\d+,providerEnv:{_ID}\(\)", source):
         if explicit:
             pytest.fail(
-                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.206"
+                "CCPATCH_TEST_BINARY must be unpatched Claude Code 2.1.174-2.1.207"
             )
-        pytest.skip("installed Claude Code 2.1.174-2.1.206 binary is already patched")
+        pytest.skip("installed Claude Code 2.1.174-2.1.207 binary is already patched")
     patch_set = (
         BACKGROUND_PROVIDER_ENV_198
-        if re.search(r'VERSION:"2\.1\.(?:198|199|200|201|202|203|204|205|206)"', source)
+        if re.search(
+            r'VERSION:"2\.1\.(?:198|199|200|201|202|203|204|205|206|207)"', source
+        )
         else BACKGROUND_PROVIDER_ENV
     )
+    if 'VERSION:"2.1.207"' in source:
+        patch_set = background_provider_environment((2, 1, 207))
+        patch_set = replace(
+            patch_set,
+            patches=tuple(
+                patch
+                for patch in patch_set.patches
+                if patch.name != "carry-provider-env-to-agents-fallback"
+            ),
+        )
     return source, patch_set.apply(source)
 
 
-def test_198_206_all_patch_sets_preserve_remote_control_choice(
+def test_198_207_all_patch_sets_preserve_remote_control_choice(
     binary_info: tuple[bytes, bool],
 ) -> None:
     source = _entry_source(binary_info[0])
     version_match = re.search(
-        r'VERSION:"2\.1\.(198|199|200|201|202|203|204|205|206)"', source
+        r'VERSION:"2\.1\.(198|199|200|201|202|203|204|205|206|207)"', source
     )
     if version_match is None:
-        pytest.skip("requires Claude Code 2.1.198-2.1.206")
+        pytest.skip("requires Claude Code 2.1.198-2.1.207")
     version = (2, 1, int(version_match[1]))
     patch_sets = default_patch_sets(version)
     assert len(patch_sets) == 9
@@ -233,10 +247,10 @@ def test_181_preserves_cloud_branch_and_token_count_context(
 ) -> None:
     source = _entry_source(binary_info[0])
     if not re.search(
-        r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206)"',
+        r'VERSION:"2\.1\.(?:181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206|207)"',
         source,
     ):
-        pytest.skip("requires Claude Code 2.1.181-2.1.206")
+        pytest.skip("requires Claude Code 2.1.181-2.1.207")
     patched = source
     version_match = re.search(r'VERSION:"2\.1\.(\d+)"', source)
     assert version_match is not None
@@ -266,13 +280,13 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     source = _entry_source(path.read_bytes())
     if (
         not re.search(
-            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206)"',
+            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206|207)"',
             source,
         )
         or "providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.206"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.207"
         )
 
     try:
@@ -303,7 +317,7 @@ def test_real_source_secures_background_provider_environment(
         key for key in _PROVIDER_ENV_EXPLICIT_KEYS if key.startswith("VERTEX_REGION_")
     }
     if not re.search(
-        r'VERSION:"2\.1\.(?:197|198|199|200|201|202|203|204|205|206)"', source
+        r'VERSION:"2\.1\.(?:197|198|199|200|201|202|203|204|205|206|207)"', source
     ):
         supported_region_keys.remove("VERTEX_REGION_CLAUDE_5_SONNET")
     assert vertex_region_keys == supported_region_keys
@@ -353,7 +367,7 @@ def test_real_source_secures_background_provider_environment(
         (
             rf'{_ID}\.providerEnv\?\?\{{\}}'
             if re.search(
-                r'VERSION:"2\.1\.(?:198|199|200|201|202|203|204|205|206)"', source
+                r'VERSION:"2\.1\.(?:198|199|200|201|202|203|204|205|206|207)"', source
             )
             else rf"\.\.\.{_ID}\.providerEnv&&\{{providerEnv:{_ID}\.providerEnv\}}"
         ),
@@ -398,6 +412,17 @@ def test_real_source_secures_background_provider_environment(
         r'"spare_claim"\);',
     )
     assign = claimed.index("Object.assign(process.env,", claimed.index(capture))
+    if 'VERSION:"2.1.207"' in source:
+        assert (
+            claimed.index(capture)
+            < claimed.index("_ccProviderInitialized=false;")
+            < assign
+        )
+        assert "_ccProviderApplyWorkerFinal()" not in claimed
+        assert patched.count("_ccProviderInitialize(") >= 3
+        assert "_ccProviderValidateManaged(_ccPolicy,\"policySettings\")" in patched
+        assert "_ccProviderSnapshotFromEnv" not in patched
+        return
     final_apply = claimed.index("_ccProviderApplyWorkerFinal()", assign)
     assert claimed.index(capture) < assign < final_apply
     assert final_apply < claimed.index("await ", final_apply)
@@ -431,10 +456,10 @@ def test_178_preserves_upstream_security_and_compaction_fallback(
 ) -> None:
     source = _entry_source(binary_info[0])
     if not re.search(
-        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206)"',
+        r'VERSION:"2\.1\.(?:178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206|207)"',
         source,
     ):
-        pytest.skip("requires Claude Code 2.1.178-2.1.206")
+        pytest.skip("requires Claude Code 2.1.178-2.1.207")
     patched = source
     version_match = re.search(r'VERSION:"2\.1\.(\d+)"', source)
     assert version_match is not None
@@ -628,7 +653,7 @@ def test_real_source_routes_multi_provider_sdk(
         f"{limits[1]}={limits[2]}=_ccProviderModel.maxOutputTokens"
         not in output_resolver
     )
-    if re.search(r'VERSION:"2\.1\.(?:199|200|201|202|203|204|205|206)"', source):
+    if re.search(r'VERSION:"2\.1\.(?:199|200|201|202|203|204|205|206|207)"', source):
         native_limits = _match(
             rf'{_ID}={_ID}\({_ID}\)\?\.max_output_tokens;'
             rf'if\(({_ID})\){_ID}=\1\.default,{_ID}=\1\.upper;',
@@ -776,7 +801,7 @@ def test_provider_resume_and_agent_catalogue_runtime(
     )
     stubs[picker] = '()=>[{value:null},{value:"custom-model"}]'
     if re.search(
-        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206)"',
+        r'VERSION:"2\.1\.(?:175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206|207)"',
         pristine,
     ):
         denied = _match(

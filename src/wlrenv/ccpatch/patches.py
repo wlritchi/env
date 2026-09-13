@@ -768,7 +768,11 @@ def _replace_provider_snapshot(match: re.Match[str]) -> str:
         "return null;let _ccProviderEnv;try{_ccProviderEnv=JSON.parse(_ccSerialized)}"
         'catch{throw Object.assign(Error("Background provider environment transient '
         'transport is invalid; dispatch again from the current Claude Code session"),'
-        '{code:"EPROVIDERENV"})}return _ccProviderRetain(_ccProviderEnv)}'
+        '{code:"EPROVIDERENV"})}if(_ccProviderEnv===null||typeof _ccProviderEnv!=="object"||'
+        f'Array.isArray(_ccProviderEnv))throw {invalid_error};'
+        'for(let _ccValue of Object.values(_ccProviderEnv))'
+        f'if(_ccValue!==null&&typeof _ccValue!=="string")throw {invalid_error};'
+        'return Object.freeze(_ccProviderEnv)}'
         "let _ccProviderWorkerEnv=_ccProviderCaptureTransport();"
         "function _ccProviderApplyWorkerFinal(){if(_ccProviderWorkerEnv!==null)"
         "return _ccProviderApplyFinal(_ccProviderWorkerEnv);if(process.env."
@@ -1421,6 +1425,16 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
                 r'if\((?P<token>[\w$]+)&&!(?P<authenticated>[\w$]+)&&'
                 r'(?P<request>[\w$]+)\.type!=="repaint"\)\{[^\n]*?'
                 r'if\((?P=request)\.type==="shutdown"\)\{'
+                r'(?:'
+                r'(?P<shutdown>[\w$]+)\(\);return\}'
+                r'if\((?P=request)\.type==="repaint"\)\{[\w$]+\(\);return\}'
+                r'if\((?P=request)\.type==="attacher-caps"\)\{'
+                r'[\w$]+\((?P=request)\);return\}'
+                r'if\((?P=request)\.type==="reply"&&'
+                r'typeof (?P=request)\.text==="string"\)'
+                r'[\w$]+\((?P=request)\)\}'
+                r'function (?P=shutdown)\(\)\{'
+                r')?'
                 r'(?P<send>[\w$]+)\(\{type:"shutting-down"\}\);'
             ),
             _replace_provider_rv_worker,
@@ -1483,7 +1497,7 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 207)
+_PROVIDER_ENV_198_MAX = (2, 1, 208)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
 _CLAIMED_SPARE_AUTH_198 = (
     rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
@@ -1561,11 +1575,107 @@ _PROVIDER_ENV_AGENTS_SETTINGS = re.compile(
 )
 
 
+def _provider_env_207(base: PatchSet) -> PatchSet:
+    """Reconcile requester routing inside the native settings boundary."""
+    # Check raw policy before credentials enter the environment. Native filters can
+    # remove conflicting routing keys, for example when a Unix socket is active.
+    # Keep native probe markers and steering snapshots. Explicit requester defaults
+    # are steering, not evidence that managed settings supplied those defaults.
+    # The hoisted readiness flag protects settings calls before transport capture.
+    obsolete = {
+        "restore-provider-env-after-settings-initializer",
+        "restore-provider-env-at-operational-entry",
+        "restore-provider-env-after-delayed-settings",
+    }
+    patches = tuple(patch for patch in base.patches if patch.name not in obsolete)
+    return replace(
+        base,
+        patches=(
+            *patches,
+            Patch(
+                "initialize-provider-before-native-settings",
+                re.compile(
+                    rf'function (?P<apply>{_ID})\(\)\{{(?P<prefix>(?:if\()?{_ID}\(\),)'
+                    rf'(?=(?:{_ID}===void 0|{_ID}=\{{\}};let {_ID}={_ID}\.NODE_EXTRA_CA_CERTS))'
+                    rf'(?=[\s\S]{{0,1000}}?Object\.assign\(process\.env,'
+                    rf'{_ID}\((?P<settings>{_ID})\({_ID}\)\?\.env,{_ID}\)\))'
+                ),
+                lambda m: (
+                    f'function {m.group("apply")}(){{if(_ccProviderCaptureReady)'
+                    f'_ccProviderInitialize({m.group("settings")}("policySettings")?.env);'
+                    + m.group("prefix")
+                ),
+                expected_matches=(2,),
+            ),
+            Patch(
+                "filter-provider-settings-with-native-policy",
+                re.compile(
+                    rf'function (?P<filter>{_ID})\((?P<env>{_ID}),(?P<scope>{_ID})\)'
+                    rf'\{{return (?P<native>{_ID}\({_ID}\({_ID}\({_ID}\({_ID}\('
+                    rf'(?P=env)\)\),(?P=scope)\)\)\))\}}'
+                ),
+                lambda m: (
+                    f'function {m.group("filter")}({m.group("env")},{m.group("scope")})'
+                    f'{{_ccProviderValidateManaged({m.group("env")},{m.group("scope")});'
+                    f'return _ccProviderFilterSettings({m.group("native")},'
+                    f'{m.group("scope")})}}'
+                ),
+            ),
+            Patch(
+                "install-provider-native-policy-boundary",
+                re.compile(
+                    r'let _ccProviderWorkerEnv=_ccProviderCaptureTransport\(\);'
+                ),
+                'let _ccProviderWorkerEnv=_ccProviderCaptureTransport();'
+                'var _ccProviderCaptureReady=true;'
+                'let _ccProviderInitialized=false;'
+                'function _ccProviderInitialize(_ccPolicy){if(!_ccProviderCaptureReady)return;'
+                '_ccProviderValidateManaged(_ccPolicy,"policySettings");'
+                'if(_ccProviderInitialized)return;'
+                '_ccProviderApplyWorkerFinal();_ccProviderInitialized=true}'
+                'function _ccProviderValidateManaged(_ccEnv,_ccScope){'
+                'if(!_ccProviderCaptureReady||_ccProviderWorkerEnv===null||'
+                '_ccScope!=="policySettings")return;'
+                'let _ccKeys=new Set(_ccProviderKeys());'
+                'for(let[_ccKey,_ccValue]of Object.entries(_ccEnv??{}))'
+                'if(_ccKeys.has(_ccKey)&&(_ccProviderWorkerEnv[_ccKey]??null)!==_ccValue)'
+                'throw Object.assign(Error("Background requester provider conflicts with managed policy: "'
+                '+_ccKey),{code:"EPROVIDERENV"})}'
+                'function _ccProviderFilterSettings(_ccEnv,_ccScope){'
+                'if(!_ccProviderCaptureReady||_ccProviderWorkerEnv===null)return _ccEnv;'
+                'let _ccKeys=new Set(_ccProviderKeys()),_ccOut={};'
+                'for(let[_ccKey,_ccValue]of Object.entries(_ccEnv))'
+                'if(!_ccKeys.has(_ccKey)||_ccScope==="policySettings")'
+                '_ccOut[_ccKey]=_ccValue;return _ccOut}',
+            ),
+            Patch(
+                "reset-provider-initialization-on-spare-claim",
+                re.compile(
+                    r'(?P<capture>_ccProviderWorkerEnv=_ccProviderCaptureTransport\([\w$]+\.env\);)'
+                ),
+                r'\g<capture>_ccProviderInitialized=false;',
+            ),
+            Patch(
+                "avoid-provider-reset-after-claimed-entry",
+                re.compile(r'_ccProviderApplyWorkerFinal\(\);(?=await [\w$]+\(\)\})'),
+                '',
+            ),
+            Patch(
+                "carry-provider-env-to-agents-fallback",
+                _PROVIDER_ENV_AGENTS_FALLBACK,
+                _replace_provider_agents_fallback,
+            ),
+        ),
+    )
+
+
 def background_provider_environment(version: Version | None) -> PatchSet:
     """Include the agents fallback transport from 2.1.195 onwards."""
     base = _select_patch_variant(
         version, BACKGROUND_PROVIDER_ENV, BACKGROUND_PROVIDER_ENV_198
     )
+    if version is not None and version >= (2, 1, 207):
+        return _provider_env_207(base)
     if version is not None and version < (2, 1, 195):
         return base
     return replace(
@@ -2842,7 +2952,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 207),
+    max_version=(2, 1, 208),
     requires_version=True,
 )
 
@@ -3007,7 +3117,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 207),
+    max_version=(2, 1, 208),
     requires_version=True,
 )
 

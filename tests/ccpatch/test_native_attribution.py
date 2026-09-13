@@ -486,7 +486,7 @@ def test_attribution_cache_key_retains_native_dimensions(strict_prefix: str) -> 
     ) in generated
 
 
-@pytest.mark.parametrize("version", ["2.1.202", "2.1.203", "2.1.206"])
+@pytest.mark.parametrize("version", ["2.1.202", "2.1.203", "2.1.206", "2.1.207"])
 @pytest.mark.parametrize("architecture", ["linux-x64", "linux-arm64"])
 def test_captured_sdk_serializer_strict_cache(
     version: str, architecture: str, tmp_path: Path
@@ -495,7 +495,7 @@ def test_captured_sdk_serializer_strict_cache(
     path = Path(__file__).resolve().parents[2] / "build/sweep-resume" / version
     path /= architecture + "/original.js"
     if runtime is None or not path.is_file():
-        pytest.skip("requires node/bun and captured .202/.203/.206 sources")
+        pytest.skip("requires node/bun and captured .202/.203/.206/.207 sources")
     source = path.read_text()
     found = _discover_multi_provider_attribution(source)
     patched = MULTI_PROVIDER_SDK.apply(source)
@@ -530,7 +530,7 @@ def test_captured_sdk_serializer_strict_cache(
     validator = re.search(
         r"let " + _ID + r"=(" + _ID + r")\([\w$]+\);if\([\w$]+\.ok\)", original
     )
-    if version in {"2.1.203", "2.1.206"}:
+    if version in {"2.1.203", "2.1.206", "2.1.207"}:
         assert strict is not None and validator is not None
     stubs = "".join(f"function {call}(){{return false}}" for call in sorted(calls))
     stubs += (

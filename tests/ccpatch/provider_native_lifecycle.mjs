@@ -583,4 +583,4 @@ if (scenario.startsWith("process-")) {
   assert.equal(spawns.length, 0, "automatic successor must not use daemon credentials");
   assert.deepEqual(errors, []);
 }
-console.log(`native .206 lifecycle: ${scenario}`);
+console.log(`native lifecycle: ${scenario}`);
