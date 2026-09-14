@@ -7,9 +7,14 @@ import re
 import pytest
 
 from wlrenv.ccpatch.patches import (
+    _PROVIDER_ENV_RESPAWN_GUARD,
+    BACKGROUND_PROVIDER_ENV,
+    CHANNELS_ENABLED,
     Patch,
     PatchError,
     PatchSet,
+    checked_replace,
+    discover_identifiers,
     parse_version,
     thinking_expanded,
 )
@@ -24,16 +29,185 @@ _GROUP = "a:null,fG=Oh===null?ob_(Yz):void 0;if(Kw){Kw.latestThinkingSummary=x"
 _SOURCE = _RENDER + ";" + _GROUP
 
 
+@pytest.mark.parametrize(
+    ("source", "patterns", "error"),
+    [
+        ("unrelated", (r"anchor=(?P<name>[\w$]+)",), "expected one match, got 0"),
+        (
+            "anchor=$x;anchor=$x",
+            (r"anchor=(?P<name>[\w$]+)",),
+            "expected one match, got 2",
+        ),
+        ("anchor=", (r"anchor=(?P<name>[\w$]+)?",), "missing binding 'name'"),
+        (
+            "a=$x;b=$y",
+            (r"a=(?P<name>[\w$]+)", r"b=(?P<name>[\w$]+)"),
+            "conflicting binding 'name'",
+        ),
+    ],
+)
+def test_identifier_discovery_rejects_invalid_anchors(
+    source: str, patterns: tuple[str, ...], error: str
+) -> None:
+    with pytest.raises(PatchError, match=error):
+        discover_identifiers(source, tuple(re.compile(pattern) for pattern in patterns))
+
+
+def test_identifier_discovery_merges_consistent_bindings() -> None:
+    assert discover_identifiers(
+        "a=$x;b=$x;c=Y$",
+        (
+            re.compile(r"a=(?P<name>[\w$]+)"),
+            re.compile(r"b=(?P<name>[\w$]+);c=(?P<other>[\w$]+)"),
+        ),
+    ) == {"name": "$x", "other": "Y$"}
+    assert discover_identifiers("anything", ()) == {}
+
+
+def test_patch_replacement_receives_discovered_bindings() -> None:
+    def replace(match: re.Match[str], bindings: dict[str, str]) -> str:
+        return f"{bindings['callee']}({match.group('argument')})"
+
+    patch_set = PatchSet(
+        name="bound",
+        patches=(
+            Patch(
+                name="call",
+                pattern=re.compile(r"CALL\((?P<argument>[\w$]+)\)"),
+                replacement="unused",
+                identifiers=(re.compile(r"anchor=(?P<callee>[\w$]+)"),),
+                bound_replacement=replace,
+                expected_matches=(1, 2),
+            ),
+        ),
+    )
+    assert patch_set.apply("anchor=$fn;CALL(A);CALL(B$)") == "anchor=$fn;$fn(A);$fn(B$)"
+    assert patch_set.apply("anchor=other$;CALL(C)") == "anchor=other$;other$(C)"
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_cardinality_checked_before_discovery_or_callbacks(bound: bool) -> None:
+    calls: list[str] = []
+
+    def callback(match: re.Match[str]) -> str:
+        calls.append(match.group())
+        return "changed"
+
+    def bound_callback(match: re.Match[str], bindings: dict[str, str]) -> str:
+        return callback(match)
+
+    patch = Patch(
+        "unique",
+        re.compile("target"),
+        callback,
+        identifiers=(re.compile("missing=(?P<name>x)"),),
+        bound_replacement=bound_callback if bound else None,
+    )
+    with pytest.raises(PatchError, match=r"catalog: patch 'unique'.*got 2"):
+        PatchSet("catalog", (patch,)).apply("target;target")
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("name", "fragment"),
+    [
+        (
+            "send-provider-env-over-socket",
+            'send({proto:P,op:"dispatch",d:{...job,nonce:N},timeoutMs:5000,auth:await auth()}',
+        ),
+        (
+            "acknowledge-provider-env-version",
+            'return respond(socket,{ok:!0,op:operation,short:id,pid:worker.record.pid,',
+        ),
+    ],
+)
+@pytest.mark.parametrize("count", [1, 3])
+def test_captured_two_site_contract_rejects_missing_or_extra_site(
+    name: str, fragment: str, count: int
+) -> None:
+    # All available .182-.199 captures have exactly two sites for these edits.
+    patch = next(p for p in BACKGROUND_PROVIDER_ENV.patches if p.name == name)
+    with pytest.raises(PatchError, match=f"got {count}"):
+        PatchSet("two-site", (patch,)).apply(";".join([fragment] * count))
+
+
+def test_optional_patch_allows_absence_not_duplicates() -> None:
+    patch = Patch("optional", re.compile("target"), "done", required=False)
+    patches = PatchSet("catalog", (patch,))
+    assert patches.apply("other") == "other"
+    assert patches.apply("target") == "done"
+    with pytest.raises(PatchError, match="got 2"):
+        patches.apply("target;target")
+
+
+@pytest.mark.parametrize("counts", [(), (0,), (-1,), (1, 0)])
+def test_invalid_cardinalities_rejected(counts: tuple[int, ...]) -> None:
+    with pytest.raises(ValueError, match="positive cardinalities"):
+        Patch("invalid", re.compile("x"), "y", expected_matches=counts)
+
+
+@pytest.mark.parametrize("source", ["other", "target;target"])
+def test_checked_replace_reports_context(source: str) -> None:
+    with pytest.raises(PatchError, match="inner edit: expected 1 exact occurrences"):
+        checked_replace(source, "target", "done", context="inner edit")
+
+
+def test_checked_replace_handles_intentional_multisite() -> None:
+    assert checked_replace("x;x", "x", "y", context="pair", count=2) == "y;y"
+    with pytest.raises(PatchError):
+        checked_replace("x", "", "y", context="empty")
+
+
+def test_inner_failure_includes_patch_set_and_name() -> None:
+    def callback(match: re.Match[str]) -> str:
+        return checked_replace(match.group(), "absent", "new", context="inner")
+
+    with pytest.raises(PatchError, match="catalog: patch 'edit': inner:"):
+        PatchSet("catalog", (Patch("edit", re.compile("x"), callback),)).apply("x")
+
+
 def test_parse_version() -> None:
     assert parse_version("2.1.170") == (2, 1, 170)
     assert parse_version("2.1.170-beta.1") == (2, 1, 170)
 
 
-def test_thinking_render_patches_apply() -> None:
-    out = thinking_expanded((2, 1, 170)).apply(_SOURCE)
+@pytest.mark.parametrize("factory", ["createElement", "jsx"])
+@pytest.mark.parametrize(
+    "guard_body", ["return null;", "{return null}", "{return null;}"]
+)
+def test_thinking_render_patches_apply(factory: str, guard_body: str) -> None:
+    source = _SOURCE.replace("createElement", factory).replace(
+        "return null;", guard_body
+    )
+    out = thinking_expanded((2, 1, 186)).apply(source)
+    assert f"q.{factory}(Xy," in out
     assert "isTranscriptMode:true,verbose:true" in out
-    assert "return null;" not in out.split("verbose")[0]  # early guard gone
+    assert out == source.replace(f"if(!Ab&&!Cd){guard_body}", "").replace(
+        "isTranscriptMode:Rs,verbose:Tu", "isTranscriptMode:true,verbose:true"
+    ).replace("?ob_(Yz):", "?void 0:")
     assert "===null?void 0:void 0" in out  # grouping neutralized
+
+
+@pytest.mark.parametrize(
+    "guard_body", ["return null;", "{return null}", "{return null;}"]
+)
+def test_thinking_guard_verification(guard_body: str) -> None:
+    source = _SOURCE.replace("return null;", guard_body)
+    patches = thinking_expanded((2, 1, 203))
+    verification_only = PatchSet(
+        "thinking-verification", (), verify_absent=patches.verify_absent
+    )
+    with pytest.raises(PatchError, match="forbidden marker"):
+        verification_only.apply(source)
+
+
+@pytest.mark.parametrize(
+    "guard_body", ["{return null;extra()}", "{return null", "return null}"]
+)
+def test_thinking_guard_rejects_nonmatching_bodies(guard_body: str) -> None:
+    source = _SOURCE.replace("return null;", guard_body)
+    with pytest.raises(PatchError, match="drop-thinking-early-return"):
+        thinking_expanded((2, 1, 203)).apply(source)
 
 
 def test_version_gating_excludes_ungroup_below_2_1_151() -> None:
@@ -71,3 +245,29 @@ def test_applies_to_version_bounds() -> None:
     assert not ps.applies_to((2, 1, 99))
     assert not ps.applies_to((2, 1, 200))
     assert ps.applies_to(None)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'state?.channelsEnabled!==!0;obj.flag("tengu_harbor",!1)',
+        'obj.state?.channelsEnabled!==!0;flag("tengu_harbor",!1)',
+    ],
+)
+def test_channels_enabled_rejects_member_expressions(source: str) -> None:
+    with pytest.raises(PatchError):
+        CHANNELS_ENABLED.apply(source)
+
+
+@pytest.mark.parametrize("property_name", ["providerEnvironment", "providerEnv$"])
+def test_provider_respawn_guard_preserves_other_properties(property_name: str) -> None:
+    source = f"if(active||job$.{property_name})respawn()"
+    assert _PROVIDER_ENV_RESPAWN_GUARD.sub("", source) == source
+
+
+def test_provider_respawn_guard_matches_dollar_identifier_exactly() -> None:
+    source = "if(active||job$.providerEnv)respawn()"
+    match = _PROVIDER_ENV_RESPAWN_GUARD.search(source)
+    assert match is not None
+    assert match.group("job") == "job$"
+    assert _PROVIDER_ENV_RESPAWN_GUARD.sub("", source) == "if(active)respawn()"

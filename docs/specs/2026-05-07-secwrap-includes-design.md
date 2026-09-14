@@ -210,7 +210,7 @@ Unchanged from today: edit the entry. As long as recipients haven't changed, no 
 
 ## Implementation Language
 
-Reimplement secwrap in Python, matching the existing `bin/shims/` pattern (`uv run -qs` shebang with inline `# /// script` dependency declarations — see `bin/shims/claude` for precedent). The current bash implementation is workable for the existing scope but doesn't fit cleanly with the new design's graph traversal, JSON parsing, multi-subcommand dispatcher, and the `try/finally`-style cleanup discipline the gpg meta-key path needs. Python keeps the "single file, no build step, Nix-distributable" properties of the current bash form while giving us real exception handling, dataclasses for the entry/graph types, and `subprocess` for the age/gpg/pass shell-outs.
+Reimplement secwrap in Python, matching the existing `bin/shims/` pattern (`uv run -qs` shebang with inline `# /// script` dependency declarations — see `bin/shims/rsync-shim` for precedent). The current bash implementation is workable for the existing scope but doesn't fit cleanly with the new design's graph traversal, JSON parsing, multi-subcommand dispatcher, and the `try/finally`-style cleanup discipline the gpg meta-key path needs. Python keeps the "single file, no build step, Nix-distributable" properties of the current bash form while giving us real exception handling, dataclasses for the entry/graph types, and `subprocess` for the age/gpg/pass shell-outs.
 
 Distribution stays through the existing `machines/pkgs/secwrap.nix` derivation; only the inner script changes from `writeShellScriptBin` to a Python script (likely via `pkgs.writers.writePython3Bin` or a thin wrapper that ensures `uv` / Python is on PATH).
 

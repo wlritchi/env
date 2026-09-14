@@ -5,8 +5,23 @@
   ...
 }:
 
+let
+  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
+in
 {
   systemd.user = {
+    services.cc-openai-proxy = {
+      Unit.Description = "Claude Code OpenAI proxy";
+      Service = {
+        Type = "simple";
+        ExecStart = "${cc-openai-proxy}/bin/cc-openai-proxy --host 127.0.0.1 --port 17780 --auth-token-file ${config.xdg.stateHome}/cc-openai-proxy/auth-token";
+        UMask = "0077";
+        Restart = "on-failure";
+        RestartSec = 1;
+      };
+      Install.WantedBy = [ "default.target" ];
+    };
+
     # Rclone copy service + timer
     services.rclone-copy = {
       Unit = {

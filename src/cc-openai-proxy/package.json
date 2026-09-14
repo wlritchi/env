@@ -4,13 +4,15 @@
   "private": true,
   "type": "module",
   "bin": {
-    "cc-openai-proxy": "./bin/cc-openai-proxy.js"
+    "cc-openai-proxy": "./bin/cc-openai-proxy.js",
+    "cc-openai-proxy-auth": "./bin/cc-openai-proxy-auth.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.84.3"
+    "@earendil-works/pi-ai": "0.85.1",
+    "tiktoken": "1.0.22"
   },
   "engines": {
     "node": ">=22.19.0"

@@ -4,6 +4,24 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  isMainThread,
+  parentPort,
+  Worker,
+  workerData,
+} from "node:worker_threads";
+
+import {
+  convertResponsesMessages,
+  convertResponsesTools,
+} from "@earendil-works/pi-ai/api/openai-responses-shared";
+import { get_encoding as getEncoding } from "tiktoken";
+
+import {
+  loadOrCreateProxyToken,
+  proxyAuthDiagnostic,
+  resolveProxyAuthPath,
+} from "./proxy-auth.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 17780;
@@ -12,15 +30,37 @@ const DEFAULT_MODEL = "gpt-5.6-sol";
 const DEFAULT_SONNET_MODEL = "gpt-5.6-terra";
 const DEFAULT_HAIKU_MODEL = "gpt-5.6-luna";
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
-const MAX_COUNT_TOKENS_BODY_BYTES = 1024 * 1024;
-const RAW_BODY_BYTES = Symbol("rawBodyBytes");
+const CODEX_TOOL_CALL_PROVIDERS = new Set([
+  "openai",
+  "openai-codex",
+  "opencode",
+]);
+const RESPONSE_ITEM_OVERHEAD_TOKENS = 6;
+const IMAGE_OVERHEAD_TOKENS = 2048;
+const ENCRYPTED_REASONING_OVERHEAD_TOKENS = 64;
+const TOKENIZER_CHUNK_CODE_UNITS = 4 * 1024;
+const TOKENIZER_ENCODING_BY_MODEL = Object.freeze({
+  // OpenAI maps GPT-5 to o200k_base in tiktoken. Apply that encoding to newer
+  // pi GPT-5 and GPT-6 catalog entries as provisional policy until OpenAI
+  // publishes model-specific mappings for these exact IDs.
+  "gpt-5.3-codex-spark": "o200k_base",
+  "gpt-5.4": "o200k_base",
+  "gpt-5.4-mini": "o200k_base",
+  "gpt-5.5": "o200k_base",
+  "gpt-5.6-luna": "o200k_base",
+  "gpt-5.6-sol": "o200k_base",
+  "gpt-5.6-terra": "o200k_base",
+  "gpt-6-astra": "o200k_base",
+});
 
 let modelsPromise;
+let o200kEncoding;
+let authProbePromise;
 let credentialWriteChain = Promise.resolve();
 const processSessionId = `cc-openai-${randomUUID()}`;
 
 function usage() {
-  return `usage: cc-openai-proxy [--host HOST] [--port PORT]
+  return `usage: cc-openai-proxy [--host HOST] [--port PORT] [--auth-token-file PATH]
 
 Environment:
   CC_OPENAI_MODEL            Override all requested models
@@ -28,6 +68,7 @@ Environment:
   CC_OPENAI_SONNET_MODEL     Model for Anthropic sonnet requests (${DEFAULT_SONNET_MODEL})
   CC_OPENAI_HAIKU_MODEL      Model for Anthropic haiku requests (${DEFAULT_HAIKU_MODEL})
   CC_OPENAI_AUTH_FILE        Auth file (default ~/.pi/agent/auth.json)
+  CC_OPENAI_PROXY_AUTH_FILE  Proxy bearer file (platform default when unset)
   CC_OPENAI_TRANSPORT        pi-ai transport: auto, sse, websocket, websocket-cached
   CC_OPENAI_CACHE_RETENTION  pi-ai cache retention: short, long, none
 `;
@@ -36,7 +77,11 @@ Environment:
 function parseArgs(argv) {
   const config = {
     host: process.env.CC_OPENAI_PROXY_HOST || DEFAULT_HOST,
-    port: Number.parseInt(process.env.CC_OPENAI_PROXY_PORT || String(DEFAULT_PORT), 10),
+    port: Number.parseInt(
+      process.env.CC_OPENAI_PROXY_PORT || String(DEFAULT_PORT),
+      10,
+    ),
+    authTokenFile: process.env.CC_OPENAI_PROXY_AUTH_FILE,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -45,6 +90,10 @@ function parseArgs(argv) {
       config.host = argv[++i];
     } else if (arg === "--port") {
       config.port = Number.parseInt(argv[++i], 10);
+    } else if (arg === "--auth-token-file") {
+      config.authTokenFile = argv[++i];
+      if (!config.authTokenFile)
+        throw new Error("auth token file must not be empty");
     } else if (arg === "--help" || arg === "-h") {
       process.stdout.write(usage());
       process.exit(0);
@@ -54,24 +103,28 @@ function parseArgs(argv) {
   }
 
   if (!config.host) throw new Error("host must not be empty");
-  if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) {
+  if (
+    !Number.isInteger(config.port) ||
+    config.port <= 0 ||
+    config.port > 65535
+  ) {
     throw new Error(`invalid port: ${config.port}`);
   }
+  if (config.authTokenFile === "")
+    throw new Error("auth token file must not be empty");
+  config.authTokenFile = resolveProxyAuthPath(config.authTokenFile);
   return config;
 }
 
 async function loadModels() {
-  // pi-ai's public API is the Models collection (createModels + provider
-  // factories). We register just the openai-codex provider -- it is static,
-  // and its generated catalog is what gives us the gpt-5.6 sol/terra/luna
-  // models natively, with upstream cost data. Since 0.84.x the auth layer
-  // only serves credentials from a CredentialStore (options.apiKey cannot
-  // reach an oauth-only provider), so we back the store with pi's auth.json:
-  // pi-ai runs token refresh under the store's modify() lock and persists the
-  // rotated credential through it.
+  // Register only openai-codex to use its generated catalog and OAuth support.
+  // This provider gets credentials from a CredentialStore, so back the store
+  // with pi's auth.json. pi-ai refreshes and persists OAuth tokens through the
+  // store's modify() operation.
   modelsPromise ??= (async () => {
     const { createModels } = await import("@earendil-works/pi-ai");
-    const { openaiCodexProvider } = await import("@earendil-works/pi-ai/providers/openai-codex");
+    const { openaiCodexProvider } =
+      await import("@earendil-works/pi-ai/providers/openai-codex");
     const models = createModels({ credentials: authFileCredentialStore() });
     models.setProvider(openaiCodexProvider());
     return models;
@@ -131,7 +184,9 @@ function explicitToken() {
 function toCredential(entry) {
   if (!entry || typeof entry !== "object") return undefined;
   if (entry.type === "api_key") {
-    return typeof entry.key === "string" && entry.key ? staticCredential(entry.key) : undefined;
+    return typeof entry.key === "string" && entry.key
+      ? staticCredential(entry.key)
+      : undefined;
   }
   return entry;
 }
@@ -193,8 +248,8 @@ function authFileCredentialStore() {
 // becomes a clean HTTP error instead of an SSE error event after a 200.
 // getAuth() refreshes and persists an expiring token; the second resolution
 // inside streamSimple then sees the fresh credential without another refresh.
-async function requireCodexAuth(models) {
-  const result = await models.getAuth(DEFAULT_PROVIDER);
+async function requireCodexAuth(models, model) {
+  const result = await models.getAuth(model);
   if (!result?.auth?.apiKey) {
     throw httpError(
       401,
@@ -210,7 +265,11 @@ function resolveModelId(requestedModel) {
     return process.env.CC_OPENAI_HAIKU_MODEL || DEFAULT_HAIKU_MODEL;
   }
   if (model.includes("opus") || model.includes("fable")) {
-    return process.env.CC_OPENAI_OPUS_MODEL || process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL;
+    return (
+      process.env.CC_OPENAI_OPUS_MODEL ||
+      process.env.CC_OPENAI_DEFAULT_MODEL ||
+      DEFAULT_MODEL
+    );
   }
   if (model.includes("sonnet")) {
     return (
@@ -227,7 +286,8 @@ function thinkingToReasoning(thinking) {
   if (forced) return forced === "none" ? "off" : forced;
   if (!thinking || typeof thinking !== "object") return undefined;
   if (thinking.type === "disabled") return "off";
-  if (thinking.type !== "enabled" && thinking.type !== "adaptive") return undefined;
+  if (thinking.type !== "enabled" && thinking.type !== "adaptive")
+    return undefined;
 
   if (typeof thinking.effort === "string") {
     return thinking.effort === "none" ? "off" : thinking.effort;
@@ -258,7 +318,12 @@ function anthropicToContext(request) {
 
   for (const message of request.messages || []) {
     if (message?.role === "assistant") {
-      const assistant = anthropicAssistantToPi(message, request.model, toolNames, timestamp++);
+      const assistant = anthropicAssistantToPi(
+        message,
+        request.model,
+        toolNames,
+        timestamp++,
+      );
       if (assistant.content.length > 0) messages.push(assistant);
     } else if (message?.role === "user") {
       pushUserMessage(messages, message.content, toolNames, timestamp);
@@ -349,7 +414,8 @@ function anthropicInputBlockToPi(block) {
 
 function anthropicToolResultContentToPi(content) {
   if (typeof content === "string") return [{ type: "text", text: content }];
-  if (!Array.isArray(content)) return [{ type: "text", text: stringifyUnknown(content) }];
+  if (!Array.isArray(content))
+    return [{ type: "text", text: stringifyUnknown(content) }];
   const blocks = content.map(anthropicInputBlockToPi).filter(Boolean);
   return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
 }
@@ -368,7 +434,9 @@ function anthropicAssistantToPi(message, requestModel, toolNames, timestamp) {
       content.push({
         type: "thinking",
         thinking: String(block.thinking || ""),
-        ...(block.signature ? { thinkingSignature: String(block.signature) } : {}),
+        ...(block.signature
+          ? { thinkingSignature: String(block.signature) }
+          : {}),
       });
     } else if (block?.type === "redacted_thinking") {
       content.push({
@@ -378,7 +446,9 @@ function anthropicAssistantToPi(message, requestModel, toolNames, timestamp) {
         redacted: true,
       });
     } else if (block?.type === "tool_use") {
-      const id = String(block.id || `toolu_${randomUUID().replaceAll("-", "")}`);
+      const id = String(
+        block.id || `toolu_${randomUUID().replaceAll("-", "")}`,
+      );
       const name = String(block.name || "tool");
       toolNames.set(id, name);
       content.push({
@@ -439,7 +509,9 @@ function piContentToAnthropic(content) {
       return {
         type: "thinking",
         thinking: block.thinking || "",
-        ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}),
+        ...(block.thinkingSignature
+          ? { signature: block.thinkingSignature }
+          : {}),
       };
     }
     return {
@@ -467,8 +539,170 @@ function anthropicUsage(usage = emptyUsage()) {
   };
 }
 
-function estimateInputTokens(byteLength) {
-  return Math.max(1, Math.ceil(byteLength / 4));
+function tokenizerForModel(modelId) {
+  const encoding = TOKENIZER_ENCODING_BY_MODEL[modelId];
+  if (!encoding) {
+    throw httpError(400, `no local tokenizer mapping for ${modelId}`);
+  }
+  o200kEncoding ??= getEncoding(encoding);
+  return o200kEncoding;
+}
+
+function assertTokenizerMappings(models) {
+  const missing = models
+    .filter((model) => !TOKENIZER_ENCODING_BY_MODEL[model.id])
+    .map((model) => model.id);
+  if (missing.length > 0) {
+    throw new Error(`missing local tokenizer mappings: ${missing.join(", ")}`);
+  }
+}
+
+function omitCanonicalInputImages(input) {
+  let imageCount = 0;
+  const omitImagesFromBlocks = (blocks) =>
+    blocks.map((block) => {
+      if (
+        !isPlainObject(block) ||
+        block.type !== "input_image" ||
+        typeof block.image_url !== "string"
+      ) {
+        return block;
+      }
+      imageCount += 1;
+      return { ...block, image_url: "[image payload counted separately]" };
+    });
+  const countableInput = input.map((item) => {
+    if (!isPlainObject(item)) return item;
+    if (Array.isArray(item.content)) {
+      return { ...item, content: omitImagesFromBlocks(item.content) };
+    }
+    if (item.type === "function_call_output" && Array.isArray(item.output)) {
+      return { ...item, output: omitImagesFromBlocks(item.output) };
+    }
+    return item;
+  });
+  return { countableInput, imageCount };
+}
+
+function separateEncryptedReasoning(context) {
+  const encryptedReasoning = [];
+  const messages = context.messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    return {
+      ...message,
+      content: message.content.filter((block) => {
+        if (block.type !== "thinking") return true;
+        encryptedReasoning.push({
+          thinking: block.thinking || "",
+          signature: block.thinkingSignature || "",
+          redacted: Boolean(block.redacted),
+        });
+        return false;
+      }),
+    };
+  });
+  return { context: { ...context, messages }, encryptedReasoning };
+}
+
+function canonicalResponsesPayload(model, request) {
+  const { context, encryptedReasoning } = separateEncryptedReasoning(
+    anthropicToContext(request),
+  );
+  const supportsStrictMode = model.compat?.supportsStrictMode ?? true;
+  const input = convertResponsesMessages(
+    model,
+    context,
+    CODEX_TOOL_CALL_PROVIDERS,
+    {
+      includeSystemPrompt: false,
+      toolOptions: { strict: null, supportsStrictMode },
+    },
+  );
+  const tools = context.tools?.length
+    ? convertResponsesTools(context.tools, {
+        strict: null,
+        supportsStrictMode,
+        supportsOpenAIGrammarTools:
+          model.compat?.supportsOpenAIGrammarTools ?? false,
+      })
+    : undefined;
+  return {
+    payload: {
+      instructions: context.systemPrompt || "You are a helpful assistant.",
+      input,
+      ...(tools ? { tools } : {}),
+    },
+    encryptedReasoning,
+  };
+}
+
+function encodedLength(tokenizer, text) {
+  let total = 0;
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + TOKENIZER_CHUNK_CODE_UNITS, text.length);
+    if (
+      end < text.length &&
+      /[\uD800-\uDBFF]/u.test(text[end - 1]) &&
+      /[\uDC00-\uDFFF]/u.test(text[end])
+    ) {
+      end -= 1;
+    }
+    total += tokenizer.encode(text.slice(start, end)).length;
+    start = end;
+  }
+  return total;
+}
+
+// Bounded chunks limit individual tokenizer calls. Because token boundaries can
+// cross chunks and Responses framing constants are unpublished, this is an estimate.
+function estimateInputTokens(model, request) {
+  const tokenizer = tokenizerForModel(model.id);
+  const { payload, encryptedReasoning } = canonicalResponsesPayload(
+    model,
+    request,
+  );
+  const { countableInput, imageCount } = omitCanonicalInputImages(
+    payload.input,
+  );
+  const countablePayload = { ...payload, input: countableInput };
+  const serializedTokens = encodedLength(
+    tokenizer,
+    JSON.stringify(countablePayload),
+  );
+  const structuralItems =
+    payload.input.length + (payload.tools?.length || 0) + 1;
+  const reasoningTokens = encryptedReasoning.reduce(
+    (total, item) =>
+      total +
+      encodedLength(tokenizer, JSON.stringify(item)) +
+      ENCRYPTED_REASONING_OVERHEAD_TOKENS,
+    0,
+  );
+  return Math.max(
+    1,
+    serializedTokens +
+      structuralItems * RESPONSE_ITEM_OVERHEAD_TOKENS +
+      imageCount * IMAGE_OVERHEAD_TOKENS +
+      reasoningTokens,
+  );
+}
+
+function estimateInputTokensOffThread(model, request) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL(import.meta.url), {
+      workerData: { operation: "estimateInputTokens", model, request },
+    });
+    worker.once("message", (message) => {
+      if (message?.error) reject(new Error(message.error));
+      else resolve(message.inputTokens);
+    });
+    worker.once("error", reject);
+    worker.once("exit", (code) => {
+      if (code !== 0)
+        reject(new Error(`tokenizer worker exited with code ${code}`));
+    });
+  });
 }
 
 function countTokensResponse(inputTokens) {
@@ -507,19 +741,28 @@ async function readJsonBody(req, maxBodyBytes = MAX_BODY_BYTES) {
   const text = Buffer.concat(chunks).toString("utf8");
   try {
     const body = text ? JSON.parse(text) : {};
-    if (body !== null && typeof body === "object") {
-      Object.defineProperty(body, RAW_BODY_BYTES, { value: total });
-    }
     return body;
   } catch (error) {
-    throw httpError(400, `invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw httpError(
+      400,
+      `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
-function httpError(status, message) {
+function httpError(status, message, diagnostic = undefined) {
   const error = new Error(message);
   error.status = status;
+  if (diagnostic) error.diagnostic = diagnostic;
   return error;
+}
+
+function capabilityError(code, cause = undefined) {
+  return httpError(503, "authentication capability probe failed", {
+    category: "capability_error",
+    code,
+    cause,
+  });
 }
 
 function sendJson(res, status, body) {
@@ -540,38 +783,111 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+const LOG_PATHS = new Set([
+  "/",
+  "/health",
+  "/capabilities",
+  "/v1/models",
+  "/models",
+  "/v1/messages/count_tokens",
+  "/messages/count_tokens",
+  "/v1/messages",
+  "/messages",
+]);
+const LOG_METHODS = new Set([
+  "DELETE",
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PATCH",
+  "POST",
+  "PUT",
+]);
+
 function logPath(req) {
   try {
-    const url = new URL(req?.url || "/", "http://localhost");
-    return url.pathname;
+    const pathname = new URL(req?.url || "/", "http://localhost").pathname;
+    return LOG_PATHS.has(pathname) ? pathname : "<unknown>";
   } catch {
-    return "/";
+    return "<invalid>";
   }
 }
 
-function sanitizeLogMessage(message) {
-  return String(message)
-    .replace(/\bBearer\s+[^\s,"'}]+/gi, "Bearer [redacted]")
-    .replace(
-      /(["']?(?:api[_-]?key|password|secret|token)["']?\s*[=:]\s*["']?)[^\s,"'}]+/gi,
-      "$1[redacted]",
-    )
-    .slice(0, 500);
+function logMethod(req) {
+  return LOG_METHODS.has(req?.method) ? req.method : "UNKNOWN";
 }
 
-function logError(status, message, req) {
-  const method = req?.method || "?";
-  const type = errorType(status);
-  const detail = status >= 500 ? ` ${sanitizeLogMessage(message)}` : "";
+function logStatus(status) {
+  return Number.isInteger(status) && status >= 400 && status <= 599
+    ? status
+    : 500;
+}
+
+const SAFE_DIAGNOSTIC_CATEGORIES = new Set(["capability_error"]);
+const SAFE_DIAGNOSTIC_CODES = new Set([
+  "auth",
+  "malformed_auth_result",
+  "missing_model",
+  "oauth",
+  "probe_failed",
+  "provider",
+]);
+
+function safeDiagnostic(error) {
+  const category = error?.diagnostic?.category;
+  const code = error?.diagnostic?.code;
+  return {
+    ...(SAFE_DIAGNOSTIC_CATEGORIES.has(category) ? { category } : {}),
+    ...(SAFE_DIAGNOSTIC_CODES.has(code) ? { code } : {}),
+  };
+}
+
+const SAFE_SERVER_ERROR_CODES = new Set([
+  "EACCES",
+  "EADDRINUSE",
+  "EADDRNOTAVAIL",
+  "EAFNOSUPPORT",
+  "EINVAL",
+  "ENETUNREACH",
+]);
+const SAFE_SERVER_ERROR_SYSCALLS = new Set(["listen"]);
+
+function serverErrorDiagnostic(error, config) {
+  const code = SAFE_SERVER_ERROR_CODES.has(error?.code)
+    ? error.code
+    : undefined;
+  const syscall = SAFE_SERVER_ERROR_SYSCALLS.has(error?.syscall)
+    ? error.syscall
+    : undefined;
+  return {
+    origin: "cc-openai-proxy",
+    category: "server_error",
+    errorType: "network_error",
+    ...(code ? { code } : {}),
+    ...(syscall ? { syscall } : {}),
+    host: config.host,
+    port: config.port,
+  };
+}
+
+function logError(status, req, error = undefined) {
+  const safeStatus = logStatus(status);
   process.stderr.write(
-    `cc-openai-proxy: ${method} ${logPath(req)} -> ${status} ${type}${detail}\n`,
+    `${JSON.stringify({
+      category: "request_error",
+      method: logMethod(req),
+      pathname: logPath(req),
+      status: safeStatus,
+      errorType: errorType(safeStatus),
+      ...safeDiagnostic(error),
+    })}\n`,
   );
 }
 
 function sendError(res, error, req) {
   const status = error?.status || 500;
   const message = errorMessage(error);
-  logError(status, message, req);
+  logError(status, req, error);
   sendJson(res, status, {
     type: "error",
     error: {
@@ -664,7 +980,11 @@ async function streamAnthropicResponse(req, res, piStream, modelId) {
       });
     } else if (event.type === "thinking_end") {
       const block = contentBlockFromPartial(event);
-      if (block?.type === "thinking" && block.thinkingSignature && !block.redacted) {
+      if (
+        block?.type === "thinking" &&
+        block.thinkingSignature &&
+        !block.redacted
+      ) {
         writeSse(res, "content_block_delta", {
           type: "content_block_delta",
           index: event.contentIndex,
@@ -711,7 +1031,8 @@ async function streamAnthropicResponse(req, res, piStream, modelId) {
       closeBlock(event.contentIndex);
     } else if (event.type === "done") {
       ensureMessageStart(event.message);
-      for (const index of [...openBlocks].sort((a, b) => a - b)) closeBlock(index);
+      for (const index of [...openBlocks].sort((a, b) => a - b))
+        closeBlock(index);
       writeSse(res, "message_delta", {
         type: "message_delta",
         delta: {
@@ -724,7 +1045,7 @@ async function streamAnthropicResponse(req, res, piStream, modelId) {
     } else if (event.type === "error") {
       const status = event.reason === "aborted" ? 499 : 502;
       const message = event.error?.errorMessage || "upstream error";
-      logError(status, message, req);
+      logError(status, req);
       writeSse(res, "error", {
         type: "error",
         error: {
@@ -760,26 +1081,17 @@ function buildOptions(request, req, signal) {
 
 function extractInboundBearer(req) {
   const auth = req.headers["authorization"];
-  if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7).trim();
+  if (typeof auth === "string" && auth.startsWith("Bearer "))
+    return auth.slice(7).trim();
   const apiKey = req.headers["x-api-key"];
   if (typeof apiKey === "string") return apiKey.trim();
   return "";
 }
 
-// Fail-secure inbound auth. If CC_OPENAI_PROXY_BEARER is set, the caller must
-// present a matching bearer (constant-time compare). If it is unset, requests
-// are rejected unless CC_OPENAI_PROXY_ALLOW_ANON=1 -- the escape hatch for the
-// loopback-only local `cc-openai` autostart. /health stays ungated (it is a
-// separate GET branch that never reaches this).
-function assertInboundAuth(req) {
-  const expected = process.env.CC_OPENAI_PROXY_BEARER;
-  if (!expected) {
-    if (process.env.CC_OPENAI_PROXY_ALLOW_ANON === "1") return;
-    throw httpError(
-      401,
-      "proxy auth not configured: set CC_OPENAI_PROXY_BEARER, or CC_OPENAI_PROXY_ALLOW_ANON=1 to allow anonymous",
-    );
-  }
+// Compare equal-length bearer or API-key credentials with a timing-safe operation.
+// The server loads the expected credential before it listens. Health bypasses this check.
+function assertInboundAuth(req, expected) {
+  if (!expected) throw httpError(401, "proxy auth is not available");
   const got = Buffer.from(extractInboundBearer(req));
   const want = Buffer.from(expected);
   if (got.length !== want.length || !timingSafeEqual(got, want)) {
@@ -791,9 +1103,10 @@ function assertInboundAuth(req) {
 // real ids. Gated like /v1/messages (never spends: it only reads the static
 // provider catalog, no backend call).
 async function handleModels(req, res) {
-  assertInboundAuth(req);
   const models = await loadModels();
-  const data = models.getModels(DEFAULT_PROVIDER).map((model) => ({
+  const supportedModels = models.getModels(DEFAULT_PROVIDER);
+  assertTokenizerMappings(supportedModels);
+  const data = supportedModels.map((model) => ({
     type: "model",
     id: model.id,
     display_name: model.name,
@@ -818,14 +1131,15 @@ async function assertKnownModel(modelName) {
   if (!model) {
     throw httpError(400, `unknown ${DEFAULT_PROVIDER} model: ${modelId}`);
   }
+  assertTokenizerMappings([model]);
   return { model, modelId, models };
 }
 
 async function handleCountTokens(req, res) {
-  assertInboundAuth(req);
-  const body = await readJsonBody(req, MAX_COUNT_TOKENS_BODY_BYTES);
-  await assertKnownModel(body.model);
-  sendJson(res, 200, countTokensResponse(estimateInputTokens(body[RAW_BODY_BYTES] || 0)));
+  const body = await readJsonBody(req);
+  const { model } = await assertKnownModel(body.model);
+  const inputTokens = await estimateInputTokensOffThread(model, body);
+  sendJson(res, 200, countTokensResponse(inputTokens));
 }
 
 // The Anthropic API defaults `stream` to false, and Claude Code's SDK omits
@@ -836,7 +1150,6 @@ function wantsStreaming(body) {
 }
 
 async function handleMessages(req, res) {
-  assertInboundAuth(req);
   const body = await readJsonBody(req);
   const { model, modelId, models } = await assertKnownModel(body.model);
 
@@ -847,12 +1160,17 @@ async function handleMessages(req, res) {
     if (!complete) controller.abort(new Error("client disconnected"));
   });
 
-  await requireCodexAuth(models);
+  await requireCodexAuth(models, model);
   const options = buildOptions(body, req, controller.signal);
   const context = anthropicToContext(body);
 
   if (wantsStreaming(body)) {
-    await streamAnthropicResponse(req, res, models.streamSimple(model, context, options), modelId);
+    await streamAnthropicResponse(
+      req,
+      res,
+      models.streamSimple(model, context, options),
+      modelId,
+    );
     complete = true;
     return;
   }
@@ -865,15 +1183,62 @@ async function handleMessages(req, res) {
   sendJson(res, 200, piMessageToAnthropic(message, modelId));
 }
 
-async function route(req, res) {
-  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+async function probeOpenAiAuth(load = loadModels) {
+  authProbePromise ??= (async () => {
+    try {
+      const models = await load();
+      const model = models.getModel(DEFAULT_PROVIDER, DEFAULT_MODEL);
+      if (!model) throw capabilityError("missing_model");
+
+      let result;
+      try {
+        result = await models.getAuth(model);
+      } catch (error) {
+        const code = SAFE_DIAGNOSTIC_CODES.has(error?.code)
+          ? error.code
+          : "probe_failed";
+        throw capabilityError(code, error);
+      }
+      // pi-ai documents undefined as the unknown or unconfigured outcome.
+      if (result === undefined) return false;
+      if (
+        !isPlainObject(result) ||
+        !isPlainObject(result.auth) ||
+        typeof result.auth.apiKey !== "string" ||
+        result.auth.apiKey.trim() === ""
+      ) {
+        throw capabilityError("malformed_auth_result");
+      }
+      return true;
+    } finally {
+      authProbePromise = undefined;
+    }
+  })();
+  return authProbePromise;
+}
+
+async function route(req, res, expectedBearer, probeAuth = probeOpenAiAuth) {
   try {
-    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
+    const url = new URL(req.url || "/", "http://localhost");
+    if (req.method === "GET" && url.pathname === "/health") {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    assertInboundAuth(req, expectedBearer);
+    if (req.method === "GET" && url.pathname === "/") {
       sendJson(res, 200, {
         ok: true,
         provider: DEFAULT_PROVIDER,
         defaultModel: process.env.CC_OPENAI_DEFAULT_MODEL || DEFAULT_MODEL,
       });
+    } else if (req.method === "GET" && url.pathname === "/capabilities") {
+      try {
+        sendJson(res, 200, { openaiAuthUsable: await probeAuth() });
+      } catch (error) {
+        if (error?.diagnostic?.category === "capability_error") throw error;
+        throw capabilityError("probe_failed", error);
+      }
     } else if (
       req.method === "GET" &&
       (url.pathname === "/v1/models" || url.pathname === "/models")
@@ -881,7 +1246,8 @@ async function route(req, res) {
       await handleModels(req, res);
     } else if (
       req.method === "POST" &&
-      (url.pathname === "/v1/messages/count_tokens" || url.pathname === "/messages/count_tokens")
+      (url.pathname === "/v1/messages/count_tokens" ||
+        url.pathname === "/messages/count_tokens")
     ) {
       await handleCountTokens(req, res);
     } else if (
@@ -897,7 +1263,7 @@ async function route(req, res) {
       sendError(res, error, req);
     } else {
       const message = errorMessage(error);
-      logError(error?.status || 500, message, req);
+      logError(error?.status || 500, req);
       writeSse(res, "error", {
         type: "error",
         error: {
@@ -928,35 +1294,68 @@ export {
   anthropicToContext,
   anthropicToolsToPi,
   assertInboundAuth,
+  assertTokenizerMappings,
+  canonicalResponsesPayload,
   countTokensResponse,
   errorType,
   estimateInputTokens,
   extractInboundBearer,
+  logError,
+  parseArgs,
   piContentToAnthropic,
+  probeOpenAiAuth,
+  route,
   piMessageToAnthropic,
   resolveModelId,
-  sanitizeLogMessage,
+  serverErrorDiagnostic,
   thinkingToReasoning,
   wantsStreaming,
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+async function main() {
+  const config = parseArgs(process.argv.slice(2));
+  let expectedBearer;
   try {
-    const config = parseArgs(process.argv.slice(2));
-    const server = createServer((req, res) => {
-      void route(req, res);
-    });
-    server.on("error", (error) => {
-      process.stderr.write(
-        `cc-openai-proxy: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-      process.exit(1);
-    });
-    server.listen(config.port, config.host, () => {
-      process.stderr.write(`cc-openai-proxy listening on http://${config.host}:${config.port}\n`);
+    expectedBearer = await loadOrCreateProxyToken(config.authTokenFile);
+  } catch (error) {
+    error.authPath = config.authTokenFile;
+    throw error;
+  }
+  const server = createServer((req, res) => {
+    void route(req, res, expectedBearer);
+  });
+  server.on("error", (error) => {
+    process.stderr.write(
+      `${JSON.stringify(serverErrorDiagnostic(error, config))}\n`,
+    );
+    process.exit(1);
+  });
+  server.listen(config.port, config.host, () => {
+    process.stderr.write(
+      `${JSON.stringify({ origin: "cc-openai-proxy", category: "server_started" })}\n`,
+    );
+  });
+}
+
+if (!isMainThread && workerData?.operation === "estimateInputTokens") {
+  try {
+    parentPort.postMessage({
+      inputTokens: estimateInputTokens(workerData.model, workerData.request),
     });
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exit(2);
+    parentPort.postMessage({
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+} else if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    process.stderr.write(
+      `${JSON.stringify({
+        origin: "cc-openai-proxy",
+        phase: "startup",
+        ...proxyAuthDiagnostic(error, error?.authPath),
+      })}\n`,
+    );
+    process.exit(2);
+  });
 }

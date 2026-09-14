@@ -22,8 +22,8 @@ from pathlib import Path
 from wlrenv.ccpatch.bunfmt import BunModule, parse_blob, rebuild_blob
 from wlrenv.ccpatch.container import load_container
 from wlrenv.ccpatch.patches import (
+    _MULTI_PROVIDER_HELPER,
     PatchError,
-    brand_patch_sets,
     default_patch_sets,
     parse_version,
 )
@@ -52,11 +52,9 @@ def _encode(s: str) -> bytes:
     return s.encode("utf-8", "surrogateescape")
 
 
-def _patch_source(
-    source: str, version: str | None, brand: str | None, splash: str | None
-) -> str:
+def _patch_source(source: str, version: str | None) -> str:
     parsed = parse_version(version) if version else None
-    patch_sets = default_patch_sets(parsed) + brand_patch_sets(brand, splash)
+    patch_sets = default_patch_sets(parsed)
     for patch_set in patch_sets:
         if patch_set.applies_to(parsed):
             source = patch_set.apply(source)
@@ -67,8 +65,6 @@ def apply_patches(
     data: bytes,
     *,
     version: str | None,
-    brand: str | None,
-    splash: str | None,
     zero_bytecode: bool,
 ) -> bytes:
     """Return new binary bytes with patched ``cli.js`` source repacked in."""
@@ -79,7 +75,7 @@ def apply_patches(
     if entry is None:
         raise ApplyError("no entrypoint (cli.js) module found")
 
-    patched_source = _patch_source(_decode(entry.contents), version, brand, splash)
+    patched_source = _patch_source(_decode(entry.contents), version)
 
     def transform(module: BunModule) -> BunModule | None:
         if not module.is_entrypoint():
@@ -100,23 +96,37 @@ def _entry_source(data: bytes) -> str:
     return _decode(entry.contents)
 
 
-def _smoke_test(path: Path) -> str:
-    """Run ``<binary> --version``; return the version line or raise."""
+def _run_smoke_command(path: Path, argument: str) -> subprocess.CompletedProcess[str]:
     try:
-        result = subprocess.run(  # noqa: S603  # trusted constructed path
-            [str(path), "--version"],
+        return subprocess.run(  # noqa: S603  # trusted constructed path
+            [str(path), argument],
             capture_output=True,
             text=True,
             timeout=60,
             env={**os.environ, "DISABLE_AUTOUPDATER": "1"},
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ApplyError(f"patched binary failed to run: {exc}") from exc
-    line = (result.stdout or "").splitlines()[0] if result.stdout else ""
-    if result.returncode != 0 or not _CLAUDE_VERSION_RE.search(line):
+        raise ApplyError(f"patched binary failed to run {argument}: {exc}") from exc
+
+
+def _smoke_test(path: Path) -> str:
+    """Run startup-only CLI commands; return the reported version or raise."""
+    version_result = _run_smoke_command(path, "--version")
+    line = (
+        (version_result.stdout or "").splitlines()[0] if version_result.stdout else ""
+    )
+    if version_result.returncode != 0 or not _CLAUDE_VERSION_RE.search(line):
         raise ApplyError(
             "smoke test failed: binary did not report a Claude version "
-            f"(exit {result.returncode}, output {line!r}). Possible Bun fallback."
+            f"(exit {version_result.returncode}, output {line!r}). Possible Bun fallback."
+        )
+
+    help_result = _run_smoke_command(path, "--help")
+    if help_result.returncode != 0 or "Usage:" not in help_result.stdout:
+        detail = (help_result.stderr or help_result.stdout).strip().splitlines()
+        raise ApplyError(
+            "smoke test failed: binary did not initialize CLI help "
+            f"(exit {help_result.returncode}, output {detail[-1] if detail else ''!r})"
         )
     return line
 
@@ -126,16 +136,12 @@ def run_apply(
     out_path: Path,
     *,
     version: str | None,
-    brand: str | None,
-    splash: str | None,
     zero_bytecode: bool,
     smoke: bool,
 ) -> ApplyResult:
     data = in_path.read_bytes()
     before = len(_entry_source(data))
-    new_data = apply_patches(
-        data, version=version, brand=brand, splash=splash, zero_bytecode=zero_bytecode
-    )
+    new_data = apply_patches(data, version=version, zero_bytecode=zero_bytecode)
 
     # Structural verify: the rewritten binary must re-extract and contain our edit.
     after_source = _entry_source(new_data)
@@ -157,7 +163,6 @@ def run_apply(
 
 def _cmd_apply(args: argparse.Namespace) -> int:
     out = Path(args.out) if args.out else Path(args.input)
-    splash = Path(args.splash).read_text(encoding="utf-8") if args.splash else None
     with tempfile.TemporaryDirectory() as tmp:
         staged = Path(tmp) / "claude"
         try:
@@ -165,8 +170,6 @@ def _cmd_apply(args: argparse.Namespace) -> int:
                 Path(args.input),
                 staged,
                 version=args.version,
-                brand=args.brand,
-                splash=splash,
                 zero_bytecode=args.zero_bytecode,
                 smoke=not args.no_smoke,
             )
@@ -192,6 +195,11 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_generate_multi_provider_helper(args: argparse.Namespace) -> int:
+    Path(args.out).write_text(_MULTI_PROVIDER_HELPER, encoding="utf-8")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ccpatch", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -200,14 +208,6 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("input", help="path to the Bun standalone binary")
     ap.add_argument("-o", "--out", help="output path (default: overwrite input)")
     ap.add_argument("--version", help="Claude version, e.g. 2.1.170 (gates patches)")
-    ap.add_argument(
-        "--brand",
-        help="apply a provider brand patch set on top of the defaults (e.g. kimi)",
-    )
-    ap.add_argument(
-        "--splash",
-        help="path to splash art embedded into the interactive startup (brand builds)",
-    )
     ap.add_argument(
         "--zero-bytecode",
         action="store_true",
@@ -222,6 +222,13 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("input", help="path to the Bun standalone binary")
     ex.add_argument("-o", "--out", required=True, help="output .js path")
     ex.set_defaults(func=_cmd_extract)
+
+    helper = sub.add_parser(
+        "generate-multi-provider-helper",
+        help="write the exact injected multi-provider JavaScript helper",
+    )
+    helper.add_argument("-o", "--out", required=True, help="output .js path")
+    helper.set_defaults(func=_cmd_generate_multi_provider_helper)
 
     return parser
 

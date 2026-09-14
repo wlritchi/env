@@ -10,35 +10,11 @@
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
   cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
-  claude-code = pkgs.callPackage ./pkgs/claude-code.nix { };
-  claude-code-variant = pkgs.callPackage ./pkgs/claude-code-variant.nix { };
-  claude-code-openai = pkgs.callPackage ./pkgs/claude-code-openai.nix {
+  cc-openai-proxy-launcher = pkgs.callPackage ./pkgs/cc-openai-proxy-launcher.nix {
     inherit cc-openai-proxy;
-    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
-      brand = "openai";
-      brandSplash = ./pkgs/cc-openai-splash.txt;
-    };
   };
-  claude-code-kimi = pkgs.callPackage ./pkgs/claude-code-kimi.nix {
-    inherit claude-code-variant;
-    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
-      brand = "kimi";
-      brandSplash = ./pkgs/cc-kimi-splash.txt;
-    };
-  };
-  claude-code-zai = pkgs.callPackage ./pkgs/claude-code-zai.nix {
-    inherit claude-code-variant;
-    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
-      brand = "zai";
-      brandSplash = ./pkgs/cc-zai-splash.txt;
-    };
-  };
-  claude-code-minimax = pkgs.callPackage ./pkgs/claude-code-minimax.nix {
-    inherit claude-code-variant;
-    claude-code-bin = pkgs.callPackage ./pkgs/claude-code.nix {
-      brand = "minimax";
-      brandSplash = ./pkgs/cc-minimax-splash.txt;
-    };
+  claude-code = pkgs.callPackage ./pkgs/claude-code.nix {
+    inherit cc-openai-proxy-launcher;
   };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
@@ -103,53 +79,16 @@ in
         ))
         ccstatusline
         claude-code
-        claude-code-openai
-        claude-code-kimi
-        claude-code-minimax
-        claude-code-zai
         delta-realpath
         entire
         tryPkg
       ];
 
-    home.file = lib.mkMerge (
-      [
-        {
-          # Claude Code's startup "doctor" checks for a native install at
-          # ~/.local/bin/claude and warns if it's missing/broken, even though we run
-          # it from the nix profile. Point that canonical path at the profile binary
-          # (out-of-store so it tracks the live profile, not a pinned store path) to
-          # satisfy the check. mkOutOfStoreSymlink keeps it from dangling on version
-          # bumps + GC, unlike a resolved dotfile symlink.
-          ".local/bin/claude".source =
-            config.lib.file.mkOutOfStoreSymlink "${config.home.profileDirectory}/bin/claude";
-        }
-        # Each provider variant ships its theme definition as a read-only store
-        # symlink under ~/.cc-<name>/themes/ (the brand theme selection + blocked
-        # tools ride the wrapper's --settings flag, not this file).
-        claude-code-openai.homeFiles
-        claude-code-kimi.homeFiles
-        claude-code-zai.homeFiles
-        claude-code-minimax.homeFiles
-      ]
-      # Each variant's userSettings (~/.cc-<name>/settings.json) is an out-of-store
-      # symlink to the base ~/.claude/settings.json, so branded sessions inherit
-      # your base (+ overlay) settings live. Brand-specific overrides come from the
-      # wrapper's --settings flag and are never written back; Claude's runtime
-      # pref write-backs land in the base (shareable) rather than diverging.
-      ++
-        map
-          (v: {
-            ".${v.command}/settings.json".source =
-              config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/.claude/settings.json";
-          })
-          [
-            claude-code-openai
-            claude-code-kimi
-            claude-code-zai
-            claude-code-minimax
-          ]
-    );
+    home.file.".local/bin/claude".source =
+      # Claude Code's startup doctor checks this canonical native-install path.
+      # Use the live profile path so version changes and garbage collection do not
+      # leave a stale store symlink.
+      config.lib.file.mkOutOfStoreSymlink "${config.home.profileDirectory}/bin/claude";
 
     programs.home-manager.enable = true;
 

@@ -3,7 +3,7 @@
 # Fetches the platform-specific Bun standalone binary from npm (the real binary
 # lives in @anthropic-ai/claude-code-<platform>, not the meta package), runs the
 # pure-Python ccpatch pipeline over it (length-free JS patches + Bun repack), and
-# wraps it in a launcher that reproduces the runtime env the claude shim sets.
+# wraps it in a launcher that configures terminal-specific runtime behavior.
 #
 # The patch step needs no network and -- on Linux -- no dependencies beyond
 # python3 (stdlib). On Darwin the Mach-O repack path needs python3Packages.lief.
@@ -24,37 +24,28 @@
   stdenvNoCC,
   fetchurl,
   python3,
-  makeWrapper,
-  # Optional provider brand baked into the binary (e.g. "kimi" -> startup label,
-  # thinking verbs, identity/attribution rebrand, onboarding skip). null = the
-  # plain personal build used for `claude`.
-  brand ? null,
-  # Optional splash art (a path) embedded into the interactive startup for a
-  # branded build; printed on TTY launch in place of the old wrapper `cat`. NOT
-  # named `splash`: callPackage would auto-fill that from nixpkgs' `splash`
-  # package (shadowing the null default) on the unbranded build.
-  brandSplash ? null,
+  cc-openai-proxy-launcher,
 }:
 
 let
-  version = "2.1.170";
+  version = "2.1.208";
 
   sources = {
     "x86_64-linux" = {
       platform = "linux-x64";
-      hash = "sha512-SSQ6TsGbZJSC1s6R5pxlTZPq1bilSpoTR8JANOq8ALUkbRVhgVSl0PiSSNSnc3zNdDCA1iA3ywLmAuISuhlvKA==";
+      hash = "sha512-JsnS5iDBiZ73YnpP0CRnbA4ZdzfsP3uwpgmVkjtiyMrBlJnGixpc41D4UB0OJ3WADNRJZDwrywr/2neS0cByow==";
     };
     "aarch64-linux" = {
       platform = "linux-arm64";
-      hash = "sha512-J2682NcqJbDouDcmR8VeVDAB4UxWryDMUZfPYdvbwiG3sM6SyupBHPuXgwIEcaT1M1jlpBiWRdJ4ActHF5Drng==";
+      hash = "sha512-xznaK4MmH94l6GfS71NK1Rhdzj0KiCGnUflpXdBt4jBWQjnmonys8B0OfjvZL2QVR2AkZ5YL1mqXAPDw9aYyvA==";
     };
     "aarch64-darwin" = {
       platform = "darwin-arm64";
-      hash = "sha512-lnBfVVTO+Wk31IAh5KDOY+Cuu1vIHC3N3UjHY9SEroDat8XKqjFtckY50jPi50m5x0oWkeQiyDl4nPstgdkNwQ==";
+      hash = "sha512-ML/aDoW4b9/I+QGidOOd+dY/1LEY7pM8c2F/9HucVYcFDn86GkuCCDRB2OciAXDB697D1DXUcB9e/BHXps4qsQ==";
     };
     "x86_64-darwin" = {
       platform = "darwin-x64";
-      hash = "sha512-w2lZwSsKDVqrY8O6N65SSP309JJleWrUx9tltW2SIGaPRLybtrZf7q6KxDz3I/gEMBhpwnC2MHXYMU0sw6JXzg==";
+      hash = "sha512-u/8HQXft4gjC0Yal+43gk8fkLozn9rriUEtNLb122a5v40VS7tvuDHMysTQLBMvGw5IRv2cqj8E01finG2xEpQ==";
     };
   };
 
@@ -76,15 +67,13 @@ let
   };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
-  pname = "claude-code-patched" + lib.optionalString (brand != null) "-${brand}";
+  pname = "claude-code-patched";
   inherit version;
 
   src = fetchurl {
     url = "https://registry.npmjs.org/@anthropic-ai/claude-code-${source.platform}/-/claude-code-${source.platform}-${version}.tgz";
     inherit (source) hash;
   };
-
-  nativeBuildInputs = [ makeWrapper ];
 
   # npm tarball unpacks into ./package (entered automatically by stdenv).
   dontConfigure = true;
@@ -94,9 +83,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     export PYTHONDONTWRITEBYTECODE=1
     PYTHONPATH=${ccpatchSrc} ${pythonEnv}/bin/python -m wlrenv.ccpatch.cli apply \
-      ./claude -o ./claude-patched --version ${version} --no-smoke \
-      ${lib.optionalString (brand != null) "--brand ${brand}"} \
-      ${lib.optionalString (brandSplash != null) "--splash ${brandSplash}"}
+      ./claude -o ./claude-patched --version ${version} --no-smoke
 
     runHook postBuild
   '';
@@ -106,14 +93,19 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     install -Dm755 ./claude-patched "$out/libexec/claude-code/claude"
 
-    # Launcher: reproduces the runtime env the claude shim sets, then execs the
-    # patched binary. Kept as a script (not makeWrapper --add-flags) for the
+    # The launcher configures terminal-specific behavior, then runs the patched
+    # binary. Keep it as a script (not makeWrapper --add-flags) for the
     # truecolor tweak, which is conditional on the terminal. (Dev-channel
     # inheritance used to live here as an env hack; it is now done natively in
     # the binary by the dev-channel-inheritance patch -- nothing to do here.)
     mkdir -p "$out/bin"
     cat > "$out/bin/claude" <<EOF
     #!/usr/bin/env bash
+    source ${cc-openai-proxy-launcher}
+    if ! cc_openai_proxy_configure optional claude && [ "\''${CC_OPENAI_PROXY_URL+x}" = x ]; then
+      exit 1
+    fi
+
     # Lift Claude's tmux 256-color cap when the terminal advertises truecolor.
     if [ -z "\''${CLAUDE_CODE_TMUX_TRUECOLOR:-}" ] && { [ "\''${COLORTERM:-}" = truecolor ] || [ "\''${COLORTERM:-}" = 24bit ]; }; then
       export CLAUDE_CODE_TMUX_TRUECOLOR=1
