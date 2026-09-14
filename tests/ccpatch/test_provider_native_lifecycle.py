@@ -17,12 +17,92 @@ import pytest
 from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_SNAPSHOT,
     BACKGROUND_PROVIDER_ENV_198,
+    PatchError,
+    _initialize_provider_registry,
     _provider_env_207,
     _provider_key_sources,
     _replace_provider_snapshot,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize("source", ["keys", "$keys", "ke$ys"])
+def test_provider_registry_renamed(source: str) -> None:
+    script = (
+        f'var $init=$once(()=>{{other=new Set(["}}"]);{source}=new Set(["KEY"]);}});'
+        f'function _ccProviderKeys(){{if({source}==null)throw Error();}}'
+    )
+    pattern = re.compile(r"function _ccProviderKeys\(\)\{if\([^)]*\)")
+    assert "if(($init()," in pattern.sub(_initialize_provider_registry, script)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "",
+        "var init=once(()=>{});",
+        "var init=once(()=>{function nested(){",
+        "var init=once(()=>{var other=once(()=>{});",
+        "var init=once(()=>{keys=new Set([]);",
+    ],
+)
+def test_provider_registry_rejects_ambiguous_scope(prefix: str) -> None:
+    script = prefix + "keys=new Set([]);});function _ccProviderKeys(){if(keys==null)"
+    pattern = re.compile(r"function _ccProviderKeys\(\)\{if\([^)]*\)")
+    with pytest.raises(PatchError):
+        pattern.sub(_initialize_provider_registry, script)
+
+
+@pytest.mark.parametrize("entry", ["spare", "cold", "agents"])
+def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
+    """Run the complete CLI settings path without daemon or network access."""
+    binary = os.environ.get("CCPATCH_STARTUP_BINARY")
+    if not binary:
+        pytest.skip("set CCPATCH_STARTUP_BINARY to the patched .207 executable")
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "CLAUDE_CONFIG_DIR": str(tmp_path),
+        "DISABLE_AUTOUPDATER": "1",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "HTTP_PROXY": "http://127.0.0.1:1",
+        "HTTPS_PROXY": "http://127.0.0.1:1",
+        "CLAUDE_CODE_PROVIDER_ENV_TRANSIENT": json.dumps(
+            {
+                "ANTHROPIC_BASE_URL": "http://127.0.0.1:1",
+                "ANTHROPIC_API_KEY": "synthetic-test-key",
+                "CLAUDE_CONFIG_DIR": str(tmp_path),
+            }
+        ),
+    }
+    if entry == "agents":
+        env["CLAUDE_AGENTS_SELECT"] = "synthetic"
+    # Missing verbosity exits after cold settings initialization, before requests.
+    args = (
+        ["--bg-spare"]
+        if entry == "spare"
+        else ["--setting-sources", "", "-p", "--output-format", "stream-json", "test"]
+    )
+    process = subprocess.Popen(  # noqa: S603 - Explicit opt-in local binary.
+        [binary, *args],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=20)
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+    assert "EPROVIDERENV" not in stderr, stderr[-2500:]
+    assert "key registry is unavailable" not in stderr
+    expected = "missing claim sock path" if entry == "spare" else "requires --verbose"
+    assert expected in stdout + stderr, (stdout + stderr)[-2500:]
 
 
 @pytest.mark.parametrize(
@@ -36,6 +116,40 @@ def test_provider_207_settings_boundary(platform: str) -> None:
     if runtime is None:
         pytest.skip("requires node")
     original = path.read_text()
+    patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
+    call = re.search(r"function _ccProviderKeys\(\)\{if\(\(([\w$]+)\(\),", patched)
+    assert call is not None
+    module = re.search(rf"var {re.escape(call[1])}=([\w$]+)\(\(\)=>\{{", original)
+    assert module is not None
+    end = original.index("});", module.end()) + 3
+    body = original[module.end() : end - 3]
+    sources = _provider_key_sources(original)
+    assert f"{sources[0]}=new Set(" in body
+    wrapper = re.search(
+        rf"(?<![\w$]){re.escape(module[1])}=\(e,t\)=>\(\)=>\(e&&\(t=e\(e=0\)\),t\)",
+        original,
+    )
+    assert wrapper is not None
+    dependencies = re.match(r"(?:[\w$]+\(\);)+", body)
+    assert dependencies is not None
+    stubs = "".join(
+        f"function {name}(){{calls++;}}"
+        for name in re.findall(r"([\w$]+)\(\)", dependencies[0])
+    )
+    script = (
+        'const assert=require("node:assert/strict");let calls=0;'
+        + f"var {wrapper[0]};"
+        + "".join(f"var {name}=[];" for name in sources[1:])
+        + stubs
+        + original[module.start() : end]
+        + f"{call[1]}();let first={sources[0]},count=calls;{call[1]}();"
+        + f"assert.strictEqual(first,{sources[0]});assert.equal(calls,count);"
+        + 'assert.ok(first.has("CLAUDE_CONFIG_DIR"));'
+    )
+    result = subprocess.run(  # noqa: S603 - Execute captured registry code with inert dependencies.
+        [runtime, "-e", script], capture_output=True, text=True, check=False, timeout=20
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
     snapshot = _PROVIDER_ENV_SNAPSHOT.search(original)
     assert snapshot is not None
     helpers = _replace_provider_snapshot(snapshot)

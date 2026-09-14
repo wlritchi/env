@@ -1575,6 +1575,36 @@ _PROVIDER_ENV_AGENTS_SETTINGS = re.compile(
 )
 
 
+def _initialize_provider_registry(match: re.Match[str]) -> str:
+    """Initialize the native allowlist module before settings use its registry."""
+    sources = re.findall(r"([\w$]+)==null", match.group(0))
+    if not sources:
+        raise PatchError("provider registry guard has no native key sources")
+    assignments = list(
+        re.finditer(rf"(?<![\w$.]){re.escape(sources[0])}=new Set\(", match.string)
+    )
+    if len(assignments) != 1:
+        raise PatchError("provider allowlist initializer absent or ambiguous")
+    modules = list(
+        re.finditer(
+            rf"var (?P<initialize>{_ID})={_ID}\(\(\)=>\{{",
+            match.string[: assignments[0].start()],
+        )
+    )
+    if not modules:
+        raise PatchError("provider allowlist module initializer absent")
+    module = modules[-1]
+    prefix = match.string[module.end() : assignments[0].start()]
+    # Accept only a flat module prefix. Fail closed on nested or closed scopes.
+    if (
+        re.fullmatch(r'''(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^{}"'`/])*''', prefix)
+        is None
+    ):
+        raise PatchError("provider allowlist module scope is ambiguous")
+    initialize = module.group("initialize")
+    return match.group(0).replace("{if(", f"{{if(({initialize}(),", 1) + ")"
+
+
 def _provider_env_207(base: PatchSet) -> PatchSet:
     """Reconcile requester routing inside the native settings boundary."""
     # Check raw policy before credentials enter the environment. Native filters can
@@ -1592,6 +1622,11 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
         base,
         patches=(
             *patches,
+            Patch(
+                "initialize-native-provider-key-registry",
+                re.compile(r"function _ccProviderKeys\(\)\{if\([^)]*\)"),
+                _initialize_provider_registry,
+            ),
             Patch(
                 "initialize-provider-before-native-settings",
                 re.compile(
