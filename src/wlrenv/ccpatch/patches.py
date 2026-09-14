@@ -541,7 +541,8 @@ _PROVIDER_ENV_DO_SPAWN = re.compile(
 )
 _PROVIDER_ENV_CLAIM_CALL = re.compile(
     rf'(?P<claim>{_ID})\((?P<job>{_ID}),(?P<spare>{_ID}),(?P<spawn>{_ID}),'
-    rf'(?P<auth>{_ID})\)\{{let (?P<worker>{_ID})=(?P<class_name>{_ID})\.claim'
+    rf'(?P<auth>{_ID})\)\{{(?:(?P=spare)\.claimed=!0;)?'
+    rf'let (?P<worker>{_ID})=(?P<class_name>{_ID})\.claim'
     rf'\((?P=job),(?P<options>\{{pid:(?P=spare)\.hostPid,.{{0,300}}?\}})\);'
 )
 _PROVIDER_ENV_BUILD_CLAIM_CALL = re.compile(
@@ -552,7 +553,8 @@ _PROVIDER_ENV_BUILD_CLAIM_CALL = re.compile(
 )
 _PROVIDER_ENV_CLAIMED_SPARE_FRAME = re.compile(
     rf'function (?P<claim>{_ID})\((?P<job>{_ID}),(?P<spare>{_ID}),'
-    rf'(?P<spawn>{_ID}),(?P<auth>{_ID})\)\{{let (?P<worker>{_ID})='
+    rf'(?P<spawn>{_ID}),(?P<auth>{_ID})\)\{{(?:(?P=spare)\.claimed=!0;)?'
+    rf'let (?P<worker>{_ID})='
     rf'(?P<class_name>{_ID})\.claim\((?P=job),(?P<options>\{{.{{0,500}}?\}})\);'
     rf'return (?P<snapshot>{_ID})\((?P=job)\.short,(?P=auth)\?\.\(\)\)\.then\('
     rf'\((?P<snapshot_arg>{_ID})\)=>(?P<send>{_ID})\((?P=spare)\.claimSock,'
@@ -1175,7 +1177,7 @@ def _replace_provider_lifecycle(match: re.Match[str]) -> str:
     if count != 1:
         raise PatchError("provider lifecycle: spawn guard absent")
     original, count = re.subn(
-        r'(onExit\((?P<code>[\w$]+),(?P<signal>[\w$]+)\)\{if\(this.isDetached\)return;if\(this.phase.kind==="retired"\)return;)',
+        r'(onExit\((?P<code>[\w$]+),(?P<signal>[\w$]+)(?:,(?P<host_stderr>[\w$]+))?\)\{if\(this.isDetached\)return;if\(this.phase.kind==="retired"\)return;)',
         r'\1if(this._ccProviderBlocked()&&this.phase.kind!=="retiring")return this.settle(\g<code>===0?"done":"crashed");',
         original,
     )
@@ -1497,7 +1499,7 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 208)
+_PROVIDER_ENV_198_MAX = (2, 1, 209)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
 _CLAIMED_SPARE_AUTH_198 = (
     rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
@@ -1647,7 +1649,8 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
                 re.compile(
                     rf'function (?P<filter>{_ID})\((?P<env>{_ID}),(?P<scope>{_ID})\)'
                     rf'\{{return (?P<native>{_ID}\({_ID}\({_ID}\({_ID}\({_ID}\('
-                    rf'(?P=env)\)\),(?P=scope)\)\)\))\}}'
+                    rf'(?:(?P=env)|{_ID}\((?P=env),(?P=scope)\))'
+                    rf'\)\),(?P=scope)\)\)\))\}}'
                 ),
                 lambda m: (
                     f'function {m.group("filter")}({m.group("env")},{m.group("scope")})'
@@ -2998,7 +3001,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 208),
+    max_version=(2, 1, 209),
     requires_version=True,
 )
 
@@ -3163,7 +3166,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 208),
+    max_version=(2, 1, 209),
     requires_version=True,
 )
 

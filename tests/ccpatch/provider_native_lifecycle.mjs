@@ -348,6 +348,53 @@ if (scenario.startsWith("process-")) {
   assert.equal(worker.record.ANTHROPIC_API_KEY, undefined);
   payload.ANTHROPIC_API_KEY = "mutated";
   assert.equal(worker.providerEnv.ANTHROPIC_API_KEY, "original-secret");
+} else if (scenario.startsWith("wrapper-")) {
+  ctx.wrapperCommand = ["/trusted/wrapper"];
+  ctx.ge = () => {};
+  ctx.ie = String;
+  ctx.lJ.access = async () => {};
+  ctx.fr = (error) => error.code === "ENOENT";
+  ctx.jh = (value) => value;
+  ctx.JT = (value) => value;
+  ctx.jtt = 10000;
+  ctx.uKo = () => undefined;
+  ctx.h8e = () => false;
+  const worker = new Worker(job, ctx.spawnPty, undefined, "cold", undefined, payload);
+  let outcome;
+  let retries = 0;
+  worker.settle = (value) => {
+    outcome = value;
+  };
+  worker.scheduleRespawn = () => {
+    retries++;
+  };
+  if (scenario === "wrapper-refusal") {
+    ctx.wrapperRefusal = "synthetic launcher refusal";
+    await worker.doSpawn();
+    assert.equal(spawns.length, 0);
+    assert.equal(worker.record.detail, ctx.wrapperRefusal);
+  } else if (["wrapper-ENOENT", "wrapper-EACCES", "wrapper-EPERM"].includes(scenario)) {
+    const code = scenario.slice("wrapper-".length);
+    worker.spawnPty = () => {
+      throw Object.assign(Error(code), { code });
+    };
+    await worker.doSpawn();
+    assert.match(worker.record.detail, /launcher.*\/trusted\/wrapper/);
+    assert.ok(worker.record.detail.includes(code));
+  } else {
+    worker.lastSpawnAt = Date.now();
+    worker.lastCheckPidAt = Date.now();
+    worker.workerReady = false;
+    worker.phase = { kind: "running" };
+    worker.preInitErrorTail = () => undefined;
+    worker.onExit(scenario === "wrapper-fork-exit" ? 0 : 1, undefined, "synthetic host stderr");
+    assert.match(worker.record.detail, /synthetic host stderr/);
+    if (scenario === "wrapper-fork-exit")
+      assert.match(worker.record.detail, /must exec, not daemonize/);
+  }
+  assert.equal(outcome, "crashed");
+  assert.equal(retries, 0);
+  assert.deepEqual(errors, []);
 } else if (scenario === "cold") {
   const worker = Worker.spawn(job, ctx.spawnPty, undefined, undefined, payload);
   await flush();

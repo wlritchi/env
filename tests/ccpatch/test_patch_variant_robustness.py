@@ -16,6 +16,7 @@ from wlrenv.ccpatch.patches import (
     PatchSet,
     Version,
     _override_patches,
+    background_provider_environment,
     default_patch_sets,
 )
 
@@ -99,6 +100,7 @@ def test_registry_anchor_rejects_mutations(old: str, new: str) -> None:
         ((2, 1, 204), True),
         ((2, 1, 205), True),
         ((2, 1, 206), True),
+        ((2, 1, 208), True),
         ((2, 1, 207), True),
     ],
 )
@@ -107,7 +109,7 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     assert len(selected) == 9
     expected = BACKGROUND_PROVIDER_ENV_198 if modern else BACKGROUND_PROVIDER_ENV
     assert selected[4].name == expected.name
-    if version == (2, 1, 207):
+    if version in ((2, 1, 207), (2, 1, 208)):
         obsolete = {
             "restore-provider-env-after-settings-initializer",
             "restore-provider-env-at-operational-entry",
@@ -137,13 +139,38 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     )
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
-    if version == (2, 1, 207):
+    if version in ((2, 1, 207), (2, 1, 208)):
         assert sum(len(patch_set.patches) for patch_set in selected) == 78
-        assert selected[4].max_version == (2, 1, 208)
+        assert selected[4].max_version == (2, 1, 209)
         assert BACKGROUND_PROVIDER_ENV_198.applies_to(version)
         assert THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
-        assert not selected[4].applies_to((2, 1, 208))
-        assert not selected[7].applies_to((2, 1, 208))
+        assert not selected[4].applies_to((2, 1, 209))
+        assert not selected[7].applies_to((2, 1, 209))
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+def test_native_policy_filter_preserves_scoped_launcher(scoped: bool) -> None:
+    patch = next(
+        patch
+        for patch in background_provider_environment((2, 1, 208)).patches
+        if patch.name == "filter-provider-settings-with-native-policy"
+    )
+    patch_set = PatchSet("native-policy-filter", (patch,))
+    argument = "launcher(env,scope)" if scoped else "env"
+    native = f"color(host(managed(other(socket({argument})),scope)))"
+    source = f"function filter(env,scope){{return {native}}}"
+    patched = patch_set.apply(source)
+    assert (
+        f"_ccProviderValidateManaged(env,scope);return _ccProviderFilterSettings({native},scope)"
+        in patched
+    )
+    if scoped:
+        with pytest.raises(PatchError):
+            patch_set.apply(
+                source.replace("launcher(env,scope)", "launcher(env,otherScope)")
+            )
+    with pytest.raises(PatchError):
+        patch_set.apply(source + source)
 
 
 def test_named_overrides_preserve_order_and_unchanged_patches() -> None:

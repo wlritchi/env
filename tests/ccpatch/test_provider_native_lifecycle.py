@@ -63,7 +63,7 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
     """Run the complete CLI settings path without daemon or network access."""
     binary = os.environ.get("CCPATCH_STARTUP_BINARY")
     if not binary:
-        pytest.skip("set CCPATCH_STARTUP_BINARY to the patched .207 executable")
+        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched .207 or .208 executable")
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
@@ -80,8 +80,9 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
             }
         ),
     }
-    if entry == "preclaim":
+    if entry in {"spare", "preclaim"}:
         del env["CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"]
+    if entry == "preclaim":
         env["CLAUDE_CODE_SESSION_KIND"] = "bg"
     if entry == "agents":
         env["CLAUDE_AGENTS_SELECT"] = "synthetic"
@@ -119,7 +120,7 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
 def _startup_binary() -> str:
     binary = os.environ.get("CCPATCH_STARTUP_BINARY")
     if not binary:
-        pytest.skip("set CCPATCH_STARTUP_BINARY to the patched .207 executable")
+        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched .207 or .208 executable")
     return str(Path(binary).resolve())
 
 
@@ -196,7 +197,12 @@ def _connect_native(path: Path, process: subprocess.Popen[str]) -> socket.socket
 
 
 @pytest.mark.parametrize("payload", [True, False], ids=["payload", "missing-payload"])
-def test_provider_207_real_spare_claim(payload: bool, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "reject_first", [False, True], ids=["claim", "reject-then-claim"]
+)
+def test_provider_207_real_spare_claim(
+    payload: bool, reject_first: bool, tmp_path: Path
+) -> None:
     """Cross the native settings, prewarm, Unix claim, and main-init boundaries."""
     binary = _startup_binary()
     env = _startup_env(tmp_path)
@@ -212,6 +218,21 @@ def test_provider_207_real_spare_claim(payload: bool, tmp_path: Path) -> None:
         with _native_process(
             [binary, "--bg-spare", str(path)], tmp_path, env
         ) as process:
+            assert "CLAUDE_CODE_PROVIDER_ENV_TRANSIENT" not in env
+            if reject_first:
+                with _connect_native(path, process) as rejected:
+                    frame = {
+                        "cwd": str(tmp_path),
+                        "env": {"CLAUDE_CODE_PROVIDER_ENV_TRANSIENT": "invalid-json"},
+                        "argv": _startup_argv(),
+                        "auth": "wrong-claim-auth",
+                    }
+                    rejected.sendall((json.dumps(frame) + "\n").encode())
+                    rejected.shutdown(socket.SHUT_WR)
+                    assert rejected.recv(4096) == b""
+                assert process.poll() is None, (
+                    "rejected auth must not consume the spare"
+                )
             with _connect_native(path, process) as client:
                 assert process.poll() is None
                 frame = {
@@ -245,11 +266,97 @@ def _recv_exact(client: socket.socket, size: int) -> bytes:
     return bytes(result)
 
 
-@pytest.mark.parametrize("payload", [True, False], ids=["payload", "missing-payload"])
-def test_provider_207_real_pty_cold_child(payload: bool, tmp_path: Path) -> None:
+def test_provider_208_claim_bookkeeping_precedes_handoff() -> None:
+    """A claimed pool slot does not prove that a spare received its claim."""
+    source = ROOT / "build/sweep-resume/2.1.208/linux-x64/original.js"
+    runtime = shutil.which("node")
+    if not source.is_file() or runtime is None:
+        pytest.skip("requires captured .208 source and node")
+    original = source.read_text()
+    patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
+    patched_start = patched.index("function Oja(")
+    native = patched[patched_start : patched.index("function NKb(", patched_start)]
+    assert "t.claimed=!0;" in native
+    assert "_ccProviderEnv" in native
+    script = (
+        'const assert=require("node:assert/strict");'
+        + 'let slot={claimed:false},sent=false;'
+        + 'const eue={claim(){assert.equal(slot.claimed,true);throw Error("early-exit")}};'
+        + 'const u7s=()=>{sent=true;throw Error("unexpected transport")};'
+        + native
+        + 'assert.throws(()=>Oja({},slot,()=>{},()=>{}),/early-exit/);'
+        + 'assert.equal(slot.claimed,true);assert.equal(sent,false);'
+    )
+    result = subprocess.run(  # noqa: S603 - Native bookkeeping with an early-exit adapter.
+        [runtime, "-e", script], capture_output=True, text=True, timeout=20, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _native_208_pty_launch(
+    binary: str, path: Path, env: dict[str, str], drop_transport: bool
+) -> tuple[list[str], dict[str, str]]:
+    """Extract the native wrapper and PTY launcher, not replacement argv logic."""
+    source = ROOT / "build/sweep-resume/2.1.208/linux-x64/original.js"
+    runtime = shutil.which("node")
+    launcher = shutil.which("env")
+    if not source.is_file() or runtime is None or launcher is None:
+        pytest.skip("requires captured .208 source, node, and env")
+    original = source.read_text()
+    wrapper = [launcher]
+    if drop_transport:
+        wrapper += ["-u", "CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"]
+    fragments = []
+    for start, end in [
+        ("function y$(", "async function e7t("),
+        ("function c7s(", "function Vpp("),
+    ]:
+        offset = original.index(start)
+        fragments.append(original[offset : original.index(end, offset)])
+    wrapper_match = re.match(
+        r"function [\w$]+\([^)]*\)\{return (?P<wrapper>[\w$]+)\(", fragments[0]
+    )
+    assert wrapper_match is not None, "native launcher must call its wrapper adapter"
+    wrapper_adapter = wrapper_match["wrapper"]
+    script = (
+        'const assert=require("node:assert/strict");'
+        + f"const binary={json.dumps(binary)},wrapper={json.dumps(wrapper)};"
+        + f"const options={json.dumps({'cwd': env['HOME'], 'env': env, 'ptySock': str(path), 'cols': 80, 'rows': 24})};"
+        + 'let launch;const X_=()=>wrapper,Ft=()=>"linux",FR=p=>p+".err";'
+        + 'const ey=()=>true,Lzn=()=>{throw Error("must pin the host binary")};'
+        + 'const process={execPath:binary,stdout:globalThis.process.stdout};'
+        + 'const Bun={file:p=>p,spawn:(argv,options)=>{launch={argv,env:options.env};'
+        + 'return {pid:1234,unref(){}}}},qRo=()=>({});'
+        + "".join(fragments)
+        + f"c7s()(binary,{json.dumps(_startup_argv())},options);"
+        + 'assert.equal(launch.env,options.env);'
+        + 'const already={cmd:wrapper[0],prefixArgs:[],target:"native"};'
+        + f"const wrapNative={wrapper_adapter};"
+        + 'assert.strictEqual(wrapNative(already),already);'
+        + 'assert.equal(wrapNative({cmd:binary,prefixArgs:[],target:"native"}).target,"native");'
+        + 'process.stdout.write(JSON.stringify(launch));'
+    )
+    result = subprocess.run(  # noqa: S603 - Captured launcher with a spawn recorder.
+        [runtime, "-e", script], capture_output=True, text=True, timeout=20, check=False
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    launch = json.loads(result.stdout)
+    assert launch["argv"][: len(wrapper) + 1] == [*wrapper, binary]
+    assert (
+        launch["env"]["CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"]
+        == env["CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"]
+    )
+    return launch["argv"], launch["env"]
+
+
+@pytest.mark.parametrize(
+    "entry", ["payload", "missing-payload", "wrapper-forward", "wrapper-drop"]
+)
+def test_provider_207_real_pty_cold_child(entry: str, tmp_path: Path) -> None:
     """Use Bun.Terminal and native framed output, without a daemon supervisor."""
     binary = _startup_binary()
     env = _startup_env(tmp_path)
+    payload = entry != "missing-payload"
     if payload:
         env["CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"] = _startup_transport(tmp_path)
     output = bytearray()
@@ -257,7 +364,12 @@ def test_provider_207_real_pty_cold_child(payload: bool, tmp_path: Path) -> None
     with tempfile.TemporaryDirectory(prefix="cc-pty-") as directory:
         path = Path(directory) / "pty.sock"
         argv = [binary, "--bg-pty-host", str(path), "80", "24", "--", binary]
-        with _native_process(argv + _startup_argv(), tmp_path, env) as process:
+        argv += _startup_argv()
+        if entry.startswith("wrapper-"):
+            argv, env = _native_208_pty_launch(
+                binary, path, env, entry == "wrapper-drop"
+            )
+        with _native_process(argv, tmp_path, env) as process:
             with _connect_native(path, process) as client:
                 while True:
                     # uAo uses a four-byte BE length and one-byte frame kind.
@@ -281,7 +393,7 @@ def test_provider_207_real_pty_cold_child(payload: bool, tmp_path: Path) -> None
     # The unref'ed host can exit zero after it reports a nonzero child exit.
     assert process.returncode in {0, controls[-1]["code"]}
     assert "key registry is unavailable" not in text + stderr
-    if payload:
+    if payload and entry != "wrapper-drop":
         assert "EPROVIDERENV" not in text + stdout + stderr, (text + stderr)[-2500:]
         assert "requires --verbose" in text, text[-2500:]
     else:
@@ -292,8 +404,9 @@ def test_provider_207_real_pty_cold_child(payload: bool, tmp_path: Path) -> None
 @pytest.mark.parametrize(
     "platform", ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
 )
-def test_provider_207_settings_boundary(platform: str) -> None:
-    path = ROOT / f"build/sweep-resume/2.1.207/{platform}/original.js"
+@pytest.mark.parametrize("version", [207, 208])
+def test_provider_207_settings_boundary(platform: str, version: int) -> None:
+    path = ROOT / f"build/sweep-resume/2.1.{version}/{platform}/original.js"
     if not path.is_file():
         pytest.skip("requires captured pristine .207 source")
     runtime = shutil.which("node")
@@ -383,6 +496,7 @@ def test_provider_207_settings_boundary(platform: str) -> None:
     )
     native_filter = filter_patch.pattern.search(original)
     assert native_filter is not None
+    assert native_filter["native"] in patched
     assert not isinstance(filter_patch.replacement, str)
     filter_code = filter_patch.replacement(native_filter)
     assert isinstance(filter_code, str)
@@ -390,7 +504,37 @@ def test_provider_207_settings_boundary(platform: str) -> None:
     filter_stubs = "".join(
         f"function {name}(env){{return env??{{}}}}" for name in filter_names
     )
-    hidden_filter = filter_names[-1]
+    if version == 208:
+        launcher_start = original.index(f"function {filter_names[-1]}(")
+        launcher_end = original.index("function ", launcher_start + 9)
+        launcher_filter = original[launcher_start:launcher_end]
+        scope_set = re.search(r"!([\w$]+)\.has\(t\)", launcher_filter)
+        key_set = re.search(r"!([\w$]+)\.has\(n\.toUpperCase\(\)\)", launcher_filter)
+        warned_set = re.search(r"!([\w$]+)\.has\(n\)", launcher_filter)
+        logger = re.search(
+            r'\.add\(n\),([\w$]+)\(`[^`]+`,\{level:"warn"\}\)', launcher_filter
+        )
+        assert scope_set and key_set and warned_set and logger
+        launcher_script = (
+            'const assert=require("node:assert/strict");'
+            + f"const {logger[1]}=()=>{{}};"
+            + f'const {scope_set[1]}=new Set(["projectSettings","localSettings"]);'
+            + f'const {key_set[1]}=new Set(["CLAUDE_CODE_PROCESS_WRAPPER"]);'
+            + f'const {warned_set[1]}=new Set();'
+            + launcher_filter
+            + 'const env={CLAUDE_CODE_PROCESS_WRAPPER:"/trusted/launcher",OTHER:"kept"};'
+            + f'for(const scope of ["projectSettings","localSettings"])assert.deepEqual({filter_names[-1]}(env,scope),{{OTHER:"kept"}});'
+            + f'for(const scope of ["userSettings","policySettings"])assert.strictEqual({filter_names[-1]}(env,scope),env);'
+        )
+        result = subprocess.run(  # noqa: S603 - Captured scope filter with inert logging.
+            [runtime, "-e", launcher_script],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+    hidden_filter = filter_names[-2] if version == 208 else filter_names[-1]
     hidden_start = original.index(f"function {hidden_filter}(")
     hidden_end = original.index("function ", hidden_start + 9)
     filter_stubs = filter_stubs.replace(
@@ -504,10 +648,10 @@ def test_provider_207_settings_boundary(platform: str) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def _native_lifecycle_207() -> dict[str, str]:
-    path = ROOT / "build/sweep-resume/2.1.207/linux-x64/original.js"
+def _native_lifecycle_207(version: int = 207) -> dict[str, str]:
+    path = ROOT / f"build/sweep-resume/2.1.{version}/linux-x64/original.js"
     if not path.is_file():
-        pytest.skip("requires captured pristine .207 linux-x64 source")
+        pytest.skip(f"requires captured pristine .{version} linux-x64 source")
     original = path.read_text()
     patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
     # Rename minified bindings to the harness names. Do not replace native bodies.
@@ -652,7 +796,158 @@ def _native_lifecycle_207() -> dict[str, str]:
         'uOa': 'EBa',
     }
     names.update({"m6o": "L8o", "KSc": "Hwc", "s2n": "e4n"})
+    if version == 208:
+        names = {
+            'Bce': 'eue',
+            'As': 'ws',
+            'wnn': 'Fon',
+            '_sn': 'Uon',
+            'Y3_': 'kE_',
+            'rLp': 'Xpp',
+            'z3_': 'HE_',
+            'Ca': 'ka',
+            'pc': 'vc',
+            'oy': 'Sg',
+            'JRp': 'Wpp',
+            'Yua': 'f7s',
+            'ZHe': 'cHe',
+            'V3_': 'CE_',
+            'nLp': 'Jpp',
+            'j3_': 'EE_',
+            'tLp': 'Ypp',
+            'qua': 'c7s',
+            'upr': 'jtr',
+            'mMo': 'qRo',
+            'wC': 'JH',
+            'eLp': 'zpp',
+            'ZRp': 'Vpp',
+            'X0': 'v0',
+            'xDs': 'juo',
+            'Uua': 'ZKs',
+            'CRo': 'zRo',
+            'Wua': 'l7s',
+            'jua': 'KRo',
+            'OSt': 'Pwt',
+            'uJe': 'zet',
+            'Nt': 'Ft',
+            'yM': 'LM',
+            'Rgt': 'I_t',
+            'QRp': 'qpp',
+            'mMt': 'PMt',
+            'lJ': '$J',
+            'hMo': 'YRo',
+            'Vua': 'u7s',
+            'zua': 'd7s',
+            'k_p': 'eQu',
+            'gD': 'FR',
+            'wta': 'jcs',
+            'yke': 'MIe',
+            '_gt': '__t',
+            'Qk': '$I',
+            'dV': 'y$',
+            'fr': 'pr',
+            'u8e': 'MWe',
+            '$le': 'xre',
+            'yXr': 'X8r',
+            'XRp': 'Gpp',
+            'W3_': 'wE_',
+            'YRp': 'jpp',
+            'G3_': 'AE_',
+            'cKo': 'bQo',
+            'uKo': 'SQo',
+            'jh': 'Rh',
+            'JT': 'M_',
+            'Gua': 'a7s',
+            'KRp': 'Upp',
+            'Yo': 'Jo',
+            'h8e': '$8e',
+            'SQe': 'irt',
+            'U3_': 'vE_',
+            'qRp': 'Npp',
+            'G$e': 'n0e',
+            'S2e': 'OUe',
+            'q3_': 'TE_',
+            'bx_': 'QL_',
+            'yx_': 'XL_',
+            'Dr': 'Dr',
+            'u$r': 'VUr',
+            'S$i': 'I6i',
+            'WRp': '$pp',
+            'Re': 'Le',
+            'Bm': 'Lf',
+            'aRo': 'Ouo',
+            'Ft': 'Nt',
+            'GRp': 'Opp',
+            'jRp': 'Mpp',
+            'w_p': 'YJu',
+            'qC_': 'eoy',
+            'bsn': 'jon',
+            'Kua': 'p7s',
+            'cTr': 'ZHr',
+            'VUt': 'o3t',
+            'Rde': 'Dpe',
+            'ut': 'ut',
+            'qUt': 'n3t',
+            'rOa': '$ja',
+            'L4': 'bj',
+            'Tce': 'Kle',
+            'umn': 'i_n',
+            'A5o': 'I8o',
+            'kF': 't2',
+            'nNb': 'JKb',
+            'zut': 'Mit',
+            'cMt': 'Ckt',
+            'dOa': 'Vja',
+            'd4': 'y4',
+            'w_e': 'cye',
+            'vEt': 'r0t',
+            'AI': 'Tk',
+            'QTe': '_Ce',
+            'Yxd': 'oUd',
+            'Jxy': 'V3y',
+            'Te': 've',
+            'ZWe': 'Eqe',
+            'xCs': 'SOs',
+            'bir': 'ccr',
+            'gir': 'scr',
+            'Sir': 'ucr',
+            'ekd': 'cUd',
+            'tye': 'y_e',
+            'j7r': 'bZr',
+            'Kyo': 'ewo',
+            'vir': 'dcr',
+            'eky': 'Z3y',
+            'dg': 'bg',
+            'sky': 'i5y',
+            'tkd': 'uUd',
+            'Zxy': 'K3y',
+            'U7r': '_Zr',
+            '_X': 'wJ',
+            'Qxy': 'z3y',
+            'lRt': 'dDt',
+            'W7r': 'vZr',
+            'rkd': 'dUd',
+            'Ee': 'we',
+            'Zxd': 'lUd',
+            'Ct': 'Ht',
+            'cpr': 'Utr',
+            'HRo': 'VRo',
+            'gYe': 'CRe',
+            'uOa': 'qja',
+            'm6o': 'Ezo',
+            'KSc': 'I9c',
+            's2n': 'A8n',
+            'xe': 'Te',
+            'Pe': 'Re',
+            'Ce': 'ke',
+            'fs': 'Vi',
+            'ne': 'ie',
+            'Lf': 'Nf',
+            'Ann': 'z8r',
+            'vnn': 'q8r',
+        }
     reverse = {new: old for old, new in names.items()}
+    assert len(reverse) == len(names)
     tokens = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][\w$]*')
 
     def extract(start: str, end: str) -> str:
@@ -682,6 +977,33 @@ def _native_lifecycle_207() -> dict[str, str]:
         f'var {name}=["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","ANTHROPIC_BASE_URL"];'
         for name in _provider_key_sources(original)
     )
+    if version == 208:
+        # Adapt manager locals only. Keep worker and transport bodies intact.
+        adoption = extract("await Promise.all(Object.entries(T.workers)", ",x+k+R>0)")
+        locals_map = {"T": "A", "x": "T", "k": "x", "R": "I", "b": "_"}
+        adoption = tokens.sub(
+            lambda match: locals_map.get(match[0], match[0]), adoption
+        )
+        worker = extract("class eue{", "var Uon,a7s,$J,YRo,")
+        assert "onExit(e,t,r){" in worker
+        return {
+            "version": str(version),
+            # No external launcher is configured in the extracted-role harness.
+            "worker": 'const FC=()=>globalThis.wrapperRefusal??null,X_=()=>globalThis.wrapperCommand??[],Rz=v=>v,Eh=v=>v,n4="CLAUDE_CODE_PROCESS_WRAPPER";'
+            + extract("function Kpp(", "async function u7s(")
+            + worker,
+            "stall": extract("function QL_(", "async function gAp("),
+            "client": extract("function Npp(", "var $pp,"),
+            "lines": extract("function Ouo(", "var YJu,"),
+            "environment": extract("function zpp(", "function Kpp("),
+            "sweeps": extract("async function $ja(", "var k8o,")
+            + extract("async function JKb(", "var Nf,"),
+            "auth": extract("function _Ce(", "var oUd,"),
+            "endpoint": extract("async function V3y(", "async function pUd("),
+            "server": extract("function K3y(", "async function pUd("),
+            "adoption": adoption,
+            "helpers": registry + helpers,
+        }
     adoption = extract("await Promise.all(Object.entries(A.workers)", ",T+x+k>0)")
     adoption = adoption.replace("k++", "I++")
     return {
@@ -700,10 +1022,10 @@ def _native_lifecycle_207() -> dict[str, str]:
     }
 
 
-@pytest.fixture(scope="module", params=[206, 207])
+@pytest.fixture(scope="module", params=[206, 207, 208])
 def native_lifecycle_source(request: pytest.FixtureRequest) -> dict[str, str]:
-    if request.param == 207:
-        return _native_lifecycle_207()
+    if request.param in {207, 208}:
+        return _native_lifecycle_207(request.param)
     path = ROOT / "build/sweep-resume/2.1.206/linux-x64/original.js"
     if not path.is_file():
         pytest.skip("requires captured pristine .206 linux-x64 source")
@@ -814,6 +1136,28 @@ def test_native_provider_lifecycle(
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "wrapper-refusal",
+        "wrapper-ENOENT",
+        "wrapper-EACCES",
+        "wrapper-EPERM",
+        "wrapper-fork-exit",
+        "wrapper-host-stderr",
+    ],
+)
+def test_native_208_wrapper_failures(
+    native_wrapper_source: dict[str, str], scenario: str, tmp_path: Path
+) -> None:
+    test_native_provider_lifecycle(native_wrapper_source, scenario, tmp_path)
+
+
+@pytest.fixture(scope="module")
+def native_wrapper_source() -> dict[str, str]:
+    return _native_lifecycle_207(208)
 
 
 @pytest.mark.skipif(

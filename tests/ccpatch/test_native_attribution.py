@@ -75,7 +75,10 @@ def _captures(source: str) -> list[tuple[str, str]]:
 @pytest.mark.parametrize(
     "architecture", ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
 )
-def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("background_disabled", [False, True])
+def test_native_cached_bash_attribution(
+    architecture: str, background_disabled: bool, tmp_path: Path
+) -> None:
     runtime = shutil.which("node") or shutil.which("bun")
     path = _ROOT / architecture / "original.js"
     reference = Path(
@@ -213,6 +216,52 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
                 baseline = baseline.replace(spread, ",")
                 # The removed local shifts the remaining minified local names.
                 local_names[originals[index][0]] = {}
+        if index == 3 and re.search(
+            rf'],{_ID}=!{_ID}\(\),{_ID}=\["Do not sleep between commands', original
+        ):
+            # Add the background-task gate to the fixture, not the captured code.
+            sleep_array = re.search(
+                rf'],({_ID})=\["Do not sleep between commands', baseline
+            )
+            assert sleep_array is not None
+            baseline = (
+                baseline[: sleep_array.start()]
+                + "],_background=!_nativeBackgroundDisabled(),"
+                + baseline[sleep_array.start() + 2 :]
+            )
+            monitor = (
+                "Use the Monitor tool to stream events from a background process "
+                "(each stdout line is a notification)."
+            )
+            before = (
+                "['"
+                + monitor
+                + ' For one-shot "wait until done," use Bash with '
+                + "run_in_background instead.']"
+            )
+            assert baseline.count(before) == 1
+            baseline = baseline.replace(
+                before, "[_background?" + before[1:-1] + ":" + json.dumps(monitor) + "]"
+            )
+            for guidance in (
+                "If your command is long running and you would like to be notified when it finishes — use `run_in_background`. No sleep needed.",
+                "If waiting for a background task you started with `run_in_background`, you will be notified when it completes — do not poll.",
+            ):
+                guidance = json.dumps(guidance)
+                assert baseline.count(guidance) == 1
+                baseline = baseline.replace(
+                    guidance, "..._background?[" + guidance + "]:[]"
+                )
+            leading_sleep = re.search(
+                rf'\.\.\.({_ID})\(\)\?\["Long leading `sleep` commands', baseline
+            )
+            assert leading_sleep is not None
+            baseline = (
+                baseline[: leading_sleep.start()]
+                + leading_sleep[0].replace("()?", "()&&_background?", 1)
+                + baseline[leading_sleep.end() :]
+            )
+            local_names[originals[index][0]] = {}
         # Normalize only known prose and call-site changes for name comparison.
         for before, after in (
             (
@@ -306,7 +355,12 @@ def test_native_cached_bash_attribution(architecture: str, tmp_path: Path) -> No
 
     payload = tmp_path / "native.json"
     payload.write_text(
-        json.dumps({"source": normalize(helper + "\n" + "\n".join(functions))})
+        json.dumps(
+            {
+                "source": f"function _nativeBackgroundDisabled(){{return {json.dumps(background_disabled)}}}\n"
+                + normalize(helper + "\n" + "\n".join(functions))
+            }
+        )
     )
     result = subprocess.run(  # noqa: S603 - local runtime and regression harness
         [

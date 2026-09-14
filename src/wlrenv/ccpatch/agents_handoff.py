@@ -106,6 +106,6 @@ def agents_view_handoff(version: Version | None) -> PatchSet:
         ),
         verify_present=(re.compile(r'dispatchExtraArgs:_ccAgentsDispatchArgs\(\)'),),
         min_version=(2, 1, 182),
-        max_version=(2, 1, 208),
+        max_version=(2, 1, 209),
         requires_version=True,
     )

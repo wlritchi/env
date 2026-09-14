@@ -1,4 +1,4 @@
-// Opt-in extracted .206 transport test. This does not launch the CLI or PTY host.
+// Opt-in extracted .206-.208 transport test. This does not launch the CLI or PTY host.
 // Native adoption, framing, reconnect, endpoint, HMAC and environment code run
 // unchanged. UI, telemetry, PTY and transcript services remain test adapters.
 import assert from "node:assert/strict";
@@ -75,6 +75,10 @@ if (!mode) {
     assert.equal(after.pid, worker.pid);
     assert.equal(after.recovered, scenario !== "wrong-auth");
     assert.equal(after.probed, scenario !== "wrong-auth");
+    if (after.recovered) {
+      assert.notEqual(before.nonce, after.nonce);
+      assert.match(after.nonce, /^[a-f0-9]{64}$/);
+    }
     process.kill(worker.pid, 0);
     await stop(successor);
     await stop(worker);
@@ -142,7 +146,7 @@ if (!mode) {
     Object.assign(roster, {
       pid,
       procStart: identity(pid),
-      cliVersion: "2.1.206",
+      cliVersion: `2.1.${fixture.version ?? "206"}`,
       rendezvousSock: socketPath,
       rvAuth: process.env.AUTH,
       ptySock: undefined,
@@ -216,6 +220,21 @@ if (!mode) {
       process.env.ANTHROPIC_AUTH_TOKEN = "must-be-deleted";
       process.env.ANTHROPIC_BASE_URL = "must-be-empty";
       vm.runInContext(fixture.environment, ctx);
+      const hostEnv = { ...process.env };
+      const execEnv = ctx.eLp(
+        { ...job, launch: { mode: "exec", args: ["synthetic-command"] } },
+        "/synthetic-job",
+        undefined,
+        socketPath,
+        undefined,
+        worker.providerEnv,
+      );
+      assert.equal(execEnv.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT, undefined);
+      assert.equal(execEnv.CLAUDE_BG_RENDEZVOUS_SOCK, undefined);
+      assert.equal(execEnv.CLAUDE_PTY_HOST_EXEC, "1");
+      assert.equal(execEnv.ANTHROPIC_API_KEY, payload.ANTHROPIC_API_KEY);
+      assert.equal(execEnv.ANTHROPIC_AUTH_TOKEN, undefined);
+      assert.deepEqual({ ...process.env }, hostEnv);
       worker.spawnPty = (_cmd, _args, options) => {
         const probe = spawnSync(
           process.execPath,
@@ -238,9 +257,11 @@ if (!mode) {
       };
       await worker.doSpawn();
       assert.equal(probed, true);
+      assert.deepEqual({ ...process.env }, hostEnv);
     }
     assert.deepEqual(errors, []);
-    process.send({ pid, recovered: worker.providerEnv !== null, probed });
+    const snapshot = frames.find((frame) => frame.type === "cc-provider-snapshot");
+    process.send({ pid, recovered: worker.providerEnv !== null, probed, nonce: snapshot?.nonce });
   }
   // Keep the extracted endpoint alive until the controller explicitly stops it.
   setInterval(() => {}, 1000);
