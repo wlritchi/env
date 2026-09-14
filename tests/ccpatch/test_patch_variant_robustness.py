@@ -123,6 +123,7 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
             "initialize-provider-before-native-settings",
             "filter-provider-settings-with-native-policy",
             "install-provider-native-policy-boundary",
+            "preserve-provider-transport-in-pty-host",
             "reset-provider-initialization-on-spare-claim",
             "avoid-provider-reset-after-claimed-entry",
             "carry-provider-env-to-agents-fallback",
@@ -137,7 +138,7 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
     if version == (2, 1, 207):
-        assert sum(len(patch_set.patches) for patch_set in selected) == 77
+        assert sum(len(patch_set.patches) for patch_set in selected) == 78
         assert selected[4].max_version == (2, 1, 208)
         assert BACKGROUND_PROVIDER_ENV_198.applies_to(version)
         assert THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)

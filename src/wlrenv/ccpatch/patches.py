@@ -1657,14 +1657,25 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
                 ),
             ),
             Patch(
+                "preserve-provider-transport-in-pty-host",
+                re.compile(
+                    r"function _ccProviderCaptureTransport\(_ccEnv=process\.env\)\{"
+                ),
+                'function _ccProviderCaptureTransport(_ccEnv=process.env){'
+                'if(process.argv[2]==="--bg-pty-host")return null;',
+            ),
+            Patch(
                 "install-provider-native-policy-boundary",
                 re.compile(
                     r'let _ccProviderWorkerEnv=_ccProviderCaptureTransport\(\);'
                 ),
+                'let _ccProviderPtyHost=process.argv[2]==="--bg-pty-host";'
+                'let _ccProviderAwaitingClaim=process.argv[2]==="--bg-spare";'
                 'let _ccProviderWorkerEnv=_ccProviderCaptureTransport();'
                 'var _ccProviderCaptureReady=true;'
                 'let _ccProviderInitialized=false;'
-                'function _ccProviderInitialize(_ccPolicy){if(!_ccProviderCaptureReady)return;'
+                'function _ccProviderInitialize(_ccPolicy){if(!_ccProviderCaptureReady||'
+                '_ccProviderPtyHost||_ccProviderAwaitingClaim)return;'
                 '_ccProviderValidateManaged(_ccPolicy,"policySettings");'
                 'if(_ccProviderInitialized)return;'
                 '_ccProviderApplyWorkerFinal();_ccProviderInitialized=true}'
@@ -1688,7 +1699,7 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
                 re.compile(
                     r'(?P<capture>_ccProviderWorkerEnv=_ccProviderCaptureTransport\([\w$]+\.env\);)'
                 ),
-                r'\g<capture>_ccProviderInitialized=false;',
+                r'\g<capture>_ccProviderAwaitingClaim=false;_ccProviderInitialized=false;',
             ),
             Patch(
                 "avoid-provider-reset-after-claimed-entry",

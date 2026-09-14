@@ -87,6 +87,7 @@ const ctx = vm.createContext({
   crypto,
   structuredClone,
   process: {
+    argv: ["node", "cli.js"],
     env: { ANTHROPIC_API_KEY: "daemon-secret" },
     kill(pid, signal) {
       if (signal === 0) {
@@ -259,7 +260,10 @@ if (scenario.startsWith("process-")) {
   const endpoint = vm.createContext({
     require: createRequire(import.meta.url),
     Buffer,
-    process: { env: { CLAUDE_CODE_PROVIDER_ENV_TRANSIENT: JSON.stringify(payload) } },
+    process: {
+      argv: ["node", "cli.js"],
+      env: { CLAUDE_CODE_PROVIDER_ENV_TRANSIENT: JSON.stringify(payload) },
+    },
     Te: { CLAUDE_BG_RENDEZVOUS_SOCK: "/rv/test", CLAUDE_BG_RV_AUTH: "native-auth" }, // codespell:ignore te
     ZWe: undefined,
     tye: undefined, // codespell:ignore tye
@@ -402,7 +406,10 @@ if (scenario.startsWith("process-")) {
   const server = vm.createContext({
     require: createRequire(import.meta.url),
     Buffer,
-    process: { env: { CLAUDE_CODE_PROVIDER_ENV_TRANSIENT: JSON.stringify(payload) } },
+    process: {
+      argv: ["node", "cli.js"],
+      env: { CLAUDE_CODE_PROVIDER_ENV_TRANSIENT: JSON.stringify(payload) },
+    },
     Bm: 1,
     Ct: () => job.sessionId,
     bir: "native-auth",
@@ -494,7 +501,10 @@ if (scenario.startsWith("process-")) {
         const otherRoster = { ...roster, dispatch: otherJob, rvAuth: "other-native-auth" };
         const otherServer = vm.createContext({
           ...server,
-          process: { env: { CLAUDE_CODE_PROVIDER_ENV_TRANSIENT: JSON.stringify(otherPayload) } },
+          process: {
+            argv: ["node", "cli.js"],
+            env: { CLAUDE_CODE_PROVIDER_ENV_TRANSIENT: JSON.stringify(otherPayload) },
+          },
           Ct: () => otherJob.sessionId,
           bir: otherRoster.rvAuth,
           j7r: false,

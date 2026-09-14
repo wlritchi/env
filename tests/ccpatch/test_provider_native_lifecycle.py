@@ -7,9 +7,13 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -54,7 +58,7 @@ def test_provider_registry_rejects_ambiguous_scope(prefix: str) -> None:
         pattern.sub(_initialize_provider_registry, script)
 
 
-@pytest.mark.parametrize("entry", ["spare", "cold", "agents"])
+@pytest.mark.parametrize("entry", ["spare", "preclaim", "cold", "agents"])
 def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
     """Run the complete CLI settings path without daemon or network access."""
     binary = os.environ.get("CCPATCH_STARTUP_BINARY")
@@ -76,12 +80,15 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
             }
         ),
     }
+    if entry == "preclaim":
+        del env["CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"]
+        env["CLAUDE_CODE_SESSION_KIND"] = "bg"
     if entry == "agents":
         env["CLAUDE_AGENTS_SELECT"] = "synthetic"
     # Missing verbosity exits after cold settings initialization, before requests.
     args = (
         ["--bg-spare"]
-        if entry == "spare"
+        if entry in {"spare", "preclaim"}
         else ["--setting-sources", "", "-p", "--output-format", "stream-json", "test"]
     )
     process = subprocess.Popen(  # noqa: S603 - Explicit opt-in local binary.
@@ -101,8 +108,185 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
             process.communicate()
     assert "EPROVIDERENV" not in stderr, stderr[-2500:]
     assert "key registry is unavailable" not in stderr
-    expected = "missing claim sock path" if entry == "spare" else "requires --verbose"
+    expected = (
+        "missing claim sock path"
+        if entry in {"spare", "preclaim"}
+        else "requires --verbose"
+    )
     assert expected in stdout + stderr, (stdout + stderr)[-2500:]
+
+
+def _startup_binary() -> str:
+    binary = os.environ.get("CCPATCH_STARTUP_BINARY")
+    if not binary:
+        pytest.skip("set CCPATCH_STARTUP_BINARY to the patched .207 executable")
+    return str(Path(binary).resolve())
+
+
+def _startup_env(home: Path) -> dict[str, str]:
+    return {
+        "PATH": os.environ["PATH"],
+        "HOME": str(home),
+        "CLAUDE_CONFIG_DIR": str(home),
+        "XDG_CONFIG_HOME": str(home),
+        "XDG_CACHE_HOME": str(home / "cache"),
+        "DISABLE_AUTOUPDATER": "1",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "HTTP_PROXY": "http://127.0.0.1:1",
+        "HTTPS_PROXY": "http://127.0.0.1:1",
+        "ALL_PROXY": "http://127.0.0.1:1",
+        "CLAUDE_CODE_SESSION_KIND": "bg",
+    }
+
+
+def _startup_transport(home: Path) -> str:
+    return json.dumps(
+        {
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:1",
+            "ANTHROPIC_API_KEY": "synthetic-test-key",
+            "CLAUDE_CONFIG_DIR": str(home),
+        }
+    )
+
+
+def _startup_argv() -> list[str]:
+    # Stop at argument validation, before a provider request.
+    return ["--setting-sources", "", "-p", "--output-format", "stream-json", "test"]
+
+
+@contextmanager
+def _native_process(
+    argv: list[str], home: Path, env: dict[str, str]
+) -> Iterator[subprocess.Popen[str]]:
+    with subprocess.Popen(  # noqa: S603 - Explicit opt-in local binary.
+        argv,
+        cwd=home,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    ) as process:
+        try:
+            yield process
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate(timeout=10)
+
+
+def _connect_native(path: Path, process: subprocess.Popen[str]) -> socket.socket:
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        client = socket.socket(socket.AF_UNIX)
+        client.settimeout(20)
+        try:
+            client.connect(str(path))
+            return client
+        except (FileNotFoundError, ConnectionRefusedError):
+            client.close()
+        if process.poll() is not None:
+            stdout, stderr = process.communicate()
+            pytest.fail(
+                f"native process exited before socket readiness: {stdout}{stderr}"
+            )
+        time.sleep(0.02)
+    pytest.fail(f"native socket did not become ready: {path}")
+
+
+@pytest.mark.parametrize("payload", [True, False], ids=["payload", "missing-payload"])
+def test_provider_207_real_spare_claim(payload: bool, tmp_path: Path) -> None:
+    """Cross the native settings, prewarm, Unix claim, and main-init boundaries."""
+    binary = _startup_binary()
+    env = _startup_env(tmp_path)
+    env["CLAUDE_BG_CLAIM_AUTH"] = "synthetic-claim-auth"
+    claim_env = (
+        {"CLAUDE_CODE_PROVIDER_ENV_TRANSIENT": _startup_transport(tmp_path)}
+        if payload
+        else {}
+    )
+    # Keep the Unix socket path below the platform limit.
+    with tempfile.TemporaryDirectory(prefix="cc-claim-") as directory:
+        path = Path(directory) / "claim.sock"
+        with _native_process(
+            [binary, "--bg-spare", str(path)], tmp_path, env
+        ) as process:
+            with _connect_native(path, process) as client:
+                assert process.poll() is None
+                frame = {
+                    "cwd": str(tmp_path),
+                    "env": claim_env,
+                    "argv": _startup_argv(),
+                    "auth": env["CLAUDE_BG_CLAIM_AUTH"],
+                }
+                # DOo accepts one authenticated, newline-delimited JSON claim.
+                client.sendall((json.dumps(frame) + "\n").encode())
+                client.shutdown(socket.SHUT_WR)
+            stdout, stderr = process.communicate(timeout=20)
+    output = stdout + stderr
+    assert process.returncode != 0
+    assert "key registry is unavailable" not in output, output[-2500:]
+    if payload:
+        assert "EPROVIDERENV" not in output, output[-2500:]
+        assert "requires --verbose" in output, output[-2500:]
+    else:
+        assert "EPROVIDERENV" in output, output[-2500:]
+        assert "post-claim init failed" in output, output[-2500:]
+        assert "requires --verbose" not in output, output[-2500:]
+
+
+def _recv_exact(client: socket.socket, size: int) -> bytes:
+    result = bytearray()
+    while len(result) < size:
+        chunk = client.recv(size - len(result))
+        assert chunk, "PTY socket closed before the exit frame"
+        result.extend(chunk)
+    return bytes(result)
+
+
+@pytest.mark.parametrize("payload", [True, False], ids=["payload", "missing-payload"])
+def test_provider_207_real_pty_cold_child(payload: bool, tmp_path: Path) -> None:
+    """Use Bun.Terminal and native framed output, without a daemon supervisor."""
+    binary = _startup_binary()
+    env = _startup_env(tmp_path)
+    if payload:
+        env["CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"] = _startup_transport(tmp_path)
+    output = bytearray()
+    controls: list[dict[str, object]] = []
+    with tempfile.TemporaryDirectory(prefix="cc-pty-") as directory:
+        path = Path(directory) / "pty.sock"
+        argv = [binary, "--bg-pty-host", str(path), "80", "24", "--", binary]
+        with _native_process(argv + _startup_argv(), tmp_path, env) as process:
+            with _connect_native(path, process) as client:
+                while True:
+                    # uAo uses a four-byte BE length and one-byte frame kind.
+                    header = _recv_exact(client, 5)
+                    size = int.from_bytes(header[:4], "big")
+                    assert size <= 1048576
+                    body = _recv_exact(client, size)
+                    if header[4] == 0:
+                        output.extend(body)
+                    else:
+                        assert header[4] == 1
+                        control = json.loads(body)
+                        controls.append(control)
+                        if control["t"] == "exit":
+                            break
+            stdout, stderr = process.communicate(timeout=20)
+    text = output.decode(errors="replace")
+    assert controls[0]["t"] == "hello"
+    assert controls[0]["replPid"] != process.pid
+    assert controls[-1]["code"] != 0
+    # The unref'ed host can exit zero after it reports a nonzero child exit.
+    assert process.returncode in {0, controls[-1]["code"]}
+    assert "key registry is unavailable" not in text + stderr
+    if payload:
+        assert "EPROVIDERENV" not in text + stdout + stderr, (text + stderr)[-2500:]
+        assert "requires --verbose" in text, text[-2500:]
+    else:
+        assert "EPROVIDERENV" in text, text[-2500:]
+        assert "requires --verbose" not in text, text[-2500:]
 
 
 @pytest.mark.parametrize(
@@ -159,6 +343,32 @@ def test_provider_207_settings_boundary(platform: str) -> None:
     )
     assert isinstance(install.replacement, str)
     helpers = install.pattern.sub(install.replacement, helpers)
+    preserve = next(
+        p for p in patches if p.name == "preserve-provider-transport-in-pty-host"
+    )
+    helpers = preserve.pattern.sub(preserve.replacement, helpers)
+    host_script = (
+        'const assert=require("node:assert/strict");'
+        'process.argv[2]="--bg-pty-host";'
+        'process.env.CLAUDE_CODE_SESSION_KIND="bg";'
+        'const transport=JSON.stringify({ANTHROPIC_API_KEY:"synthetic"});'
+        'process.env.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT=transport;'
+        + helpers
+        + '_ccProviderInitialize();'
+        + 'assert.equal(_ccProviderWorkerEnv,null);'
+        + 'assert.equal(process.env.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT,transport);'
+        + 'process.argv[2]="--worker";'
+        + 'assert.deepEqual(_ccProviderCaptureTransport(),{ANTHROPIC_API_KEY:"synthetic"});'
+        + 'assert.equal(process.env.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT,undefined);'
+    )
+    result = subprocess.run(  # noqa: S603 - Run captured transport with synthetic credentials.
+        [runtime, "-e", host_script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
     for name, count in [
         ("initialize-provider-before-native-settings", 2),
         ("filter-provider-settings-with-native-policy", 1),
@@ -267,6 +477,22 @@ def test_provider_207_settings_boundary(platform: str) -> None:
         _ccProviderInitialize();
         NATIVE_ADMIN();
         assert.equal(admin.opus,false);
+        _ccProviderWorkerEnv=null;
+        _ccProviderInitialized=false;
+        process.env.CLAUDE_CODE_SESSION_KIND="bg";
+        _ccProviderAwaitingClaim=true;
+        _ccProviderInitialize();
+        assert.equal(_ccProviderInitialized,false);
+        _ccProviderAwaitingClaim=false;
+        assert.throws(()=>_ccProviderInitialize(),{code:"EPROVIDERENV"});
+        _ccProviderPtyHost=true;
+        _ccProviderInitialize();
+        assert.equal(_ccProviderInitialized,false);
+        _ccProviderPtyHost=false;
+        _ccProviderWorkerEnv={ANTHROPIC_API_KEY:"claimed"};
+        _ccProviderInitialize();
+        assert.equal(process.env.ANTHROPIC_API_KEY,"claimed");
+        assert.equal(_ccProviderInitialized,true);
         _ccProviderWorkerEnv=null;
         const native={ANTHROPIC_API_KEY:"native"};
         assert.equal(_ccProviderFilterSettings(native,"policySettings"),native);
