@@ -1177,10 +1177,10 @@ def _replace_provider_stall_respawn(match: re.Match[str]) -> str:
     original = match.group(0)
     original = checked_replace(
         original,
-        f'let {match.group("job")}={worker}.dispatch;',
+        f'let {match.group("job")}={worker}.dispatch{match.group("separator")}',
         f'if({worker}._ccProviderBlocked())return;'
         f'let _ccProviderEnv={worker}.providerEnv;'
-        f'let {match.group("job")}={worker}.dispatch;',
+        f'let {match.group("job")}={worker}.dispatch{match.group("separator")}',
         context="provider attach-stall guard",
     )
     return checked_replace(
@@ -1650,8 +1650,8 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
             "preserve-provider-on-attach-stall-respawn",
             re.compile(
                 r'function [\w$]+\((?P<worker>[\w$]+),[\w$]+,'
-                r'(?P<dispatch>[\w$]+),[\w$]+,[\w$]+(?:,[\w$]+)?\)\{'
-                r'let (?P<job>[\w$]+)=(?P=worker)\.dispatch;'
+                r'(?P<dispatch>[\w$]+),[\w$]+(?:,[\w$]+){0,2}\)\{'
+                r'let (?P<job>[\w$]+)=(?P=worker)\.dispatch(?P<separator>[;,])'
                 r'[^\n]*?attachStallRespawns:[^\n]*?:(?P=job)\.launch\}\)'
             ),
             _replace_provider_stall_respawn,
