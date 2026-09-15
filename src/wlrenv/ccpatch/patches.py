@@ -18,8 +18,16 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import NotRequired, TypedDict
+from typing import override as typing_override
 
 from .agents_handoff import agents_view_handoff
+from .module_runtime import (
+    ModuleRuntimeError,
+    ensure_module_reference,
+    module_reference,
+    register_module_bootstrap,
+    source_modules,
+)
 
 Version = tuple[int, ...]
 
@@ -157,13 +165,37 @@ class PatchSet:
                     match: re.Match[str],
                     bound: Callable[[re.Match[str], dict[str, str]], str] = bound,
                     bindings: dict[str, str] = bindings,
+                    identifiers: tuple[re.Pattern[str], ...] = patch.identifiers,
                 ) -> str:
-                    return bound(match, bindings)
+                    qualified = dict(bindings)
+                    for pattern in identifiers:
+                        definition = pattern.search(match.string)
+                        assert definition is not None
+                        for name, value in definition.groupdict().items():
+                            if value is not None and name != "entry":
+                                qualified[name] = module_reference(
+                                    match.string,
+                                    definition.start(),
+                                    value,
+                                    match.start(),
+                                )
+                    return bound(match, qualified)
 
                 replacement = replace_bound
 
             try:
-                source = patch.pattern.sub(replacement, source)
+                parts: list[str] = []
+                offset = 0
+                for match in matches:
+                    parts.append(source[offset : match.start()])
+                    parts.append(
+                        match.expand(replacement)
+                        if isinstance(replacement, str)
+                        else replacement(match)
+                    )
+                    offset = match.end()
+                parts.append(source[offset:])
+                source = "".join(parts)
             except PatchError as exc:
                 raise PatchError(f"{context}: {exc}") from exc
         for marker in self.verify_present:
@@ -430,36 +462,43 @@ _PROVIDER_ENV_SNAPSHOT = re.compile(
     rf'function (?P<snapshot>{_ID})\(\)\{{let (?P<result>{_ID})=\{{\}};'
     rf'for\(let (?P<key>{_ID}) of (?P<allowlist>{_ID})\)\{{let '
     rf'(?P<value>{_ID})=process\.env\[(?P=key)\];if\((?P=value)===void 0\)continue;'
+    rf'(?P<normalization>if\((?P<boolean_keys>{_ID})\.has\((?P=key)\)\)\{{'
+    rf'if\((?P<truthy>{_ID})\((?P=value)\)\)(?P=result)\[(?P=key)\]="1";continue\}})?'
     rf'if\((?P=value)===""&&(?P=key)!=="CLAUDE_SECURESTORAGE_CONFIG_DIR"\)continue;'
     rf'(?P=result)\[(?P=key)\]=(?P=value)\}}return (?P=result)\}}'
 )
 _PROVIDER_ENV_SCHEMA = re.compile(
-    rf'(?P<schema>{_ID})\.object\(\{{proto:(?P<proto>{_ID}),op:'
-    rf'(?P=schema)\.literal\("dispatch"\),d:(?P<dispatch>{_ID})\(\),'
-    rf'timeoutMs:(?P=schema)\.number\(\),auth:'
+    rf'(?<![\w$])(?:(?P<schema>{_ID})\.object|(?P<object>{_ID}))\(\{{proto:(?P<proto>{_ID}),op:'
+    rf'(?(schema)(?P=schema)\.literal|{_ID})\("dispatch"\),d:(?P<dispatch>{_ID})\(\),'
+    rf'timeoutMs:(?(schema)(?P=schema)\.number|(?P<number>{_ID}))\(\),auth:'
 )
 _PROVIDER_ENV_PERSISTED_DEFAULT = re.compile(
-    rf'(?P<isolation>{_ID})=(?P<default>(?:{_ID}\?\.bgIsolation==="default"\?void 0:)?)'
+    rf'(?<![\w$])(?P<isolation>{_ID})=(?P<default>(?:{_ID}\?\.bgIsolation==="default"\?void 0:)?)'
     rf'(?P<source>{_ID})==="repl"\?"none":'
     rf'(?P<options>{_ID})\?\.bgIsolation,(?P<provider>{_ID})='
     rf'(?P=options)\?\.providerEnv\?\?(?P<snapshot>{_ID})\(\),'
 )
 _PROVIDER_ENV_SOCKET = re.compile(
-    rf'(?P<call>{_ID})\(\{{proto:(?P<proto>{_ID}),op:"dispatch",d:'
+    rf'(?<![\w$])(?P<call>{_ID})\(\{{proto:(?P<proto>{_ID}),op:"dispatch",d:'
     rf'\{{\.\.\.(?P<job>{_ID}),nonce:(?P<nonce>[^}}]+)\}},timeoutMs:5000,'
     rf'auth:await (?P<auth>{_ID})\(\)\}}'
 )
 _PROVIDER_ENV_AGENTS_FALLBACK = re.compile(
     rf'if\((?P<gate>{_ID})\("tengu_bg_leftarrow_inprocess",!0\)\)'
     rf'try\{{return await (?P<inprocess>{_ID})\((?P<job>{_ID}),'
-    rf'(?P<context>{_ID}),\{{dispatchDefaults:(?P<defaults>{_ID})'
+    rf'(?P<context>{_ID}),\{{(?:\.\.\.{_ID}\(\)&&\{{dispatchExtraArgs:\["--restricted"\]\}},)?dispatchDefaults:(?P<defaults>{_ID})'
+    rf'(?:,\.\.\.(?P<selection>{_ID})\?\.autoOpenJobId!==void 0&&'
+    rf'\{{autoOpenJobId:(?P=selection)\.autoOpenJobId\}})?'
+    rf'(?:,originSpawn:{_ID})?(?:,storageV5:{_ID})?(?:,credentials:{_ID})?'
+    rf'(?:,fleetNudgeStore:(?P=selection)\?\.fleetNudgeStore)?'
     rf'(?:,dispatchExtraArgs:[^{{}}]{{1,500}})?\}}\)\}}'
     rf'catch\((?P<error>{_ID})\)\{{(?P<log>{_ID})\((?P=error)\)\}}'
-    rf'return (?P<spawn>{_ID})\(\{{args:\["agents",'
+    rf'(?:return |let {_ID}=await )(?P<spawn>{_ID})\(\{{args:\["agents",'
     rf'\.\.\.(?P<serialize>{_ID})\((?P=defaults)\)'
-    rf'(?:,\.\.\._ccAgentsDispatchArgs\(\))?\],'
-    rf'env:\{{CLAUDE_AGENTS_SELECT:(?P=job),'
-    rf'\.\.\.(?P<accessibility>{_ID})\(\)\}}\}}\)'
+    rf'(?:,\.\.\.(?:_ccAgentsDispatchArgs|globalThis\.__ccpatchRuntime\.agentsHandoff\.dispatchArgs)\(\))?\],'
+    rf'env:\{{CLAUDE_AGENTS_SELECT:'
+    rf'(?(selection)(?P=selection)\?\.autoOpenJobId\?\?)(?P=job),'
+    rf'\.\.\.(?P<accessibility>{_ID})\(\)(?:,\.\.\.{_ID}\(\)&&\{{CLAUDE_CODE_RESTRICTED:"1"\}})?\}}\}}\)'
 )
 _PROVIDER_ENV_SOCKET_RESULT = re.compile(
     rf'if\((?P<response>{_ID})\.ok&&(?P=response)\.op==="dispatch"\)'
@@ -480,14 +519,14 @@ _PROVIDER_ENV_CONTROL = re.compile(
     rf'(?P<control_key>{_ID})\)\)return (?P<respond>{_ID})\((?P<socket>{_ID}),'
     rf'(?P<auth_error>\{{ok:!1,.{{0,300}}?code:"EAUTH"\}})\);if\(await '
     rf'(?P<yield>{_ID})\(0\),(?P=socket)\.readableEnded\|\|(?P=socket)\.destroyed\)'
-    rf'(?P<stale>.{{0,300}}?)return (?P<wait>{_ID})\((?P<handles>{_ID}),(?P=socket),'
+    rf'(?P<stale>.{{0,300}}?)return (?P<wait>{_ID})\((?P<handles>{_ID}),(?:{_ID},)?(?P=socket),'
     rf'"dispatch",(?P=request)\.d\.short,(?P=request)\.d\.nonce,'
     rf'(?P=request)\.timeoutMs,(?P<dispatch_cb>{_ID})\((?P=request)\.d\)'
 )
 _PROVIDER_ENV_WORKER = re.compile(
     rf'function (?P<env_builder>{_ID})\((?P<job>{_ID}),(?P<job_dir>{_ID}),'
     rf'(?P<snapshot_path>{_ID}),(?P<rv_sock>{_ID}),(?P<socket_auth>{_ID})\)'
-    rf'\{{let (?P<ambient>{_ID})=\{{\.\.\.process\.env\}},(?P<env>{_ID})='
+    rf'\{{let (?P<ambient>{_ID})=\{{\.\.\.process\.env\}}(?:,|;if\((?P<normalize>{_ID})\((?P=ambient)\),(?P=job)\.env\)(?P=normalize)\((?P=job)\.env\);let )(?P<env>{_ID})='
     rf'\{{\.\.\.(?P=ambient),(?P<body>.{{0,2000}}?)\}}'
     rf'(?P<path_normalization>,(?P<path_key>{_ID})=Object\.hasOwn\((?P=ambient),"PATH"\)'
     rf'\?"PATH":Object\.keys\((?P=ambient)\)\.find\(\((?P<path_candidate>{_ID})\)=>'
@@ -510,22 +549,22 @@ _PROVIDER_ENV_PATCHED_SNAPSHOT = re.compile(
     rf'\{{let {_ID}=\{{\}};for\(let {_ID} of _ccProviderKeys\(\)\)'
 )
 _PROVIDER_ENV_MANAGER = re.compile(
-    rf'(?P<class_name>{_ID})\{{dispatch;spawnPty;getAuthSnapshot;via;record;'
+    rf'(?<![\w$])(?P<class_name>{_ID})\{{dispatch;spawnPty;getAuthSnapshot;via;(?:storageV5;(?:credentials;)?)?record;'
 )
 _PROVIDER_ENV_CONSTRUCTOR = re.compile(
     rf'constructor\((?P<job>{_ID}),(?P<spawn>{_ID}),(?P<auth>{_ID}),'
-    rf'(?P<via>{_ID}),(?P<record>{_ID})\)\{{this\.dispatch=(?P=job);'
+    rf'(?P<via>{_ID}),(?P<record>{_ID})(?P<native_tail>(?:,{_ID}(?:,{_ID})?)?)\)\{{this\.dispatch=(?P=job);'
 )
 _PROVIDER_ENV_STATIC_SPAWN = re.compile(
     rf'static spawn\((?P<job>{_ID}),(?P<spawn>{_ID}),(?P<auth>{_ID}),'
-    rf'(?P<options>{_ID})\)\{{let (?P<worker>{_ID})=new (?P<class_name>{_ID})'
-    rf'\((?P=job),(?P=spawn)\?\?(?P<default_spawn>{_ID})\(\),(?P=auth),"cold"\);'
+    rf'(?P<options>{_ID})(?P<tail>(?:,{_ID}(?:,{_ID})?)?)\)\{{let (?P<worker>{_ID})=new (?P<class_name>{_ID})'
+    rf'\((?P=job),(?P=spawn)\?\?(?P<default_spawn>{_ID})\(\),(?P=auth),"cold"(?P<constructor_tail>(?:,void 0,{_ID}(?:,{_ID})?)?)\);'
 )
 _PROVIDER_ENV_STATIC_CLAIM = re.compile(
     rf'static claim\((?P<job>{_ID}),(?P<options>{_ID})\)\{{let '
     rf'(?P<worker>{_ID})=new (?P<class_name>{_ID})\((?P=job),'
     rf'(?P=options)\.spawnPty,(?P=options)\.getAuthSnapshot,"spare",'
-    rf'(?P<record>\{{pid:.{{0,1000}}?\.VERSION\}})\);'
+    rf'(?P<record>\{{pid:.{{0,1000}}?\.VERSION\}})(?P<tail>(?:,(?P=options)\.storageV5(?:,(?P=options)\.credentials)?)?)\);'
 )
 _PROVIDER_ENV_CLAIM_FRAME = re.compile(
     rf'static buildClaimFrame\((?P<job>{_ID}),(?P<snapshot>{_ID}),'
@@ -537,8 +576,8 @@ _PROVIDER_ENV_CLAIM_FRAME = re.compile(
 _PROVIDER_ENV_DO_SPAWN = re.compile(
     rf'let (?P<argv>{_ID})=(?P<argv_fn>{_ID})\((?P<job>{_ID}),this\.attempt,'
     rf'(?P<has_messages>{_ID}),(?P<session>{_ID}),'
-    rf'(?:(?P<transcript_path>{_ID}),)?(?P<flags>{_ID})\),'
-    rf'(?P<env>{_ID})=(?P<env_builder>{_ID})\((?P=job),(?P<job_dir>{_ID}),'
+    rf'(?:(?P<transcript_path>{_ID}),)?(?P<flags>{_ID})\)[,;]'
+    rf'(?:this\.bootedViaResume=.{{0,600}}?;let )?(?P<env>{_ID})=(?P<env_builder>{_ID})\((?P=job),(?P<job_dir>{_ID}),'
     rf'(?P<snapshot>{_ID}),this\.rvSockPath\?\?(?P<rv_sock>{_ID})'
     rf'\((?P=job)\.short\),this\.socketAuth\(\)\);'
 )
@@ -556,7 +595,7 @@ _PROVIDER_ENV_BUILD_CLAIM_CALL = re.compile(
 )
 _PROVIDER_ENV_CLAIMED_SPARE_FRAME = re.compile(
     rf'function (?P<claim>{_ID})\((?P<job>{_ID}),(?P<spare>{_ID}),'
-    rf'(?P<spawn>{_ID}),(?P<auth>{_ID})\)\{{(?:(?P=spare)\.claimed=!0;)?'
+    rf'(?P<spawn>{_ID}),(?P<auth>{_ID})(?P<tail>(?:,{_ID}(?:,{_ID})?)?)\)\{{(?:(?P=spare)\.claimed=!0;)?'
     rf'let (?P<worker>{_ID})='
     rf'(?P<class_name>{_ID})\.claim\((?P=job),(?P<options>\{{.{{0,500}}?\}})\);'
     rf'return (?P<snapshot>{_ID})\((?P=job)\.short,(?P=auth)\?\.\(\)\)\.then\('
@@ -565,21 +604,21 @@ _PROVIDER_ENV_CLAIMED_SPARE_FRAME = re.compile(
     rf'(?P=spare)\.claimAuth\)\)\)'
 )
 _PROVIDER_ENV_MANAGER_DISPATCH = re.compile(
-    rf'(?P<dispatch>{_ID})=async\((?P<job>{_ID}),(?P<retry>{_ID})=0,'
-    rf'(?P<after_upgrade>{_ID})\)=>\{{'
+    rf'(?<![\w$])(?P<dispatch>{_ID})=async\((?P<job>{_ID}),(?P<retry>{_ID})=0,'
+    rf'(?P<after_upgrade>{_ID})(?P<native_tail>,{_ID}=!1)?\)=>\{{'
 )
 _PROVIDER_ENV_MANAGER_RETRY = re.compile(
     rf'return await (?P<delay>{_ID})\(100\),(?P<dispatch>{_ID})\('
-    rf'(?P<job>{_ID}),(?P<retry>{_ID})\+1,(?P<after_upgrade>{_ID})\)'
+    rf'(?P<job>{_ID}),(?P<retry>{_ID})\+1,(?P<after_upgrade>{_ID})(?:,{_ID})?\)'
 )
 _PROVIDER_ENV_MANAGER_CLAIM = re.compile(
     rf'let (?P<worker>{_ID})=(?P<claim>{_ID})\((?P<job>{_ID}),'
-    rf'(?P<spare>{_ID}),(?P<spawn>{_ID}),(?P<auth_obj>{_ID})\.getAuthSnapshot\)'
+    rf'(?P<spare>{_ID}),(?P<spawn>{_ID}),(?P<auth_obj>{_ID})\.getAuthSnapshot(?:,(?P=auth_obj)\.storageV5(?:,(?P=auth_obj)\.credentials)?)?\)'
 )
 _PROVIDER_ENV_MANAGER_SPAWN = re.compile(
-    rf'(?P<class_name>{_ID})\.spawn\((?P<job>{_ID}),(?P<spawn>{_ID}),'
+    rf'(?<![\w$])(?P<class_name>{_ID})\.spawn\((?P<job>{_ID}),(?P<spawn>{_ID}),'
     rf'(?P<auth_obj>{_ID})\.getAuthSnapshot,(?P<after_upgrade>{_ID})\?'
-    rf'\{{afterUpgrade:(?P=after_upgrade)\}}:void 0\)'
+    rf'\{{afterUpgrade:(?P=after_upgrade)\}}:void 0(?:,(?P=auth_obj)\.storageV5(?:,(?P=auth_obj)\.credentials)?)?\)'
 )
 _PROVIDER_ENV_CLAIMED_ENTRY = re.compile(
     rf'(?P<prefix>async function (?P<entry>{_ID})\((?P<claim>{_ID}),(?P<main>{_ID})\)'
@@ -593,7 +632,7 @@ _PROVIDER_ENV_PREACTION_START = re.compile(
     rf'=>\{{(?P<marker>{_ID})\("preAction_start"\);)'
 )
 _PROVIDER_ENV_PREACTION_INITIALIZED = re.compile(
-    rf'await (?P<initializer>{_ID})\(\),(?P<marker>{_ID})\("preAction_after_init"\)'
+    rf'(?:await (?P<initializer>{_ID})\(\),)?(?P<marker>{_ID})\("preAction_after_init"\)'
 )
 _PROVIDER_ENV_OPERATIONAL_ENTRY = re.compile(
     rf'(?P<guard>if\((?P<noninteractive>{_ID})\)\{{[\s\S]{{0,2500}}?)(?P<settings>{_ID})\(\),'
@@ -616,21 +655,22 @@ _PROVIDER_ENV_DELAYED_SETTINGS = re.compile(
 # Keep the known normalization layouts until discovery includes the serialization
 # sink. A rest binding alone does not identify the persisted state object.
 _PROVIDER_ENV_STATE_WRITE = re.compile(
-    rf'async function (?P<write>{_ID})\((?P<dir>{_ID}),(?P<state>{_ID})\)\{{let'
+    rf'async function (?P<write>{_ID})\((?P<dir>{_ID}),(?P<state>{_ID})(?:,{_ID})?\)\{{let'
     rf'(?: (?P<cron>{_ID})=(?P=state)\.inFlight\?\.kinds\.includes\("session_cron"\)===!0,'
-    rf'(?P<normalized>{_ID})=(?P=cron)&&!(?P=state)\.selfWake\?'
+    rf'(?P<normalized>{_ID})=(?P=cron)&&!(?P=state)\.selfWake(?:&&{_ID}\((?P=state)\.inFlight\))?\?'
     rf'\{{\.\.\.(?P=state),selfWake:!0\}}:!(?P=cron)&&(?P=state)\.selfWake&&'
     rf'{_ID}\((?P=state)\)\?\{{\.\.\.(?P=state),selfWake:void 0\}}:(?P=state),)?'
+    rf'(?:(?P<terminal>{_ID})={_ID}\((?P=normalized)\)\?(?P=normalized)\.lastTerminalAt\?(?P=normalized):\{{\.\.\.(?P=normalized),lastTerminalAt:(?P=normalized)\.updatedAt\}}:(?P=normalized)\.lastTerminalAt!==void 0\?\{{\.\.\.(?P=normalized),lastTerminalAt:void 0\}}:(?P=normalized),)?'
     rf'\{{pinned:(?P<pinned>{_ID}),sortOrder:(?P<sort>{_ID}),stateSortOrder:'
     rf'(?P<state_sort>{_ID}),(?(normalized)group:{_ID},)'
-    rf'\.\.\.(?P<rest>{_ID})\}}=(?(normalized)(?P=normalized)|(?P=state));'
+    rf'\.\.\.(?P<rest>{_ID})\}}=(?(terminal)(?P=terminal)|(?(normalized)(?P=normalized)|(?P=state)))(?P<separator>[;,])'
 )
 _PROVIDER_ENV_STATE_VIEW = re.compile(
     rf'bgIsolation:(?P<job>{_ID})\.bgIsolation,providerEnv:(?P=job)\.providerEnv,'
 )
 _PROVIDER_ENV_STATE_SCHEMA = re.compile(
-    rf'providerEnv:(?P<schema>{_ID})\.record\((?P=schema)\.string\(\),'
-    rf'(?P=schema)\.string\(\)\)\.transform\((?:{_ID}|'
+    rf'providerEnv:(?:(?P<schema>{_ID})\.record\((?P=schema)\.string\(\),'
+    rf'(?P=schema)\.string\(\)\)|{_ID}\({_ID}\(\),{_ID}\(\)\))\.transform\((?:{_ID}|'
     rf'\((?P<value>{_ID})\)=>\{{let (?P<filtered>{_ID})={_ID}\((?P=value)\);'
     rf'return (?P=filtered)&&{_ID}\((?P=filtered),{_ID}\)\}})\)\.optional\(\),'
 )
@@ -644,13 +684,76 @@ _PROVIDER_ENV_RESPAWN_OPTION = re.compile(
 )
 
 
-def _provider_groups(source: str) -> re.Match[str]:
-    groups = list(_PROVIDER_ENV_GROUPS.finditer(source))
-    if len(groups) != 1:
-        raise PatchError(
-            "background-provider-environment: provider groups absent or ambiguous"
+def _provider_groups(source: str) -> dict[str, str]:
+    # Match each group separately so intervening native policy tables remain intact.
+    prefixes = {
+        "selection": '"CLAUDE_CODE_USE_BEDROCK","CLAUDE_CODE_USE_VERTEX"',
+        "base_urls": '"ANTHROPIC_BASE_URL",',
+        "credentials": '"ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN"',
+        "skip_auth": '"CLAUDE_CODE_SKIP_BEDROCK_AUTH","CLAUDE_CODE_SKIP_VERTEX_AUTH"',
+        "models": '"ANTHROPIC_MODEL",',
+        "custom_models": '"ANTHROPIC_CUSTOM_MODEL_OPTION",',
+        "cloud_credentials": '"AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY","AWS_SESSION_TOKEN"',
+    }
+    if (
+        '"_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL","ANTHROPIC_BEDROCK_BASE_URL"'
+        in source
+    ):
+        prefixes["base_urls"] = (
+            '"ANTHROPIC_BASE_URL","_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL","ANTHROPIC_BEDROCK_BASE_URL"'
         )
-    return groups[0]
+    if '"ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"' in source:
+        prefixes["credentials"] = (
+            '"ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","CLAUDE_CODE_OAUTH_TOKEN"'
+        )
+    groups: dict[str, str] = {}
+    cloud_name: str | None = None
+    for name, prefix in prefixes.items():
+        suffix = (
+            r'(?=[^\]]*"ANTHROPIC_FOUNDRY_RESOURCE")'
+            if name == "selection" and '"ANTHROPIC_FOUNDRY_RESOURCE"' in source
+            else ""
+        )
+        pattern = rf'(?<![\w$.])(?P<{name}>{_ID})=\[{re.escape(prefix)}{suffix}'
+        if name == "cloud_credentials":
+            pattern += rf'\],{_ID}=\[\.\.\.(?P=cloud_credentials),"AWS_PROFILE",'
+        candidates: dict[int, re.Match[str]] = {}
+        for anchor in re.finditer(re.escape("=[" + prefix), source):
+            match = re.compile(pattern).search(
+                source, max(0, anchor.start() - 100), anchor.start() + 2000
+            )
+            if match is not None:
+                candidates[match.start()] = match
+        matches = list(candidates.values())
+        if not matches and name == "cloud_credentials":
+            continue
+        if len(matches) != 1:
+            raise PatchError(
+                f"background-provider-environment: provider group {name} absent or ambiguous"
+            )
+        groups[name] = matches[0].group(name)
+        if name == "cloud_credentials":
+            cloud_name = matches[0].group(name)
+    if cloud_name is not None:
+        pattern = rf'(?<![\w$.])(?P<cloud_config>{_ID})=\[\.\.\.{re.escape(cloud_name)},"AWS_PROFILE",'
+        matches = [
+            match
+            for anchor in re.finditer(
+                re.escape('=[...' + cloud_name + ',"AWS_PROFILE",'), source
+            )
+            if (
+                match := re.compile(pattern).search(
+                    source, max(0, anchor.start() - 100), anchor.end()
+                )
+            )
+            is not None
+        ]
+        if len(matches) != 1:
+            raise PatchError(
+                "background-provider-environment: cloud configuration absent or ambiguous"
+            )
+        groups["cloud_config"] = matches[0].group("cloud_config")
+    return groups
 
 
 _PROVIDER_ENV_VERTEX_REGION_KEYS = (
@@ -709,15 +812,15 @@ def _provider_key_sources(source: str) -> tuple[str, ...]:
         )
     return (
         snapshots[0].group("allowlist"),
-        groups.group("selection"),
-        groups.group("base_urls"),
-        groups.group("credentials"),
-        groups.group("skip_auth"),
-        groups.group("models"),
-        groups.group("custom_models"),
+        groups["selection"],
+        groups["base_urls"],
+        groups["credentials"],
+        groups["skip_auth"],
+        groups["models"],
+        groups["custom_models"],
         *(
-            (groups.group("cloud_credentials"), groups.group("cloud_config"))
-            if groups.group("cloud_credentials") is not None
+            (groups["cloud_credentials"], groups["cloud_config"])
+            if "cloud_credentials" in groups
             else ()
         ),
     )
@@ -791,12 +894,28 @@ def _replace_provider_snapshot(match: re.Match[str]) -> str:
         "if(_ccValue!==null)process.env[_ccKey]=_ccValue}"
         f"function {snapshot}(){{let {result}={{}};"
         f"for(let {key} of _ccProviderKeys()){{let {value}=process.env[{key}];"
-        f"{result}[{key}]={value}===void 0?null:{value}}}return {result}}}"
+        + (
+            f'if({match.group("boolean_keys")}.has({key})){{'
+            f'{result}[{key}]={match.group("truthy")}({value})?"1":null;continue}}'
+            if match.group("normalization")
+            else ""
+        )
+        + f"{result}[{key}]={value}===void 0?null:{value}}}return {result}}}"
     )
 
 
 def _replace_provider_schema(match: re.Match[str]) -> str:
     schema = match.group("schema")
+    if schema is None:
+        number = match.group("number")
+        object_constructor = match.group("object")
+        return checked_replace(
+            match.group(0),
+            "timeoutMs:",
+            f"providerEnvVersion:{number}().optional(),"
+            f"providerEnv:{object_constructor}({{}}).passthrough().transform(_ccProviderRetain).optional(),timeoutMs:",
+            context="provider named schema fields",
+        )
     replacement = (
         f"providerEnvVersion:{schema}.number().optional(),"
         f"providerEnv:{schema}.record({schema}.enum(_ccProviderKeys()),"
@@ -808,8 +927,15 @@ def _replace_provider_schema(match: re.Match[str]) -> str:
     )
 
 
+def _provider_snapshot_reference(match: re.Match[str], name: str) -> str:
+    definition = _PROVIDER_ENV_PATCHED_SNAPSHOT.search(match.string)
+    assert definition is not None
+    return module_reference(match.string, definition.start(), name, match.start())
+
+
 def _replace_provider_socket(match: re.Match[str]) -> str:
     snapshot = discover_identifiers(match.string, (_PROVIDER_ENV_PATCHED_SNAPSHOT,))
+    snapshot["snapshot"] = _provider_snapshot_reference(match, snapshot["snapshot"])
     version = _PROVIDER_ENV_PROTOCOL_VERSION
     return (
         f'{match.group("call")}({{proto:{match.group("proto")},op:"dispatch",'
@@ -821,6 +947,7 @@ def _replace_provider_socket(match: re.Match[str]) -> str:
 
 def _replace_provider_agents_fallback(match: re.Match[str]) -> str:
     snapshot = discover_identifiers(match.string, (_PROVIDER_ENV_PATCHED_SNAPSHOT,))
+    snapshot["snapshot"] = _provider_snapshot_reference(match, snapshot["snapshot"])
     return checked_replace(
         match.group(0),
         f'...{match.group("accessibility")}()',
@@ -879,6 +1006,17 @@ def _replace_provider_daemon_ack(match: re.Match[str]) -> str:
     )
 
 
+def _provider_dispatch_padding(source: str) -> str:
+    """Keep the native cwd-probe argument before the provider snapshot."""
+    return (
+        ",!1"
+        if re.search(
+            r"=async\([\w$]+,[\w$]+=0,[\w$]+,[\w$]+=!1(?:,_ccProviderEnv)?\)=>", source
+        )
+        else ""
+    )
+
+
 def _replace_provider_control(match: re.Match[str]) -> str:
     request = match.group("request")
     respond = match.group("respond")
@@ -900,7 +1038,7 @@ def _replace_provider_control(match: re.Match[str]) -> str:
     return checked_replace(
         original,
         f'{match.group("dispatch_cb")}({request}.d)',
-        f'{match.group("dispatch_cb")}({request}.d,0,void 0,{request}.providerEnv)',
+        f'{match.group("dispatch_cb")}({request}.d,0,void 0{_provider_dispatch_padding(match.string)},{request}.providerEnv)',
         context="provider control dispatch callback",
     )
 
@@ -994,7 +1132,7 @@ def _replace_provider_delayed_settings(match: re.Match[str]) -> str:
 def _replace_provider_constructor(match: re.Match[str]) -> str:
     return (
         f'constructor({match.group("job")},{match.group("spawn")},'
-        f'{match.group("auth")},{match.group("via")},{match.group("record")},'
+        f'{match.group("auth")},{match.group("via")},{match.group("record")}{match.group("native_tail")},'
         f'_ccProviderEnv){{this.providerEnv={match.group("via")}==="adopted"&&'
         '_ccProviderEnv===void 0?null:_ccProviderRetain(_ccProviderEnv);this.dispatch='
         f'{match.group("job")};'
@@ -1005,8 +1143,8 @@ def _replace_provider_claimed_spare_frame(match: re.Match[str]) -> str:
     original = match.group(0)
     original = checked_replace(
         original,
-        f'{match.group("auth")}){{',
-        f'{match.group("auth")},_ccProviderEnv){{',
+        f'{match.group("auth")}{match.group("tail")}){{',
+        f'{match.group("auth")}{match.group("tail")},_ccProviderEnv){{',
         context="provider claimed-spare signature",
     )
     original = checked_replace(
@@ -1026,8 +1164,8 @@ def _replace_provider_claimed_spare_frame(match: re.Match[str]) -> str:
 def _replace_provider_manager_dispatch(match: re.Match[str]) -> str:
     original = checked_replace(
         match.group(0),
-        f'{match.group("after_upgrade")})=>',
-        f'{match.group("after_upgrade")},_ccProviderEnv)=>',
+        ')=>',
+        ',_ccProviderEnv)=>',
         context="provider manager dispatch signature",
     )
     return original + "_ccProviderEnv=_ccProviderRetain(_ccProviderEnv);"
@@ -1048,9 +1186,85 @@ def _replace_provider_stall_respawn(match: re.Match[str]) -> str:
     return checked_replace(
         original,
         f':{match.group("job")}.launch}})',
-        f':{match.group("job")}.launch}},0,void 0,_ccProviderEnv)',
+        f':{match.group("job")}.launch}},0,void 0{_provider_dispatch_padding(match.string)},_ccProviderEnv)',
         context=f"provider attach-stall {dispatch} snapshot",
     )
+
+
+def _provider_binding_owner(source: str, offset: int, name: str) -> tuple[int, str]:
+    modules = source_modules(source)
+    owner = next(module for module in modules if module.start <= offset < module.end)
+    for edge in re.finditer(r'import\{([^{}]*)\}from"([^"]+)"', owner.source):
+        for binding in edge[1].split(","):
+            pair = binding.strip().split(" as ")
+            if pair[-1] != name:
+                continue
+            target = next(
+                (module for module in modules if module.name == edge[2]), None
+            )
+            if target is None:
+                continue
+            for export in re.finditer(r'export\s*\{([^{}]*)\}', target.source):
+                for item in export[1].split(","):
+                    names = item.strip().split(" as ")
+                    if names[-1] == pair[0]:
+                        return _provider_binding_owner(source, target.start, names[0])
+    return offset, name
+
+
+def _provider_reference(source: str, offset: int, name: str, consumer: int) -> str:
+    try:
+        return module_reference(source, offset, name, consumer)
+    except ModuleRuntimeError:
+        modules = source_modules(source)
+        target = next(m for m in modules if m.start <= offset < m.end)
+        local = next(m for m in modules if m.start <= consumer < m.end)
+        bindings = [
+            item.strip().split(" as ")[-1]
+            for edge in re.finditer(r'import\{([^{}]*)\}from"([^"]+)"', local.source)
+            for item in edge[1].split(",")
+        ]
+        bindings.sort(
+            key=lambda binding: not binding.startswith("__ccpatchNativeBinding")
+        )
+        for binding in bindings:
+            root, root_name = _provider_binding_owner(source, consumer, binding)
+            if target.start <= root < target.end and root_name == name:
+                return binding
+        raise
+
+
+def _provider_ensure_reference(
+    source: str, offset: int, name: str, consumer: int
+) -> str:
+    modules = source_modules(source)
+    owner = next(m for m in modules if m.start <= offset < m.end)
+    target = next(m for m in modules if m.start <= consumer < m.end)
+    queue = [(target.name, [target.name])]
+    seen: set[str] = set()
+    path: list[str] | None = None
+    while queue:
+        current, route = queue.pop(0)
+        if current == owner.name:
+            path = route
+            break
+        if current in seen:
+            continue
+        seen.add(current)
+        module = next(m for m in modules if m.name == current)
+        for edge in re.finditer(r'import\{[^{}]*\}from"([^"]+)"', module.source):
+            if any(m.name == edge[1] for m in modules):
+                queue.append((edge[1], [*route, edge[1]]))
+    if path is None:
+        raise PatchError("provider native dependency path absent")
+    for child, parent in zip(reversed(path[1:]), reversed(path[:-1]), strict=True):
+        modules = source_modules(source)
+        child_module = next(m for m in modules if m.name == child)
+        parent_module = next(m for m in modules if m.name == parent)
+        source, name = ensure_module_reference(
+            source, child_module.start, name, parent_module.start
+        )
+    return source
 
 
 def _provider_rv_protocol(source: str) -> str:
@@ -1064,11 +1278,19 @@ def _replace_provider_rv_worker(match: re.Match[str]) -> str:
     request = match.group("request")
     token = match.group("token")
     authenticated = match.group("authenticated")
-    send = match.group("send")
-    session = discover_identifiers(
+    send = match.group("send") or "this.send"
+    session_match = re.search(
+        r'sessionId:(?P<session>[\w$]+)\(\),gates:\{', match.string
+    )
+    if session_match is None:
+        raise PatchError("provider RV session getter absent")
+    session = _provider_reference(
         match.string,
-        (re.compile(r'sessionId:(?P<session>[\w$]+)\(\),gates:\{'),),
-    )["session"]
+        *_provider_binding_owner(
+            match.string, session_match.start(), session_match.group("session")
+        ),
+        match.start(),
+    )
     validator = discover_identifiers(
         match.string,
         (
@@ -1079,7 +1301,18 @@ def _replace_provider_rv_worker(match: re.Match[str]) -> str:
             ),
         ),
     )["validator"]
-    protocol = _provider_rv_protocol(match.string)
+    protocol_match = re.search(
+        r'proto:(?P<proto>[\w$]+),role:"supervisor",supervisorPid:', match.string
+    )
+    if protocol_match is None:
+        raise PatchError("provider RV protocol absent")
+    protocol = _provider_reference(
+        match.string,
+        *_provider_binding_owner(
+            match.string, protocol_match.start(), protocol_match.group("proto")
+        ),
+        match.start(),
+    )
     original = match.group(0)
     anchor = f'if({request}.type==="shutdown")'
     handler = (
@@ -1101,7 +1334,18 @@ def _replace_provider_rv_worker(match: re.Match[str]) -> str:
 
 def _replace_provider_lifecycle(match: re.Match[str]) -> str:
     original = match.group(0)
-    protocol = _provider_rv_protocol(match.string)
+    protocol_match = re.search(
+        r'proto:(?P<proto>[\w$]+),role:"supervisor",supervisorPid:', match.string
+    )
+    if protocol_match is None:
+        raise PatchError("provider RV protocol absent")
+    protocol = _provider_reference(
+        match.string,
+        *_provider_binding_owner(
+            match.string, protocol_match.start(), protocol_match.group("proto")
+        ),
+        match.start(),
+    )
 
     def replace(old: str, new: str) -> None:
         nonlocal original
@@ -1292,20 +1536,20 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
             lambda match: checked_replace(
                 checked_replace(
                     match.group(0),
-                    '"cold")',
-                    '"cold",void 0,_ccProviderEnv)',
-                    context="provider static spawn signature and constructor",
+                    f'{match.group("options")}{match.group("tail")}){{',
+                    f'{match.group("options")}{match.group("tail")},_ccProviderEnv){{',
+                    context="provider static spawn signature",
                 ),
-                f'{match.group("options")})',
-                f'{match.group("options")},_ccProviderEnv)',
-                context="provider static spawn signature and constructor",
+                f'"cold"{match.group("constructor_tail")})',
+                f'"cold"{match.group("constructor_tail") or ",void 0"},_ccProviderEnv)',
+                context="provider static spawn constructor",
             ),
         ),
         Patch(
             "thread-provider-env-through-claim",
             _PROVIDER_ENV_STATIC_CLAIM,
             lambda match: (
-                f'static claim({match.group("job")},{match.group("options")},_ccProviderEnv){{let {match.group("worker")}=new {match.group("class_name")}({match.group("job")},{match.group("options")}.spawnPty,{match.group("options")}.getAuthSnapshot,"spare",{match.group("record")},_ccProviderEnv);'
+                f'static claim({match.group("job")},{match.group("options")},_ccProviderEnv){{let {match.group("worker")}=new {match.group("class_name")}({match.group("job")},{match.group("options")}.spawnPty,{match.group("options")}.getAuthSnapshot,"spare",{match.group("record")}{match.group("tail")},_ccProviderEnv);'
             ),
         ),
         Patch(
@@ -1406,7 +1650,7 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
             "preserve-provider-on-attach-stall-respawn",
             re.compile(
                 r'function [\w$]+\((?P<worker>[\w$]+),[\w$]+,'
-                r'(?P<dispatch>[\w$]+),[\w$]+,[\w$]+\)\{'
+                r'(?P<dispatch>[\w$]+),[\w$]+,[\w$]+(?:,[\w$]+)?\)\{'
                 r'let (?P<job>[\w$]+)=(?P=worker)\.dispatch;'
                 r'[^\n]*?attachStallRespawns:[^\n]*?:(?P=job)\.launch\}\)'
             ),
@@ -1418,19 +1662,34 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
                 r'(?P<prefix>\.createServer\(\((?P<socket>[\w$]+)\)=>\{'
                 r'(?P<current>[\w$]+)\?\.destroy\(\),[\s\S]*?'
                 r'(?P=socket)\.on\("data",\([\w$]+\)=>\{)'
+                r'|(?P<native>onConnection\((?P<native_socket>[\w$]+)\)\{this\.current\?\.destroy\(\),'
+                r'this\.current=(?P=native_socket);?[\s\S]{0,2000}?'
+                r'(?P=native_socket)\.on\("data",\([\w$]+\)=>\{)'
+                r'(?P<native_guard>if\(this\.current!==(?P=native_socket)\)\{'
+                r'(?P=native_socket)\.destroy\(\);return\})?'
             ),
             lambda match: (
-                match.group("prefix")
-                + f'if({match.group("current")}!=={match.group("socket")})return;'
+                match.group("native")
+                + (
+                    match.group("native_guard")
+                    or f'if(this.current!=={match.group("native_socket")})return;'
+                )
+                if match.group("native")
+                else (
+                    match.group("prefix")
+                    + f'if({match.group("current")}!=={match.group("socket")})return;'
+                )
             ),
         ),
         Patch(
             "serve-authenticated-provider-snapshot-on-worker-rv",
             re.compile(
-                r'if\((?P<token>[\w$]+)&&!(?P<authenticated>[\w$]+)&&'
+                r'if\((?P<token>(?:this\.)?[\w$]+)&&!(?P<authenticated>(?:this\.)?[\w$]+)&&'
                 r'(?P<request>[\w$]+)\.type!=="repaint"\)\{[^\n]*?'
                 r'if\((?P=request)\.type==="shutdown"\)\{'
                 r'(?:'
+                r'[\w$]+\((?:this\.promptInput,)?this\.storageV5\);'
+                r'|(?:'
                 r'(?P<shutdown>[\w$]+)\(\);return\}'
                 r'if\((?P=request)\.type==="repaint"\)\{[\w$]+\(\);return\}'
                 r'if\((?P=request)\.type==="attacher-caps"\)\{'
@@ -1440,7 +1699,7 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
                 r'[\w$]+\((?P=request)\)\}'
                 r'function (?P=shutdown)\(\)\{'
                 r')?'
-                r'(?P<send>[\w$]+)\(\{type:"shutting-down"\}\);'
+                r'(?P<send>[\w$]+)\(\{type:"shutting-down"\}\);)'
             ),
             _replace_provider_rv_worker,
         ),
@@ -1470,7 +1729,7 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
         re.compile(r'protocol mismatch\. Restart the stale Claude Code daemon'),
         re.compile(r'for\(let _ccKey of _ccProviderKeys\(\)\)delete process\.env'),
         re.compile(r'this\.providerEnv=[\w$]+==="adopted"&&'),
-        re.compile(r'"cold",void 0,_ccProviderEnv'),
+        re.compile(r'"cold",void 0(?:,[\w$]+(?:,[\w$]+)?)?,_ccProviderEnv'),
         re.compile(r'function _ccProviderMac\('),
         re.compile(r'_ccProviderReply\(_ccReply\)'),
         re.compile(r'providerEnv:_ccProviderEnv,\.\.\.[\w$]+'),
@@ -1502,11 +1761,9 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 212)
+_PROVIDER_ENV_198_MAX = (2, 1, 273)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
-_CLAIMED_SPARE_AUTH_198 = (
-    rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
-)
+_CLAIMED_SPARE_AUTH_198 = rf"(?P=job)\.short,(?:{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)|{_ID}\((?P=job)\)\?(?P=auth)\?\.\(\):void 0)"
 
 
 def _provider_env_198_overrides(patches: tuple[Patch, ...]) -> dict[str, Patch]:
@@ -1610,6 +1867,138 @@ def _initialize_provider_registry(match: re.Match[str]) -> str:
     return match.group(0).replace("{if(", f"{{if(({initialize}(),", 1) + ")"
 
 
+class _ProviderPatchSet(PatchSet):
+    """Share provider capture and claim state across native module boundaries."""
+
+    @typing_override
+    def apply(self, source: str) -> str:
+        for anchor in (
+            r'sessionId:(?P<name>[\w$]+)\(\),gates:\{',
+            r'proto:(?P<name>[\w$]+),role:"supervisor",supervisorPid:',
+        ):
+            definition = re.search(anchor, source)
+            consumer = re.search(r'if\(this\.authToken&&!this\.currentAuthed&&', source)
+            if definition is not None and consumer is not None:
+                source = _provider_ensure_reference(
+                    source,
+                    *_provider_binding_owner(
+                        source, definition.start(), definition.group("name")
+                    ),
+                    consumer.start(),
+                )
+        snapshot_definition = _PROVIDER_ENV_SNAPSHOT.search(source)
+        fallback = _PROVIDER_ENV_AGENTS_FALLBACK.search(source)
+        if snapshot_definition is not None and fallback is not None:
+            source, _ = ensure_module_reference(
+                source,
+                snapshot_definition.start(),
+                snapshot_definition.group("snapshot"),
+                fallback.start(),
+            )
+        native_keys = _provider_serialized_keys(source)
+        snapshot = _PROVIDER_ENV_SNAPSHOT.search(source)
+        if snapshot is None:
+            raise PatchError("provider snapshot absent")
+        snapshot_name = snapshot.group("snapshot")
+        source = super().apply(source)
+        start = source.index("function _ccProviderKeys()")
+        end = source.index(f"function {snapshot_name}()", start)
+        code = source[start:end]
+        key_end = code.index("function _ccRequireProviderEnv")
+        code = "function _ccProviderKeys(){return " + native_keys + "}" + code[key_end:]
+        source = source[:start] + source[end:]
+        functions = re.findall(r"function (_cc(?:Provider|RequireProvider)\w*)\(", code)
+        variables = (
+            "_ccProviderPtyHost",
+            "_ccProviderAwaitingClaim",
+            "_ccProviderWorkerEnv",
+            "_ccProviderCaptureReady",
+            "_ccProviderInitialized",
+        )
+        names = (*functions, *variables)
+        pattern = re.compile(r"(?<![\w$.])(" + "|".join(names) + r")(?![\w$])")
+        source = pattern.sub(r"globalThis.__ccpatchRuntime.provider.\1", source)
+        exports = [*functions]
+        for name in variables:
+            exports.extend(
+                (f"get {name}(){{return {name}}}", f"set {name}(value){{{name}=value}}")
+            )
+        code += "return {" + ",".join(exports) + "};"
+        return register_module_bootstrap(source, "provider", code)
+
+
+def _provider_serialized_keys(source: str) -> str:
+    """Resolve native constant lists without executing module initializers."""
+    modules = source_modules(source)
+    snapshot = _PROVIDER_ENV_SNAPSHOT.search(source)
+    assert snapshot is not None
+    snapshot_module = next(m for m in modules if m.start <= snapshot.start() < m.end)
+    active: set[tuple[str, str]] = set()
+
+    def resolve(name: str, module_name: str | None = None) -> list[str]:
+        scope = next((m for m in modules if m.name == module_name), None)
+        identity = (module_name or "", name)
+        if identity in active:
+            raise PatchError("cyclic provider key constants")
+        active.add(identity)
+        pattern = re.compile(
+            rf"(?<![\w$.]){re.escape(name)}=(?:new Set\()?\[([^\[\]]*)\]"
+        )
+        matches = [
+            (m, match)
+            for m in modules
+            if scope is None or m == scope
+            for match in pattern.finditer(m.source)
+        ]
+        if scope is None:
+            matches = [
+                (m, match)
+                for m, match in matches
+                if re.search(r'"(?:ANTHROPIC_|CLAUDE_CODE_|AWS_|GOOGLE_)', match[1])
+            ]
+        if not matches and scope is not None:
+            for edge in re.finditer(r'import\{([^{}]*)\}from"([^"]+)"', scope.source):
+                for binding in edge[1].split(","):
+                    pair = binding.strip().split(" as ")
+                    if pair[-1] != name:
+                        continue
+                    target = next((m for m in modules if m.name == edge[2]), None)
+                    if target is None:
+                        continue
+                    for exports in re.finditer(r"export\{([^{}]*)\}", target.source):
+                        for binding in exports[1].split(","):
+                            pair2 = binding.strip().split(" as ")
+                            if pair2[-1] == pair[0]:
+                                keys = resolve(pair2[0], target.name)
+                                active.remove(identity)
+                                return keys
+        if len(matches) != 1:
+            raise PatchError(f"provider key constant {name} absent or ambiguous")
+        owner, match = matches[0]
+        keys: list[str] = []
+        for item in match[1].split(","):
+            if not item:
+                continue
+            if item.startswith("..."):
+                keys.extend(resolve(item[3:], owner.name))
+            else:
+                try:
+                    key = json.loads(item)
+                except ValueError as exc:
+                    raise PatchError(f"nonconstant provider key {item}") from exc
+                if not isinstance(key, str):
+                    raise PatchError("nonstring provider key")
+                keys.append(key)
+        active.remove(identity)
+        return keys
+
+    sources = _provider_key_sources(source)
+    keys = resolve(sources[0], snapshot_module.name)
+    for name in sources[1:]:
+        keys.extend(resolve(name))
+    return json.dumps(list(dict.fromkeys((*keys, *_PROVIDER_ENV_EXPLICIT_KEYS))))
+
+
 def _provider_env_207(base: PatchSet) -> PatchSet:
     """Reconcile requester routing inside the native settings boundary."""
     # Check raw policy before credentials enter the environment. Native filters can
@@ -1623,25 +2012,34 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
         "restore-provider-env-after-delayed-settings",
     }
     patches = tuple(patch for patch in base.patches if patch.name not in obsolete)
-    return replace(
-        base,
+    return _ProviderPatchSet(
+        **{
+            field: getattr(base, field)
+            for field in (
+                "name",
+                "verify_present",
+                "verify_absent",
+                "min_version",
+                "max_version",
+                "requires_version",
+            )
+        },
         patches=(
             *patches,
             Patch(
-                "initialize-native-provider-key-registry",
-                re.compile(r"function _ccProviderKeys\(\)\{if\([^)]*\)"),
-                _initialize_provider_registry,
-            ),
-            Patch(
                 "initialize-provider-before-native-settings",
                 re.compile(
-                    rf'function (?P<apply>{_ID})\(\)\{{(?P<prefix>(?:if\()?{_ID}\(\),)'
+                    rf'function (?P<apply>{_ID})\(\)\{{(?P<prefix>(?:if\()?(?:{_ID}\(\),){{1,3}})'
                     rf'(?=(?:{_ID}===void 0|{_ID}=\{{\}};let {_ID}={_ID}\.NODE_EXTRA_CA_CERTS))'
                     rf'(?=[\s\S]{{0,1000}}?Object\.assign\(process\.env,'
                     rf'{_ID}\((?P<settings>{_ID})\({_ID}\)\?\.env,{_ID}\)\))'
+                    rf'|(?P<method>apply(?:Safe)?ConfigEnvironmentVariables\(\)\{{)'
+                    rf'(?=[\s\S]{{0,2000}}?this\.filterSettingsEnv\((?P<method_settings>{_ID})\({_ID}\)\?\.env,{_ID}\))'
                 ),
                 lambda m: (
-                    f'function {m.group("apply")}(){{if(_ccProviderCaptureReady)'
+                    f'{m.group("method")}if(_ccProviderCaptureReady)_ccProviderInitialize({m.group("method_settings")}("policySettings")?.env);'
+                    if m.group("method")
+                    else f'function {m.group("apply")}(){{if(_ccProviderCaptureReady)'
                     f'_ccProviderInitialize({m.group("settings")}("policySettings")?.env);'
                     + m.group("prefix")
                 ),
@@ -1654,9 +2052,15 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
                     rf'\{{return (?P<native>{_ID}\({_ID}\({_ID}\({_ID}\({_ID}\('
                     rf'(?:(?P=env)|{_ID}\((?P=env),(?P=scope)\))'
                     rf'\)\),(?P=scope)\)\)\))\}}'
+                    rf'|filterSettingsEnv\((?P<method_env>{_ID}),(?P<method_scope>{_ID})\)'
+                    rf'\{{return (?P<method_native>[^;{{}}]+)\}}'
                 ),
                 lambda m: (
-                    f'function {m.group("filter")}({m.group("env")},{m.group("scope")})'
+                    f'filterSettingsEnv({m.group("method_env")},{m.group("method_scope")})'
+                    f'{{_ccProviderValidateManaged({m.group("method_env")},{m.group("method_scope")});'
+                    f'return _ccProviderFilterSettings({m.group("method_native")},{m.group("method_scope")})}}'
+                    if m.group("method_env")
+                    else f'function {m.group("filter")}({m.group("env")},{m.group("scope")})'
                     f'{{_ccProviderValidateManaged({m.group("env")},{m.group("scope")});'
                     f'return _ccProviderFilterSettings({m.group("native")},'
                     f'{m.group("scope")})}}'
@@ -1686,7 +2090,7 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
                 'if(_ccProviderInitialized)return;'
                 '_ccProviderApplyWorkerFinal();_ccProviderInitialized=true}'
                 'function _ccProviderValidateManaged(_ccEnv,_ccScope){'
-                'if(!_ccProviderCaptureReady||_ccProviderWorkerEnv===null||'
+                'if(!_ccProviderCaptureReady||_ccProviderPtyHost||_ccProviderAwaitingClaim||_ccProviderWorkerEnv===null||'
                 '_ccScope!=="policySettings")return;'
                 'let _ccKeys=new Set(_ccProviderKeys());'
                 'for(let[_ccKey,_ccValue]of Object.entries(_ccEnv??{}))'
@@ -1694,7 +2098,7 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
                 'throw Object.assign(Error("Background requester provider conflicts with managed policy: "'
                 '+_ccKey),{code:"EPROVIDERENV"})}'
                 'function _ccProviderFilterSettings(_ccEnv,_ccScope){'
-                'if(!_ccProviderCaptureReady||_ccProviderWorkerEnv===null)return _ccEnv;'
+                'if(!_ccProviderCaptureReady||_ccProviderPtyHost||_ccProviderAwaitingClaim||_ccProviderWorkerEnv===null)return _ccEnv;'
                 'let _ccKeys=new Set(_ccProviderKeys()),_ccOut={};'
                 'for(let[_ccKey,_ccValue]of Object.entries(_ccEnv))'
                 'if(!_ccKeys.has(_ccKey)||_ccScope==="policySettings")'
@@ -1723,8 +2127,10 @@ def _provider_env_207(base: PatchSet) -> PatchSet:
 
 def background_provider_environment(version: Version | None) -> PatchSet:
     """Include the agents fallback transport from 2.1.195 onwards."""
-    base = _select_patch_variant(
-        version, BACKGROUND_PROVIDER_ENV, BACKGROUND_PROVIDER_ENV_198
+    base = (
+        BACKGROUND_PROVIDER_ENV_198
+        if version is not None and version >= (2, 1, 198)
+        else BACKGROUND_PROVIDER_ENV
     )
     if version is not None and version >= (2, 1, 207):
         return _provider_env_207(base)
@@ -1768,8 +2174,9 @@ def background_provider_environment(version: Version | None) -> PatchSet:
 # --- in-process multi-provider Anthropic SDK routing (2.1.174-2.1.200) --------
 
 _MODEL_COSTS_RE = re.compile(
-    r"(\},[\w$]+=[\w$]+;"
-    r"(?:[\w$]+=new Set\([\w$]+\);)?[\w$]+=\{)"
+    r"((?:\},[\w$]+=[\w$]+;"
+    r"(?:[\w$]+=new Set\([\w$]+\);)?|\bvar )[\w$]+="
+    r"(?:Object\.assign\(Object\.create\(null\),)?\{)"
     r"(\[[\w$]+\([\w$]+\.firstParty\)\]:)"
 )
 
@@ -2200,16 +2607,18 @@ _MULTI_PROVIDER_HELPER = (
 )
 _MULTI_PROVIDER_RESUME = re.compile(
     rf'let (?P<model>{_ID})=(?P<message>{_ID})\.message\.model,'
-    rf'(?P<setting>{_ID})=(?P<current>{_ID})\(\);if\('
-    rf'(?P<dependent>{_ID})\((?P=setting)\)&&!(?P<eap>{_ID})\((?P=model)\)&&'
-    rf'(?P<compatible>{_ID})\((?P=setting),(?P<normalize>{_ID})\((?P=model)\)\)\)'
+    rf'(?P<setting>{_ID})=(?P<current>{_ID})\(\)'
+    rf'(?P<setting_normalization>,(?P<normalized_setting>{_ID})=typeof (?P=setting)==="string"\?'
+    rf'{_ID}\((?P=setting)\):(?P=setting))?;if\('
+    rf'(?P<dependent>{_ID})\((?(normalized_setting)(?P=normalized_setting)|(?P=setting))\)&&!(?P<eap>{_ID})\((?P=model)\)&&'
+    rf'(?P<compatible>{_ID})\((?(normalized_setting)(?P=normalized_setting)|(?P=setting)),(?P<normalize>{_ID})\((?P=model)\)\)\)'
     r'return\{kind:"mode_dependent_setting"\};'
     rf'(?=let {_ID}=!\([^;]{{1,200}}\)\?"unknown_family":!'
     rf'(?:(?P<exempt>{_ID})\((?P=model)\)&&!)?'
     rf'(?P<allowed>{_ID})\((?P=model)\)\?"not_allowed")'
 )
 _MULTI_PROVIDER_AGENT_MODEL = re.compile(
-    r'model:(?P<schema>[\w$]+)\.enum\(\["sonnet","opus","haiku","fable"\]\)'
+    r'model:(?P<schema>[\w$]+)(?P<enum>\.enum)?\(\["sonnet","opus","haiku","fable"\]\)'
     r'(?=\.optional\(\)\.describe\(["`]Optional model override for this agent\.)'
 )
 
@@ -2228,10 +2637,11 @@ def _restore_multi_provider_model(match: re.Match[str]) -> str:
         "if(_ccCandidates.length===1){let _ccRestored=_ccCandidates[0].value;"
         f'return {allowed}?{{kind:"ok",model:_ccRestored}}:'
         '{kind:"declined",model:_ccRestored,reason:"not_allowed"}}'
-        f"let {match.group('setting')}={match.group('current')}();if("
-        f"{match.group('dependent')}({match.group('setting')})&&!"
+        f"let {match.group('setting')}={match.group('current')}()"
+        f"{match.group('setting_normalization') or ''};if("
+        f"{match.group('dependent')}({match.group('normalized_setting') or match.group('setting')})&&!"
         f"{match.group('eap')}({model})&&{match.group('compatible')}("
-        f"{match.group('setting')},{match.group('normalize')}({model})))"
+        f"{match.group('normalized_setting') or match.group('setting')},{match.group('normalize')}({model})))"
         'return{kind:"mode_dependent_setting"};'
     )
 
@@ -2252,8 +2662,8 @@ _MULTI_PROVIDER_AGENT_IDENTIFIERS = (
         rf'(?(1)\)\{{let {_ID}=(?:{_ID}\("fable",\1\)\?\?)?\1\.fable5|\.fable5)'
     ),
     re.compile(
-        rf'function (?P<picker>{_ID})\({_ID}=!1\)\{{let {_ID}=new Set,'
-        rf'{_ID}={_ID}\({_ID}\)\.filter\(\({_ID}\)=>\{{'
+        rf'function (?P<picker>{_ID})\({_ID}=!1(?:,{_ID}=null)?\)\{{let {_ID}=new Set,'
+        rf'{_ID}={_ID}\({_ID}(?:,{_ID})?\)\.filter\(\({_ID}\)=>\{{'
         rf'if\({_ID}\.value===null\)return!0;if\({_ID}\.has\({_ID}\.value\)\)'
         rf'(?:\{{if\(({_ID})!==null\)\2\.duplicates\+\+;)?'
         rf'return {_ID}\(`model options: dropping duplicate row '
@@ -2265,7 +2675,7 @@ def _expand_multi_provider_agent_model(
     match: re.Match[str], bindings: dict[str, str]
 ) -> str:
     return (
-        f"model:{match.group('schema')}.enum([...new Set([...{bindings['aliases']},"
+        f"model:{match.group('schema')}{match.group('enum') or ''}([...new Set([...{bindings['aliases']},"
         f"...{bindings['first_party']},...Object.values({bindings['models']}()),"
         f"...{bindings['picker']}().filter((_ccEntry)=>"
         'typeof _ccEntry.value==="string").map((_ccEntry)=>_ccEntry.value),'
@@ -2284,12 +2694,18 @@ _MULTI_PROVIDER_THINKING_FILTER = re.compile(
     rf"\{{return (?P<filter>{_ID})\((?P=messages),\((?P<message>{_ID})\)=>"
     rf"(?P=message)\.message\.model!==(?P<synthetic>{_ID})&&"
     rf"(?P=message)\.message\.model!==(?P=model)\)\}}"
+    rf'|function (?P<predicate>{_ID})\((?P<item>{_ID}),(?P<target>{_ID})\)'
+    rf'\{{let (?P<origin>{_ID})=(?P=item)\.message\.model;'
+    rf'if\(typeof (?P=origin)!=="string"\)return!0;return '
+    rf'(?P<native>(?P=origin)!==(?P<sentinel>{_ID})&&(?P=origin)!==(?P=target)&&'
+    rf'{_ID}\((?P=origin)(?:,\{{identity:!0\}})?\)!=={_ID}\((?P=target)(?:,\{{identity:!0\}})?\)&&{_ID}\((?P=target)\)'
+    rf'\?\.has\((?P=origin)\)!==!0)\}}'
 )
 # Release .200 passes the finalized request directly. Keep late EXTRA_BODY.model
 # values literal; upstream resolves the selected model before the extra-body merge.
 _MULTI_PROVIDER_NONSTREAMING = re.compile(
     rf'let (?P<response>{_ID})=await (?P<client>{_ID})\.beta\.messages\.create\('
-    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),model:(?P<normalize>[\w$]+)\((?P=finalized)\.model\)\}}|{_ID}),'
+    rf'(?P<request>\{{\.\.\.(?P<finalized>{_ID}),(?:model:(?P<normalize>[\w$]+)\((?P=finalized)\.model\)|stream:!1)\}}|{_ID}),'
     rf'(?P<options>\{{signal:(?P<signal>{_ID})\.signal,timeout:(?P<timeout>{_ID}),'
     rf'\.\.\.Object\.keys\((?P<headers>{_ID})\)\.length>0&&\{{headers:(?P=headers)\}}\}})'
 )
@@ -2301,14 +2717,23 @@ _MULTI_PROVIDER_STREAMING = re.compile(
     rf'(?P<headers>{_ID})\)\.length>0&&\{{headers:(?P=headers)\}}\}})'
 )
 _MULTI_PROVIDER_SIDE_QUERY = re.compile(
-    rf'let (?P<started>{_ID})=performance\.now\(\),(?P<response>{_ID})=await '
+    rf'let (?P<started>{_ID})=performance\.now\(\),(?P<response>{_ID})='
+    rf'(?:await |(?P<callback>\((?P<callback_client>{_ID})\)=>))'
     rf'(?P<client>{_ID})\.beta\.messages\.create\((?P<request>{_ID}),'
     rf'(?P<options>\{{signal:(?P<signal>{_ID}),\.\.\.(?P<timeout>{_ID})!==void 0&&'
-    rf'\{{timeout:(?P=timeout)\}}\}})'
+    rf'\{{timeout:(?P=timeout)\}}\}})\)'
+    rf'|return (?P<retry_client>{_ID})\.beta\.messages\.create\('
+    rf'(?P<retry_request>{_ID}),(?P<retry_options>\{{signal:{_ID},'
+    rf'\.\.\.(?P<retry_timeout>{_ID})!==void 0&&\{{timeout:(?P=retry_timeout)\}},'
+    rf'\.\.\.{_ID}!==null&&\{{maxRetries:0\}},'
+    rf'(?:\.\.\.Object\.keys\((?P<retry_headers>{_ID})\)\.length>0&&'
+    rf'\{{headers:(?P=retry_headers)\}}|'
+    rf'\.\.\.(?P<dispatch>{_ID})!==null&&\{{headers:\{{\[{_ID}\]:(?P=dispatch)\}}\}})\}})\)(?=\.catch\()'
 )
 _MULTI_PROVIDER_COUNT_TOKENS = re.compile(
     rf'let (?P<client>{_ID})=await (?P<factory>{_ID})\(\{{maxRetries:1,model:(?P<model>{_ID}),'
-    rf'source:"count_tokens"(?P<agent_context>,agentContext:{_ID}\(\))?\}}\),'
+    rf'source:"count_tokens"(?P<agent_context>,agentContext:{_ID}\(\))?'
+    rf'(?P<credentials>,credentials:{_ID}(?:\?\.credentials)?)?\}}\),'
     rf'(?P<betas>{_ID})=(?P<raw_betas>{_ID})\.filter\('
     rf'\((?P<beta>{_ID})\)=>(?P<allowed_betas>{_ID})\.has\((?P=beta)\)\),(?P<response>{_ID})=await '
     rf'(?P=client)\.beta\.messages\.countTokens\((?P<request>\{{model:(?P<normalize>{_ID})\('
@@ -2316,17 +2741,23 @@ _MULTI_PROVIDER_COUNT_TOKENS = re.compile(
 )
 _MULTI_PROVIDER_COUNT_TOKENS_CATCH = re.compile(
     rf'(?P<prefix>async function (?P<function>{_ID})\((?P<messages>{_ID}),(?P<tools>{_ID}),'
-    rf'(?P<model_arg>{_ID})\)\{{'
-    rf'(?:(?P=messages)={_ID}\((?P=messages)\);let (?P<prepared_tools>{_ID})='
+    rf'(?P<model_arg>{_ID})(?:,{_ID})?\)\{{'
+    rf'(?:(?P=messages)={_ID}\((?:{_ID}\()?(?P=messages)\)\)?;let (?P<prepared_tools>{_ID})='
     rf'{_ID}\((?P=tools)\);)?return .{{0,200}}?async\(\)=>\{{try\{{.{{0,1800}}?return '
     rf'(?P<response>{_ID})\.input_tokens)\}}catch\((?P<error>{_ID})\)\{{'
     rf'(?P<body>(?:return |if\()(?P<logger>{_ID})\(`countTokens API call failed:'
-    rf'.{{0,200}}?null(?:;return null)?)\}}\}}\)\}}'
+    rf'.{{0,500}}?null(?:;return null)?)\}}\}}\)\}}'
 )
 _MULTI_PROVIDER_PICKER = re.compile(
-    rf'function (?P<function>{_ID})\((?P<flag>{_ID})\)\{{let (?P<options>{_ID})='
-    rf'(?P<native>{_ID})\((?P=flag)\),(?P<custom>{_ID})=process\.env\.'
+    rf'function (?P<function>{_ID})\((?P<flag>{_ID})(?:,{_ID})?\)\{{let (?P<options>{_ID})='
+    rf'(?P<native>{_ID})\((?P=flag)\),(?P<custom>{_ID})=(?:process\.env|{_ID})\.'
     r'ANTHROPIC_CUSTOM_MODEL_OPTION;'
+    rf'|function (?P<served_function>{_ID})\((?P<served_flag>{_ID}),(?P<stats>{_ID})\)'
+    rf'\{{let (?P<served>{_ID})={_ID}\((?P=served_flag),(?P=stats)\),'
+    rf'(?P<served_options>{_ID})=(?P=served)\?\?{_ID}\((?P=served_flag)\)'
+    rf'(?P<served_tail>,{_ID}=(?:process\.env|{_ID})\.ANTHROPIC_CUSTOM_MODEL_OPTION;'
+    rf'|,[^;]{{1,100}};if\({_ID}\)\{{[^{{}}]{{1,300}}\}}let '
+    rf'[^;]{{1,100}},\w+=(?:process\.env|{_ID})\.ANTHROPIC_CUSTOM_MODEL_OPTION;)'
 )
 _MULTI_PROVIDER_RECOGNITION = re.compile(
     rf'function (?P<function>{_ID})\((?P<model>{_ID})\)\{{let (?P<name>{_ID})='
@@ -2340,7 +2771,10 @@ _MULTI_PROVIDER_TOOL_SCHEMA = re.compile(
     rf'getToolPermissionContext:(?P<context>{_ID})\.getToolPermissionContext,'
     rf'tools:(?P<all_tools>{_ID}),agents:(?P=context)\.agents,'
     rf'allowedAgentTypes:(?P=context)\.allowedAgentTypes,model:(?P<model>{_ID}),'
-    rf'deferLoading:(?P<deferred>{_ID})\((?P=tool)\)\}}\)\)\);'
+    rf'(?P<snapshot_fields>(?:proactivityLevel:(?P=context)\.proactivityLevel,)?'
+    rf'(?:(?:querySource:(?P=context)\.querySource,)?recordedDescription:[^;{{}}]{{1,200}},'
+    rf'(?:recordedEntry:[^;{{}}]{{1,200}},)?)?)'
+    rf'deferLoading:(?P<deferred>{_ID})\((?P=tool)\)\}}\)\)\)(?P<delimiter>;|,)'
 )
 _MULTI_PROVIDER_CONTEXT_WINDOW = re.compile(
     rf'(?P<prefix>function (?P<function>{_ID})\((?P<model>{_ID}),(?P<headers>{_ID})\)'
@@ -2354,6 +2788,7 @@ _MULTI_PROVIDER_MAX_OUTPUT = re.compile(
     rf'(?P<prefix>function (?P<function>{_ID})\((?P<model>{_ID})\)\{{let '
     rf'(?P<default>{_ID}),(?P<upper>{_ID}),(?P<normalized>{_ID})='
     rf'(?P<normalize>{_ID})\((?P=model)\)'
+    rf'(?:,{_ID}={_ID}\((?P=model),(?P=normalized)\))?'
     rf'(?:,(?P<limits>{_ID})={_ID}\((?P=normalized)\)\?\.max_output_tokens)?;'
     rf'.{{0,2000}}?let (?P<config>{_ID})='
     rf'(?P<config_fn>{_ID})\((?P=model)\);if\((?P=config)\?\.max_tokens&&'
@@ -2390,6 +2825,15 @@ def _replace_multi_provider_sdk_tail(match: re.Match[str]) -> str:
 
 
 def _replace_multi_provider_thinking_filter(match: re.Match[str]) -> str:
+    if match.group("predicate"):
+        origin, target = match.group("origin", "target")
+        return match.group(0).replace(
+            match.group("native"),
+            f"{origin}!=={match.group('sentinel')}&&"
+            f"_ccMultiProviderModelProvider({origin})!=="
+            f"_ccMultiProviderModelProvider({target})",
+            1,
+        )
     messages = match.group("messages")
     model = match.group("model")
     message = match.group("message")
@@ -2415,13 +2859,30 @@ def _route_multi_provider_request(match: re.Match[str]) -> str:
 
 
 def _route_multi_provider_side_query(match: re.Match[str]) -> str:
+    if match.group("retry_client"):
+        return (
+            'return (([_ccClient,_ccOutbound,_ccOutboundOptions])=>'
+            '_ccClient.beta.messages.create(_ccOutbound,_ccOutboundOptions))'
+            f'(_ccMultiProviderRoute({match.group("retry_client")},'
+            f'{match.group("retry_request")},{match.group("retry_options")}))'
+        )
     options = match.group("options")
+    if match.group("callback"):
+        # Route each attempt with its current client. Keep the native retry handler.
+        return (
+            f"let {match.group('started')}=performance.now(),"
+            f"{match.group('response')}={match.group('callback')}"
+            "(([_ccClient,_ccOutbound,_ccOutboundOptions])=>"
+            "_ccClient.beta.messages.create(_ccOutbound,_ccOutboundOptions))"
+            f"(_ccMultiProviderRoute({match.group('client')},"
+            f"{match.group('request')},{options}))"
+        )
     return (
         f"let {match.group('started')}=performance.now(),_ccRequest="
         f"{match.group('request')},_ccOptions={options},"
         f"[_ccClient,_ccOutbound,_ccOutboundOptions]=_ccMultiProviderRoute("
         f"{match.group('client')},_ccRequest,_ccOptions),{match.group('response')}="
-        "await _ccClient.beta.messages.create(_ccOutbound,_ccOutboundOptions"
+        "await _ccClient.beta.messages.create(_ccOutbound,_ccOutboundOptions)"
     )
 
 
@@ -2435,7 +2896,7 @@ def _route_multi_provider_count_tokens(match: re.Match[str]) -> str:
         "_ccMultiProviderPreflight(_ccEffectiveModel);let "
         f"{match.group('client')}=await {match.group('factory')}({{maxRetries:1,model:"
         '_ccEffectiveModel,source:"count_tokens"'
-        f"{match.group('agent_context') or ''}}}),"
+        f"{match.group('agent_context') or ''}{match.group('credentials') or ''}}}),"
         f"{match.group('betas')}={match.group('raw_betas')}.filter("
         f"({match.group('beta')})=>{match.group('allowed_betas')}.has("
         f"{match.group('beta')})),_ccRequest="
@@ -2490,6 +2951,12 @@ def _surface_multi_provider_count_tokens_error(match: re.Match[str]) -> str:
 
 
 def _add_multi_provider_picker_models(match: re.Match[str]) -> str:
+    if match.group("served_options"):
+        return (
+            match.group(0)
+            + f"if({match.group('served')}===null)"
+            + f"{match.group('served_options')}.push(..._ccMultiProviderPickerCatalog());"
+        )
     return (
         match.group(0)
         + f"{match.group('options')}.push(..._ccMultiProviderPickerCatalog());"
@@ -2512,6 +2979,14 @@ def _recognize_multi_provider_model(match: re.Match[str]) -> str:
 def _filter_multi_provider_tool_schemas(match: re.Match[str]) -> str:
     tools = match.group("tools")
     tool = match.group("tool")
+    if match.group("snapshot_fields"):
+        # Keep schema indices aligned with the native tool and snapshot maps.
+        return match.group(0).replace(
+            f"{tools}.map(({tool})=>",
+            f"({tools}={tools}.filter(({tool})=>_ccMultiProviderToolAllowed("
+            f"{match.group('model')},{tool}))).map(({tool})=>",
+            1,
+        )
     return match.group(0).replace(
         f"{tools}.map(({tool})=>",
         f"{tools}.filter(({tool})=>_ccMultiProviderToolAllowed("
@@ -2570,10 +3045,10 @@ def _attribution_match(pattern: str, source: str) -> re.Match[str]:
     return matches[0]
 
 
-def _attribution_function(source: str, name: str) -> str:
+def _attribution_function(source: str, name: str, arguments: str = "[^)]*") -> str:
     return _attribution_match(
-        rf"\bfunction {re.escape(name)}\([^)]*\)\{{[\s\S]*?\}}"
-        rf"(?=\s*(?:(?:async )?function\b|var\b|let\b|const\b)|\s*$)",
+        rf"\bfunction {re.escape(name)}\({arguments}\)\{{[\s\S]*?\}}"
+        rf"(?=\s*(?:(?:async )?function\b|class\b|var\b|let\b|const\b)|\s*$)",
         source,
     ).group(0)
 
@@ -2611,7 +3086,7 @@ def _discover_multi_provider_attribution(source: str) -> _AttributionDiscovery:
     # Discover both git sections by their shared native attribution call.
     sections = list(
         re.finditer(
-            rf'function (?P<section>{_ID})\((?P<arg>{_ID})\)\{{if\(!{_ID}\(\)\)'
+            rf'function (?P<section>{_ID})\((?P<arg>{_ID})\)\{{(?:let [^;]{{1,150}};)?if\(!{_ID}\(\)\)'
             rf'return"";let [^;]{{0,150}}?\{{(?:commit:{_ID},pr:{_ID}|pr:{_ID},commit:{_ID})\}}=(?P<effective>{_ID})\(\)',
             source,
         )
@@ -2620,7 +3095,7 @@ def _discover_multi_provider_attribution(source: str) -> _AttributionDiscovery:
         raise PatchError("multi-provider attribution: git sections changed")
     effective = sections[0].group("effective")
     if effective != base_name:
-        wrapper = _attribution_function(source, effective)
+        wrapper = _attribution_function(source, effective, "")
         binding_orders = (
             rf'(?P<link>{_ID})={_ID}\(\),(?P<value>{_ID})={re.escape(base_name)}\(\)',
             rf'(?P<value>{_ID})={re.escape(base_name)}\(\),(?P<link>{_ID})={_ID}\(\)',
@@ -2660,11 +3135,12 @@ def _discover_multi_provider_attribution(source: str) -> _AttributionDiscovery:
     compact_body = _attribution_function(source, compact)
     serializer = _attribution_match(
         rf'async function (?P<serialize>{_ID})\((?P<tool>{_ID}),(?P<context>{_ID})\)'
-        rf'\{{(?P<prefix>[^{{}}]{{0,600}}?)(?P<key>{_ID})='
-        rf'(?P<key_expr>{_ID}\+{_ID}\+""\+(?:{_ID}\+)?\("inputJSONSchema"in (?P=tool)&&'
-        rf'(?P=tool)\.inputJSONSchema\?`\$\{{(?P=tool)\.name\}}:\$\{{{_ID}'
+        rf'\{{(?P<prefix>[^{{}}]{{0,1800}}?)(?P<key>{_ID})='
+        rf'(?P<key_expr>(?:{_ID}\+|""\+){{2,20}}\("inputJSONSchema"in (?P=tool)&&'
+        rf'(?P=tool)\.inputJSONSchema\?`\$\{{(?P=tool)\.name\}}:\$\{{{_ID}(?:\.schemaKey)?'
         rf'\((?P=tool)\.inputJSONSchema\)\}}`:(?P=tool)\.name\)),'
-        rf'(?P<cache>{_ID})={_ID}\(\),(?P<value>{_ID})=(?P=cache)\.get\((?P=key)\);',
+        rf'(?:(?P<cache>{_ID})={_ID}\(\),)?(?P<value>{_ID})='
+        rf'(?(cache)(?P=cache)|{_ID})\.get\((?P=key)\);',
         source,
     )
     return _AttributionDiscovery(
@@ -2851,9 +3327,143 @@ def _transform_attribution_route(source: str, effective: str) -> str:
     return source
 
 
+def _thread_modern_attribution(source: str) -> str:
+    """Keep native async policy and replay branches in request-local scope."""
+    module = next(
+        item
+        for item in source_modules(source)
+        if "# Committing changes with git" in item.source
+    )
+    text = module.source
+    position = text.index("- Interactive flags (")
+    start = list(re.finditer(rf"(?:async )?function {_ID}\(", text[:position]))[
+        -1
+    ].start()
+    effective = _attribution_match(
+        rf"(?:\{{(?:commit:{_ID},pr:{_ID}|pr:{_ID},commit:{_ID})\}}=|let {_ID}=)(?:await )?(?P<name>{_ID})\(\)",
+        text[start:position],
+    ).group("name")
+    modern = re.search(
+        rf"function (?P<base>{_ID})\((?P<arg>{_ID})?\)\{{let (?P<pr>{_ID})=(?P<footer>{_ID})\(\),"
+        rf"(?P<commit>{_ID})=`Co-Authored-By: \$\{{(?P<label>{_ID})\((?P<model>{_ID}(?:\(\))?)\)\}} <noreply@anthropic\.com>`",
+        text,
+    )
+    if modern is not None:
+        old = modern.group(0)
+        # Native explicit models also cover recorded attribution snapshots.
+        model = (
+            modern.group("arg")
+            or f"_ccAttributionScope.getStore()?.model??{modern.group('model')}"
+        )
+        if modern.group("arg"):
+            native_call = _attribution_match(
+                rf"{re.escape(modern.group('base'))}\((?P<model>{_ID})\?\?(?P<current>{_ID})\(\)\)",
+                text,
+            )
+            text = _attribution_replace(
+                text,
+                native_call.group(0),
+                f"{modern.group('base')}({native_call.group('model')}??_ccAttributionScope.getStore()?.model??{native_call.group('current')}())",
+            )
+        replacement = (
+            old[: old.index("let ")] + f"let _ccModel={model},"
+            f"_ccNativeAttributionLabel={modern.group('label')}(_ccModel),"
+            "{label:_ccLabel,domain:_ccAttributionDomain}="
+            "_ccMultiProviderAttribution(_ccModel,_ccNativeAttributionLabel),"
+            f"{modern.group('pr')}={modern.group('footer')}(),"
+            f"{modern.group('commit')}=`Co-Authored-By: ${{_ccLabel}} <noreply@${{_ccAttributionDomain}}>`"
+        )
+        text = _attribution_replace(text, old, replacement)
+    else:
+        attribution = _attribution_match(_MULTI_PROVIDER_ATTRIBUTION.pattern, text)
+        replacement = _replace_multi_provider_attribution(attribution).replace(
+            "_ccAttributionModel??", "_ccAttributionScope.getStore()?.model??"
+        )
+        text = _attribution_replace(text, attribution.group(0), replacement)
+    prompt = _attribution_match(
+        rf"async prompt\(\{{model:(?P<model>{_ID}),tools:(?P<tools>{_ID})(?P<extra>[^}}]*)\}}\)"
+        rf"\{{(?P<body>[\s\S]{{0,600}}?)return (?P<dispatch>{_ID})\((?P<args>[^;{{}}]*?)\)\}},isConcurrencySafe",
+        text,
+    )
+    replacement = (
+        f"async prompt({{model:{prompt.group('model')},tools:{prompt.group('tools')}{prompt.group('extra')},_ccAttributionSnapshot}}){{"
+        f"return _ccAttributionScope.run({{model:{prompt.group('model')},snapshot:_ccAttributionSnapshot}},async()=>{{"
+        f"if(_ccAttributionSnapshot===void 0)_ccAttributionScope.getStore().snapshot=await {effective}();"
+        + prompt.group("body")
+        + f"return {prompt.group('dispatch')}({prompt.group('args')})}})}},isConcurrencySafe"
+    )
+    for anchor in ("- Interactive flags (", "# Committing changes with git"):
+        position = text.index(anchor)
+        start = list(re.finditer(rf"(?:async )?function {_ID}\(", text[:position]))[
+            -1
+        ].start()
+        prefix = text[start:position]
+        updated = _attribution_replace(
+            prefix,
+            f"{effective}()",
+            f"(_ccAttributionScope.getStore()?.snapshot!==void 0?_ccAttributionScope.getStore().snapshot:{effective}())",
+        )
+        text = _attribution_replace(text, prefix, updated)
+    text = _attribution_replace(text, prompt.group(0), replacement)
+    serializer = _attribution_match(
+        rf"async function (?P<name>{_ID})\((?P<tool>{_ID}),(?P<context>{_ID})\)\{{(?:(?!\bfunction\b)[\s\S]){{0,5000}}?"
+        rf"(?P<key>(?:{_ID}\+|\"\"\+){{2,30}}\(\"inputJSONSchema\"in (?P=tool)&&[^;]+?:(?P=tool)\.name\))",
+        text,
+    )
+    tool, context, serialize = serializer.group("tool", "context", "name")
+    text = _attribution_replace(
+        text,
+        serializer.group("key"),
+        serializer.group("key")
+        + f"+JSON.stringify([{context}.model??null,{context}._ccAttributionSnapshot??null])",
+    )
+    declaration = f"async function {serialize}({tool},{context})"
+    text = _attribution_replace(
+        text,
+        declaration,
+        declaration
+        + "{"
+        + f"return _ccAttributionScope.run({{model:{context}.model}},async()=>{{"
+        + f"{context}={{...{context},_ccAttributionSnapshot:{tool}.name===\"Bash\"?await {effective}():void 0}};"
+        + f"if({context}._ccAttributionSnapshot)Object.freeze({context}._ccAttributionSnapshot);"
+        + f"let _ccSchema=await {serialize}_ccInner({tool},{context});"
+        + f"if({tool}.name===\"Bash\")Object.defineProperty(_ccSchema,Symbol.for(\"ccpatch.attribution\"),{{value:{context}._ccAttributionSnapshot,enumerable:!0}});return _ccSchema}})}}"
+        + f"async function {serialize}_ccInner({tool},{context})",
+    )
+    text = (
+        'var _ccAttributionScope=new (import.meta.require("node:async_hooks").AsyncLocalStorage);'
+        + text
+    )
+    source = _attribution_replace(source, module.source, text)
+    source = _transform_attribution_route(source, effective)
+    source = _attribution_replace(
+        source,
+        'const _ccAttributionKey=Symbol("ccpatch.attribution");',
+        'const _ccAttributionKey=Symbol.for("ccpatch.attribution");',
+    )
+    # Missing snapshots must not bypass native policy or replay handling.
+    return _attribution_replace(
+        source,
+        f"let _ccAttribution=_ccSnapshot??Object.freeze({effective}(_ccModel)),_ccLines=[];",
+        "if(!_ccSnapshot)return _ccBlocks;let _ccAttribution=_ccSnapshot,_ccLines=[];",
+    )
+
+
 def _thread_multi_provider_attribution(match: re.Match[str]) -> str:
     """Keep native attribution rules and pass request-local values through Bash."""
     source = match.group(0)
+    if (
+        len(source_modules(source)) > 1
+        or re.search(
+            rf"function {_ID}\((?P<model>{_ID}),(?P<flags>{_ID})\)\{{if\({_ID}\((?P=model)\)\)return {_ID}\((?P=flags),(?P=model)\);",
+            source,
+        )
+        or re.search(
+            r"async prompt\(\{model:[\w$]+,tools:[\w$]+,(?:proactiveLevelActive|leanPrompt):",
+            source,
+        )
+    ):
+        return _thread_modern_attribution(source)
     found = _discover_multi_provider_attribution(source)
     source = _transform_attribution_rules(source, found)
     source = _transform_attribution_prompts(source, found)
@@ -2879,9 +3489,69 @@ def _mark_multi_provider_compaction_source(match: re.Match[str]) -> str:
     )
 
 
+class _SDKPatchSet(PatchSet):
+    @typing_override
+    def apply(self, source: str) -> str:
+        split = len(source_modules(source)) > 1
+        if split:
+            for pattern in _MULTI_PROVIDER_AGENT_IDENTIFIERS:
+                definition = pattern.search(source)
+                consumer = _MULTI_PROVIDER_AGENT_MODEL.search(source)
+                if definition is None or consumer is None:
+                    raise PatchError("multi-provider-sdk: missing agent binding anchor")
+                for name, value in definition.groupdict().items():
+                    if value is not None and name != "entry":
+                        source, _ = ensure_module_reference(
+                            source, definition.start(), value, consumer.start()
+                        )
+                        definition = pattern.search(source)
+                        consumer = _MULTI_PROVIDER_AGENT_MODEL.search(source)
+                        assert definition is not None and consumer is not None
+        native_tail = _MULTI_PROVIDER_SDK_TAIL.search(source) if split else None
+        source = super().apply(source)
+        if not split:
+            return source
+        assert native_tail is not None
+        constructor = native_tail.group("constructor")
+        factory_start = native_tail.string.rfind(
+            "async function ", 0, native_tail.start()
+        )
+        factory = re.match(
+            rf"async function {_ID}\(\{{[^{{}}]+\}}\)\{{",
+            native_tail.string[factory_start:],
+        )
+        if factory is None:
+            raise PatchError("multi-provider-sdk: missing native SDK factory entry")
+        source = checked_replace(
+            source,
+            factory[0],
+            factory[0] + f"globalThis.__ccpatchRuntime.sdk.SDK=()=>{constructor};",
+            context="SDK native constructor capture",
+        )
+        capture = re.compile(r"const _ccMultiProviderSDK=\(\)=>[\w$]+;")
+        source, count = capture.subn("", source)
+        if count != 1:
+            raise PatchError("multi-provider-sdk: ambiguous SDK capture")
+        helper_start = source.find("const _ccMultiProviderDefinitions=")
+        helper_end = source.find(native_tail.group("next"), helper_start)
+        if helper_start < 0 or helper_end < 0:
+            raise PatchError("multi-provider-sdk: missing SDK helper boundaries")
+        helper = source[helper_start:helper_end]
+        source = checked_replace(source, helper, "", context="SDK singleton extraction")
+        names = sorted(set(re.findall(r"\b_ccMultiProvider\w+", helper)))
+        names.remove("_ccMultiProviderSDK")
+        helpers = re.compile(r"\b(" + "|".join(names) + r")\b")
+        source = helpers.sub(r"globalThis.__ccpatchRuntime.sdk.\1", source)
+        code = helper.replace(
+            "_ccMultiProviderSDK()", "globalThis.__ccpatchRuntime.sdk.SDK()"
+        )
+        code += "return {" + ",".join(names) + "};"
+        return register_module_bootstrap(source, "sdk", code)
+
+
 # The router propagates provider compatibility errors. It does not fall back to
 # Anthropic or change the native client's retry policy.
-MULTI_PROVIDER_SDK = PatchSet(
+MULTI_PROVIDER_SDK = _SDKPatchSet(
     name="multi-provider-sdk",
     patches=(
         _model_costs_patch(_MULTI_PROVIDER_MODEL_COSTS),
@@ -2981,7 +3651,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r"KimiCLI/1\.5"),
         re.compile(r"function _ccMultiProviderCatalogInfo\("),
         re.compile(r'if\(_ccCandidates\.length===1\)'),
-        re.compile(r'model:[\w$]+\.enum\(\[\.\.\.new Set\('),
+        re.compile(r'model:[\w$]+(?:\.enum)?\(\[\.\.\.new Set\('),
         re.compile(
             r"\{label:[\w$]+,domain:_ccAttributionDomain\}="
             r"_ccMultiProviderAttribution\([\w$]+,_ccNativeAttributionLabel\)"
@@ -3001,11 +3671,11 @@ MULTI_PROVIDER_SDK = PatchSet(
         re.compile(r'function _ccMultiProviderToolAllowed\('),
         re.compile(
             r'\.filter\(\([\w$]+\)=>_ccMultiProviderToolAllowed\('
-            r'[\w$]+,[\w$]+\)\)\.map\('
+            r'[\w$]+,[\w$]+\)\)\)?\.map\('
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 212),
+    max_version=(2, 1, 273),
     requires_version=True,
 )
 
@@ -3170,7 +3840,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 212),
+    max_version=(2, 1, 273),
     requires_version=True,
 )
 
@@ -3191,30 +3861,29 @@ _COMPACT_DESC = (
 _COMPACT_HINT = "schedule end-of-turn compaction to free up context"
 
 
-def _compact_tool_object(schema_ns: str) -> str:
-    # The tool object literal handed to the build's tool constructor. `schema_ns` is
-    # the captured zod-like namespace so the empty input schema (`<ns>.object({})`)
-    # resolves on every platform.
+def _compact_tool_object(schema_factory: str, *, use_factory: bool = False) -> str:
+    # Use the native object factory, either a namespace member or an imported alias.
     return (
         '{name:"compact_session",'
         f'searchHint:"{_COMPACT_HINT}",'
         f'async description(){{return"{_COMPACT_DESC}"}},'
         f'async prompt(){{return"{_COMPACT_DESC}"}},'
-        f"get inputSchema(){{return {schema_ns}.object({{}})}},"
+        f"get inputSchema(){{return {schema_factory}({{}})}},"
         # the generic tool-use renderer calls H.tool.renderToolUseMessage(...)
         # UNCONDITIONALLY (no ?.), and it is not an aK/base default -- omitting it
         # throws `undefined(...)` on any transcript render of the tool. null == no
         # custom render line, matching TodoWrite's renderToolUseMessage(){return null}.
         "renderToolUseMessage(){return null},"
         "isReadOnly(){return!0},isConcurrencySafe(){return!0},"
-        "async call(H,$){let W=Date.now(),Z=globalThis.__ccLastSelfCompact||0;"
+        + ("create(){return{" if use_factory else "")
+        + "async call(H,$){let W=Date.now(),Z=globalThis.__ccLastSelfCompact||0;"
         "if(W-Z<3e5){let Q=Math.round((W-Z)/1e3);"
         "return{data:{message:`compact_session was called ${Q}s ago; "
         "not rescheduling within the 300s cooldown.`}}}"
         "return globalThis.__ccPendingCompact=!0,globalThis.__ccLastSelfCompact=W,"
         '{data:{message:"Compaction scheduled: runs at the end of this turn if compaction '
         "is enabled and healthy. Context will be summarized; in-flight work in this turn "
-        'completes first."}}},'
+        'completes first."}}}' + ('}},' if use_factory else ',') +
         # the framework passes the result's `.data` payload here (map(t.data,id)), so
         # read H.message directly -- not H.data.message (that double-dip was the bug)
         "mapToolResultToToolResultBlockParam(H,$){"
@@ -3223,12 +3892,15 @@ def _compact_tool_object(schema_ns: str) -> str:
 
 
 def _define_compact_tool(m: re.Match[str]) -> str:
-    # m.1 = the TodoWrite schema declarator (re-emitted verbatim); m.2 = the zod-like
-    # schema namespace; m.3 = the tool constructor. Splice both into the injected tool
-    # so it uses the same symbols the real tools in this build do.
-    schema_ns, builder = m.group(2), m.group(3)
-    tool = f"globalThis.__ccCompactTool={builder}({_compact_tool_object(schema_ns)})"
-    return f"{m.group(1)}{tool},"
+    # Preserve the native schema declaration and use its initialized object factory.
+    schema_factory, builder = m.group(2), m.group(4)
+    # Follow TodoWrite's contract in this module, not a same-named unrelated builder.
+    contract = re.compile(r"\b(create|async call)\(").search(m.string, m.end())
+    use_factory = contract is not None and contract.group(1) == "create"
+    definition = _compact_tool_object(schema_factory, use_factory=use_factory)
+    tool = f"globalThis.__ccCompactTool={builder}({definition})"
+    # Reuse the native binding so this also works in a var declaration list.
+    return f"{m.group(1)}{m.group('todo')}={tool},"
 
 
 _COMPACT_REGISTRY = re.compile(
@@ -3270,9 +3942,9 @@ COMPACT_SESSION = PatchSet(
         Patch(
             "define-compact-session-tool",
             re.compile(
-                r'(([\w$]+)\.object\(\{oldTodos:[\w$]+\(\)\.describe\('
+                r'(([\w$]+(?:\.object)?)\(\{oldTodos:[\w$]+\(\)\.describe\('
                 r'"The todo list before the update"\),newTodos:[\w$]+\(\)\.describe\('
-                r'"The todo list after the update"\)\}\)\),)(?=[\w$]+=([\w$]+)\(\{name:)'
+                r'"The todo list after the update"\)\}\)\),)(?=(?P<todo>[\w$]+)=([\w$]+)\(\{name:)'
             ),
             _define_compact_tool,
         ),

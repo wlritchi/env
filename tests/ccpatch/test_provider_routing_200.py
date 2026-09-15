@@ -11,8 +11,12 @@ import pytest
 from wlrenv.ccpatch.patches import (
     _MULTI_PROVIDER_HELPER,
     _MULTI_PROVIDER_NONSTREAMING,
+    _MULTI_PROVIDER_SIDE_QUERY,
     _MULTI_PROVIDER_STREAMING,
+    _MULTI_PROVIDER_TOOL_SCHEMA,
+    _filter_multi_provider_tool_schemas,
     _route_multi_provider_request,
+    _route_multi_provider_side_query,
 )
 
 # Capture from the pristine .200 Linux x64 bundle. Do not resolve again after EXTRA_BODY.
@@ -46,13 +50,16 @@ def test_native_200_routing_evidence() -> None:
 
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("explicit_stream", [False, True])
 def test_finalized_routing_preserves_resolution(
-    tmp_path: Path, streaming: bool, legacy: bool
+    tmp_path: Path, streaming: bool, legacy: bool, explicit_stream: bool
 ) -> None:
     runtime = shutil.which("node") or shutil.which("bun")
     if runtime is None:
         pytest.skip("requires node or bun")
     source = _STREAM if streaming else _LEGACY if legacy else _NONSTREAM
+    if explicit_stream and not streaming and not legacy:
+        source = source.replace("create(g,", "create({...g,stream:!1},")
     pattern = _MULTI_PROVIDER_STREAMING if streaming else _MULTI_PROVIDER_NONSTREAMING
     patched, count = pattern.subn(_route_multi_provider_request, source)
     assert count == 1
@@ -134,3 +141,45 @@ async function check(selected,extra,expected,external=false){
         [runtime, str(path)], capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_side_query_retains_dispatch_header_and_native_catch() -> None:
+    source = (
+        'return client.beta.messages.create(request,{signal:signal,'
+        '...timeout!==void 0&&{timeout:timeout},...dispatch!==null&&{maxRetries:0},'
+        '...dispatch!==null&&{headers:{[header]:dispatch}}}).catch(nativeCatch)'
+    )
+    transformed, count = _MULTI_PROVIDER_SIDE_QUERY.subn(
+        _route_multi_provider_side_query, source
+    )
+    assert count == 1
+    assert transformed.endswith(').catch(nativeCatch)')
+    assert '_ccMultiProviderRoute(client,request,{signal:signal,' in transformed
+    assert '...dispatch!==null&&{headers:{[header]:dispatch}}' in transformed
+
+
+@pytest.mark.parametrize("query_source", [True, False])
+def test_recorded_tool_snapshot_fields_and_indices_are_preserved(
+    query_source: bool,
+) -> None:
+    source = (
+        'schemas=await Promise.all(tools.map((tool)=>serialize(tool,{'
+        'getToolPermissionContext:ctx.getToolPermissionContext,tools:all,'
+        'agents:ctx.agents,allowedAgentTypes:ctx.allowedAgentTypes,model:model,'
+        'querySource:ctx.querySource,recordedDescription:deferred(tool)?void 0:'
+        'ctx.recordedToolDescriptions?.get(tool.name),recordedEntry:deferred(tool)||'
+        'isAgent(tool,Agent)?void 0:ctx.recordedToolEntries?.get(tool.name),'
+        'deferLoading:deferred(tool)}))),index=new Map(tools.map((tool,i)=>'
+        '[tool.name,{schema:schemas[i]}]));'
+    )
+    if not query_source:
+        source = source.replace('querySource:ctx.querySource,', '')
+    transformed, count = _MULTI_PROVIDER_TOOL_SCHEMA.subn(
+        _filter_multi_provider_tool_schemas, source
+    )
+    assert count == 1
+    assert transformed == source.replace(
+        'Promise.all(tools.map(',
+        'Promise.all((tools=tools.filter((tool)=>'
+        '_ccMultiProviderToolAllowed(model,tool))).map(',
+    )

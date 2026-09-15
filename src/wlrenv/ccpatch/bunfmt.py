@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 BUN_TRAILER = b"\n---- Bun! ----\n"
 
@@ -61,7 +61,8 @@ class BunModule:
         return (
             self.name.endswith(b"/cli.js")
             or self.name.endswith(b"/claude")
-            or self.name in (b"cli.js", b"claude")
+            or self.name.endswith(b"/cli")
+            or self.name in (b"cli.js", b"claude", b"cli")
         )
 
 
@@ -72,6 +73,8 @@ class BunBlob:
     compile_exec_argv: bytes
     modules: tuple[BunModule, ...]
     module_struct_size: int  # SIZEOF_MODULE_OLD or SIZEOF_MODULE_NEW
+    original: bytes = field(default=b"", repr=False, compare=False)
+    extra_records: bytes = field(default=b"", repr=False)
 
     @property
     def is_new_format(self) -> bool:
@@ -146,11 +149,56 @@ def parse_blob(blob: bytes) -> BunBlob:
         compile_exec_argv=blob[cea_off : cea_off + cea_len],
         modules=tuple(modules),
         module_struct_size=struct_size,
+        original=blob,
+        extra_records=blob[modules_off + modules_len : cea_off]
+        if flags & ~0xF
+        else b"",
+    )
+
+
+def _source_only(blob: BunBlob) -> BunBlob:
+    """Remove graph-wide caches, but keep the compiled runtime policy."""
+    records = blob.extra_records
+    pos = 0
+    if blob.flags & (1 << 5):
+        pos += 4 * len(blob.modules)
+    if blob.flags & (1 << 6):
+        count = _u32(records, pos)
+        pos += 4 + 12 * count
+    if blob.flags & (1 << 7):
+        pos += 8
+    if blob.flags & (1 << 8):
+        pos += 4
+    if blob.flags & (1 << 9):
+        pos += 8
+    if blob.flags & (1 << 11):
+        count = _u32(records, pos + 8)
+        pos += 12 + 4 * count
+    runtime = records[pos : pos + 8] if blob.flags & (1 << 12) else b""
+    if blob.flags & ~0x1FFF:
+        raise BunFormatError("unsupported Bun graph flags")
+    return replace(
+        blob,
+        flags=blob.flags & (0xF | (1 << 10) | (1 << 12)),
+        modules=tuple(
+            replace(m, bytecode=b"", bytecode_origin_path=b"", module_info=b"")
+            for m in blob.modules
+        ),
+        extra_records=runtime,
     )
 
 
 def rebuild_blob(blob: BunBlob) -> bytes:
-    """Serialize a :class:`BunBlob` into a fresh, self-consistent byte blob."""
+    """Serialize a graph; invalidate shared caches when its modules change.
+
+    Unchanged parsed graphs retain their original layout and caches. Rebuilt
+    extended graphs use source because their hashes, shared tables, and prelinked
+    metadata depend on the original source and module layout.
+    """
+    if blob.original and blob == parse_blob(blob.original):
+        return blob.original
+    if blob.flags & ~0xF and blob.extra_records:
+        blob = _source_only(blob)
     new_format = blob.is_new_format
     n_strings = _STRINGS_NEW if new_format else _STRINGS_OLD
 
@@ -164,12 +212,18 @@ def rebuild_blob(blob: BunBlob) -> bytes:
     # Phase 2: assign offsets (each string gets a trailing NUL separator).
     str_ptrs: list[tuple[int, int]] = []
     cur = 0
-    for s in strings:
+    for i, s in enumerate(strings):
+        if i % n_strings == 3 and s:
+            cur += (120 - cur) % 128
+        elif i % n_strings in (1, 4):
+            cur += (-cur) % 4
         str_ptrs.append((cur, len(s)))
         cur += len(s) + 1
     modules_list_off = cur
     modules_list_size = len(blob.modules) * blob.module_struct_size
     cur += modules_list_size
+    records_off = cur
+    cur += len(blob.extra_records)
     cea_off = cur
     cur += len(blob.compile_exec_argv) + 1
     offsets_off = cur
@@ -191,6 +245,7 @@ def rebuild_blob(blob: BunBlob) -> bytes:
         tail_at = mo + n_strings * SIZEOF_STRING_POINTER
         buf[tail_at : tail_at + _TAIL] = blob.modules[i].tail
 
+    buf[records_off:cea_off] = blob.extra_records
     cea = blob.compile_exec_argv
     buf[cea_off : cea_off + len(cea)] = cea
     buf[cea_off + len(cea)] = 0

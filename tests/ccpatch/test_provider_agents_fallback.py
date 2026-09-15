@@ -47,7 +47,10 @@ def _fallback_patch(version: tuple[int, int, int] = (2, 1, 203)) -> Patch:
 
 @pytest.mark.parametrize("mode", ["disabled", "success", "throws"])
 @pytest.mark.parametrize("channels", [False, True])
-def test_native_fallback_preserves_provider_snapshot(mode: str, channels: bool) -> None:
+@pytest.mark.parametrize("selection", ["legacy", "unset", "explicit", "lifecycle"])
+def test_native_fallback_preserves_provider_snapshot(
+    mode: str, channels: bool, selection: str
+) -> None:
     snapshot_patch = next(
         patch
         for patch in BACKGROUND_PROVIDER_ENV.patches
@@ -56,10 +59,25 @@ def test_native_fallback_preserves_provider_snapshot(mode: str, channels: bool) 
     helpers, count = snapshot_patch.pattern.subn(snapshot_patch.replacement, _HELPERS)
     assert count == 1
     gate = _NATIVE_GATE
-    if channels:
+    if selection != "legacy":
         gate = gate.replace(
-            "dispatchDefaults:I", "dispatchDefaults:I,dispatchExtraArgs:channelArgs()"
+            "dispatchDefaults:I",
+            "dispatchDefaults:I,...a?.autoOpenJobId!==void 0&&{autoOpenJobId:a.autoOpenJobId}",
+        ).replace("CLAUDE_AGENTS_SELECT:m", "CLAUDE_AGENTS_SELECT:a?.autoOpenJobId??m")
+    if selection == "lifecycle":
+        gate = gate.replace(
+            "autoOpenJobId:a.autoOpenJobId}})",
+            "autoOpenJobId:a.autoOpenJobId},originSpawn:u,storageV5:u,credentials:u,fleetNudgeStore:a?.fleetNudgeStore})",
+        ).replace("return $Oe(", "let result=await $Oe(")
+        gate += ';cleaned++;return result'
+    if channels:
+        handoff = next(
+            patch
+            for patch in agents_view_handoff((2, 1, 216)).patches
+            if patch.name == "agents-launch-config"
         )
+        gate, count = handoff.pattern.subn(handoff.replacement, gate)
+        assert count == 1
     patch = _fallback_patch()
     source, count = patch.pattern.subn(
         patch.replacement, helpers + "async function run(){" + gate + "}"
@@ -72,18 +90,22 @@ def test_native_fallback_preserves_provider_snapshot(mode: str, channels: bool) 
         'const process={env:{ANTHROPIC_API_KEY:"live",ANTHROPIC_AUTH_TOKEN:"",'
         'ANTHROPIC_BASE_URL:"https://live.invalid",apiKeyHelper:"untouched"}};'
         + source
-        + f'const mode="{mode}";'
+        + f'const mode="{mode}",channels={json.dumps(channels)},lifecycle={json.dumps(selection == "lifecycle")};'
+        + f'const a={json.dumps({"autoOpenJobId": "selected"} if selection == "explicit" else {})};'
         + '''
 const m="job",u={},I={model:"current"};
-let spawned=0,inprocess=0,logged=0,snapshots=0;
+let spawned=0,inprocess=0,logged=0,snapshots=0,cleaned=0;
 const originalSnapshot=php;
 php=()=>{snapshots++;return originalSnapshot()};
 const before=JSON.stringify(process.env);
 function Ze(){return mode!=="disabled"}
-function channelArgs(){return ["--dangerously-load-development-channels","server:test"]}
+function _ccAgentsDispatchArgs(){return ["--dangerously-load-development-channels","server:test"]}
 async function OXp(job,context,options){
     inprocess++;
     if(job!==m||context!==u||options.dispatchDefaults!==I)throw Error("dispatch changed");
+    if(options.autoOpenJobId!==a.autoOpenJobId)throw Error("selection changed");
+    if(lifecycle&&(options.originSpawn!==u||options.storageV5!==u||options.credentials!==u))throw Error("lifecycle lost");
+    if(channels&&JSON.stringify(options.dispatchExtraArgs)!==JSON.stringify(_ccAgentsDispatchArgs()))throw Error("config lost");
     if(mode==="throws")throw Error("render failed");
     return "inprocess";
 }
@@ -99,8 +121,9 @@ function $Oe(options){spawned++;return options}
         return;
     }
     if(spawned!==1||snapshots!==1||logged!==(mode==="throws"?1:0))throw Error("fallback changed");
-    if(result.env.CLAUDE_AGENTS_SELECT!==m||result.env.ACCESSIBILITY!=="retained")throw Error("env lost");
-    if(JSON.stringify(result.args)!==JSON.stringify(["agents","--model","current"]))throw Error("argv changed");
+    if(cleaned!==(lifecycle?1:0))throw Error("cleanup changed");
+    if(result.env.CLAUDE_AGENTS_SELECT!==(a.autoOpenJobId??m)||result.env.ACCESSIBILITY!=="retained")throw Error("env lost");
+    if(JSON.stringify(result.args)!==JSON.stringify(["agents","--model","current",...(channels?_ccAgentsDispatchArgs():[])]))throw Error("argv changed");
     const child={...process.env,...result.env};
     const captured=_ccProviderCaptureTransport(child);
     if("CLAUDE_CODE_PROVIDER_ENV_TRANSIENT" in child)throw Error("transport leaked");

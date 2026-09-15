@@ -10,15 +10,32 @@ from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_RESPAWN_GUARD,
     BACKGROUND_PROVIDER_ENV,
     CHANNELS_ENABLED,
+    THINKING_SUMMARIES_NONINTERACTIVE,
+    THINKING_SUMMARIES_NONINTERACTIVE_198,
     Patch,
     PatchError,
     PatchSet,
     background_provider_environment,
     checked_replace,
+    default_patch_sets,
     discover_identifiers,
     parse_version,
     thinking_expanded,
 )
+
+
+@pytest.mark.parametrize("release", range(198, 273))
+def test_thinking_variant_selected_through_verified_release(release: int) -> None:
+    variant = default_patch_sets((2, 1, release))[7]
+    assert variant is THINKING_SUMMARIES_NONINTERACTIVE_198
+    assert variant.applies_to((2, 1, release))
+
+
+def test_thinking_variant_stops_after_verified_release() -> None:
+    assert THINKING_SUMMARIES_NONINTERACTIVE_198.max_version == (2, 1, 273)
+    assert not THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to((2, 1, 273))
+    assert default_patch_sets((2, 1, 273))[7] is THINKING_SUMMARIES_NONINTERACTIVE
+
 
 # A minified-ish snippet exercising all three thinking patches.
 _RENDER = (

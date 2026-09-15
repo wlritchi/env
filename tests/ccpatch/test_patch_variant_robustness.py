@@ -12,6 +12,7 @@ from wlrenv.ccpatch.patches import (
     COMPACT_SESSION,
     THINKING_SUMMARIES_NONINTERACTIVE,
     THINKING_SUMMARIES_NONINTERACTIVE_198,
+    Patch,
     PatchError,
     PatchSet,
     Version,
@@ -32,6 +33,30 @@ _REGISTRIES = (
 )
 _SPREAD = "...(globalThis.__ccCompactTool?[globalThis.__ccCompactTool]:[]),"
 _REGISTRATION = PatchSet("registry-test", (COMPACT_SESSION.patches[1],))
+
+
+@pytest.mark.parametrize("pattern", [r"(?P<value>a)", r"(?P<value>a*)"])
+@pytest.mark.parametrize("use_callable", [False, True])
+def test_retained_matches_preserve_substitution_semantics(
+    pattern: str, use_callable: bool
+) -> None:
+    compiled = re.compile(pattern)
+    source = "aba"
+
+    def replace_match(match: re.Match[str]) -> str:
+        assert match.string == source
+        return f"[{match['value']}]"
+
+    replacement = replace_match if use_callable else r"[\g<value>]"
+    patch = Patch(
+        name="substitution",
+        pattern=compiled,
+        replacement=replacement,
+        expected_matches=(len(list(compiled.finditer(source))),),
+    )
+    assert PatchSet("fixture", (patch,)).apply(source) == compiled.sub(
+        replacement, source
+    )
 
 
 def _registry_fragment(
@@ -143,12 +168,14 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
     if version in ((2, 1, 207), (2, 1, 208), (2, 1, 209), (2, 1, 210), (2, 1, 211)):
-        assert sum(len(patch_set.patches) for patch_set in selected) == 78
-        assert selected[4].max_version == (2, 1, 212)
+        assert sum(len(patch_set.patches) for patch_set in selected) == 77
+        assert selected[4].max_version == (2, 1, 273)
         assert BACKGROUND_PROVIDER_ENV_198.applies_to(version)
         assert THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
-        assert not selected[4].applies_to((2, 1, 212))
-        assert not selected[7].applies_to((2, 1, 212))
+        assert selected[4].applies_to((2, 1, 272))
+        assert not selected[4].applies_to((2, 1, 273))
+        assert selected[7].applies_to((2, 1, 272))
+        assert not selected[7].applies_to((2, 1, 273))
 
 
 @pytest.mark.parametrize("scoped", [False, True])

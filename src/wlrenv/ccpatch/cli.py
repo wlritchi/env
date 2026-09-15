@@ -19,8 +19,9 @@ import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from wlrenv.ccpatch.bunfmt import BunModule, parse_blob, rebuild_blob
+from wlrenv.ccpatch.bunfmt import BunBlob, BunModule, parse_blob, rebuild_blob
 from wlrenv.ccpatch.container import load_container
+from wlrenv.ccpatch.module_runtime import ModuleRuntimeError, finalize_module_runtime
 from wlrenv.ccpatch.patches import (
     _MULTI_PROVIDER_HELPER,
     PatchError,
@@ -58,7 +59,48 @@ def _patch_source(source: str, version: str | None) -> str:
     for patch_set in patch_sets:
         if patch_set.applies_to(parsed):
             source = patch_set.apply(source)
-    return source
+    return finalize_module_runtime(source)
+
+
+def _source_modules(blob: BunBlob) -> tuple[BunModule, ...]:
+    if not 0 <= blob.entry_point_id < len(blob.modules):
+        raise ApplyError("invalid Bun entrypoint module index")
+    entry = blob.modules[blob.entry_point_id]
+    if entry.tail[2] != 1:
+        return (entry,)
+    return tuple(m for m in blob.modules if m.tail[1:4] == b"\x01\x01\x00")
+
+
+def _module_marker(module: BunModule) -> str:
+    return f"\n/* ccpatch-module:{module.name.hex()} */\n"
+
+
+def _graph_source(modules: tuple[BunModule, ...]) -> str:
+    if len(modules) == 1:
+        return _decode(modules[0].contents)
+    return "".join(_module_marker(m) + _decode(m.contents) for m in modules)
+
+
+def _split_graph_source(
+    source: str, modules: tuple[BunModule, ...]
+) -> dict[bytes, bytes]:
+    if len(modules) == 1:
+        return {modules[0].name: _encode(source)}
+    boundaries = list(re.finditer(r"\n/\* ccpatch-module:([0-9a-f]+) \*/\n", source))
+    if (
+        len(boundaries) != len(modules)
+        or boundaries[0].start() != 0
+        or any(
+            match.group(0) != _module_marker(module)
+            for match, module in zip(boundaries, modules, strict=True)
+        )
+    ):
+        raise ApplyError("patch changed a Bun module boundary")
+    ends = [match.start() for match in boundaries[1:]] + [len(source)]
+    return {
+        module.name: _encode(source[match.end() : end])
+        for module, match, end in zip(modules, boundaries, ends, strict=True)
+    }
 
 
 def apply_patches(
@@ -71,19 +113,19 @@ def apply_patches(
     container = load_container(data)
     blob = parse_blob(container.read_blob())
 
-    entry = next((m for m in blob.modules if m.is_entrypoint()), None)
-    if entry is None:
-        raise ApplyError("no entrypoint (cli.js) module found")
-
-    patched_source = _patch_source(_decode(entry.contents), version)
+    modules = _source_modules(blob)
+    patched_source = _patch_source(_graph_source(modules), version)
+    sources = _split_graph_source(patched_source, modules)
 
     def transform(module: BunModule) -> BunModule | None:
-        if not module.is_entrypoint():
+        if module.name not in sources:
             return None
-        updates: dict[str, bytes] = {"contents": _encode(patched_source)}
-        if zero_bytecode:
+        contents = sources[module.name]
+        updates: dict[str, bytes] = {"contents": contents}
+        if zero_bytecode or contents != module.contents:
             updates["bytecode"] = b""
             updates["bytecode_origin_path"] = b""
+            updates["module_info"] = b""
         return replace(module, **updates)
 
     new_blob = rebuild_blob(blob.map_modules(transform))
@@ -92,8 +134,7 @@ def apply_patches(
 
 def _entry_source(data: bytes) -> str:
     blob = parse_blob(load_container(data).read_blob())
-    entry = next(m for m in blob.modules if m.is_entrypoint())
-    return _decode(entry.contents)
+    return _graph_source(_source_modules(blob))
 
 
 def _run_smoke_command(path: Path, argument: str) -> subprocess.CompletedProcess[str]:
@@ -173,7 +214,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
                 zero_bytecode=args.zero_bytecode,
                 smoke=not args.no_smoke,
             )
-        except (ApplyError, PatchError) as exc:
+        except (ApplyError, PatchError, ModuleRuntimeError) as exc:
             print(f"ccpatch: {exc}", file=sys.stderr)
             return 1
         out.write_bytes(staged.read_bytes())

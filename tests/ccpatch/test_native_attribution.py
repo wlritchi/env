@@ -12,11 +12,13 @@ from pathlib import Path
 
 import pytest
 
+from wlrenv.ccpatch.module_runtime import source_modules
 from wlrenv.ccpatch.patches import (
     MULTI_PROVIDER_SDK,
     PatchError,
     _attribution_function,
     _discover_multi_provider_attribution,
+    _thread_modern_attribution,
     _thread_multi_provider_attribution,
     _transform_attribution_serializer,
     default_patch_sets,
@@ -591,6 +593,102 @@ for(const verbose of [false,true]){
 _ATTRIBUTION_SOURCE = 'function ATTR(){if(MODE()==="remote"){if(ENV.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION)return{commit:"",pr:""};return REMOTE()}let H=CURRENT(),$=ISFIRST(H)?DISPLAY(FIRST.firstParty):ISNATIVE(H)?DISPLAY(H):"Claude",q=`\\uD83E\\uDD16 Generated with [Claude Code](${URL})`,K=`Co-Authored-By: ${$} <noreply@anthropic.com>`,_=SETTINGS();if(_.attribution)return{commit:_.attribution.commit??K,pr:_.attribution.pr??q};if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""};return{commit:K,pr:q}}function COMPACT_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}function FULL_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}function COMPACT_BASH(F){return COMPACT_GIT(F)}function BASH_DISPATCH(M,F){if(SHORT(M))return COMPACT_BASH(F);return FULL_GIT(F)}var BASH={async prompt({model:M,tools:T}){let F=[];return BASH_DISPATCH(M,F)},isConcurrencySafe(){return!1}};async function SERIALIZE_NATIVE(E,T){let o="",s="",a=o+s+""+("inputJSONSchema"in E&&E.inputJSONSchema?`${E.name}:${HASH(E.inputJSONSchema)}`:E.name),l=CACHE(),c=l.get(a);return c}function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={}){delete _ccOutbound[_ccField];return[_ccCached.client,_ccOutbound,{}]}'
 
 
+_MODERN_VERSIONS = [
+    *range(212, 230),
+    *range(231, 244),
+    245,
+    246,
+    247,
+    248,
+    250,
+    251,
+    252,
+    257,
+    258,
+    259,
+    260,
+    261,
+    263,
+    265,
+    266,
+    267,
+    268,
+    269,
+    270,
+    271,
+    272,
+]
+
+
+@pytest.mark.parametrize("version", _MODERN_VERSIONS)
+def test_modern_captured_attribution(version: int) -> None:
+    root = Path(__file__).resolve().parents[2] / "build/sweep-resume"
+    path = root / f"2.1.{version}/linux-x64/original.js"
+    runtime = shutil.which("node")
+    if not path.is_file() or runtime is None:
+        pytest.skip("requires captured release and node")
+    source = next(
+        module.source
+        for module in source_modules(path.read_text())
+        if "# Committing changes with git" in module.source
+    )
+    route = _ATTRIBUTION_SOURCE[
+        _ATTRIBUTION_SOURCE.index("function _ccMultiProviderRoute(") :
+    ]
+    generated = _thread_modern_attribution(source + route)
+    check = subprocess.run(  # noqa: S603 - local syntax check
+        [runtime, "--input-type=module", "--check"],
+        input=generated,
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    assert check.returncode == 0, check.stderr
+    assert "if(!_ccSnapshot)return _ccBlocks" in generated
+    assert "Symbol.for(\"ccpatch.attribution\")" in generated
+    # Policy awaits and replay branches must remain byte-identical.
+    for match in re.finditer(
+        r'await [\w$]+(?:\.attributionTextOf)?\("(?:commit|pr)",[\w$]+\.(?:commit|pr)\)',
+        source,
+    ):
+        assert match.group(0) in generated
+    for match in re.finditer(
+        r'function [\w$]+\(\)\{return [\w$]+\(\)\?null:[\w$]+\(\)\}', source
+    ):
+        assert match.group(0) in generated
+    serializer = re.search(
+        r'async function ([\w$]+)\(([\w$]+),([\w$]+)\)\{return _ccAttributionScope.run',
+        generated,
+    )
+    assert serializer is not None
+    name, tool, context = serializer.groups()
+    end = generated.index(f"async function {name}_ccInner", serializer.start())
+    wrapper = generated[serializer.start() : end]
+    effective = re.search(r'\?await ([\w$]+)\(\):void 0', wrapper)
+    assert effective is not None
+    system_helper = _attribution_function(
+        generated, "_ccMultiProviderSystemAttribution"
+    )
+    script = (
+        system_helper
+        + 'for(const snapshot of [null,undefined,{commit:"",pr:""}]){if(_ccMultiProviderSystemAttribution("native","zai:test",snapshot).length!==1)throw Error("suppression")}'
+        + 'let custom=_ccMultiProviderSystemAttribution("native","zai:test",{commit:"custom commit",pr:"custom PR"});if(!custom[1].text.includes("custom commit")||!custom[1].text.includes("custom PR"))throw Error("custom attribution");'
+        + 'const {AsyncLocalStorage}=require("node:async_hooks");const _ccAttributionScope=new AsyncLocalStorage;'
+        'let calls=0;'
+        f'async function {effective[1]}(){{calls++;let model=_ccAttributionScope.getStore().model;await Promise.resolve();return model==="replay"?null:{{commit:model,pr:"native PR"}}}}'
+        f'async function {name}_ccInner({tool},{context}){{await Promise.resolve();return {{name:{tool}.name,description:JSON.stringify({context}._ccAttributionSnapshot)}}}}'
+        + wrapper
+        + f'(async()=>{{let results=await Promise.all(["zai:a","openai:b","replay"].map(model=>{name}({{name:"Bash"}},{{model}})));'
+        'if(calls!==3)throw Error("policy calls");for(let i=0;i<results.length;i++){let value=results[i][Symbol.for("ccpatch.attribution")];'
+        'if(i===2){if(value!==null)throw Error("replay")}else if(value.commit!==["zai:a","openai:b"][i]||!Object.isFrozen(value))throw Error("isolation");'
+        'if(JSON.stringify(results[i]).includes("ccpatch.attribution"))throw Error("wire leak");}})().catch(e=>{console.error(e);process.exitCode=1})'
+    )
+    result = subprocess.run(  # noqa: S603 - captured local wrapper
+        [runtime, "-e", script], capture_output=True, text=True, timeout=20
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def _patch_attribution(source: str) -> str:
     match = re.fullmatch(r"[\s\S]*", source)
     assert match is not None
@@ -598,8 +696,16 @@ def _patch_attribution(source: str) -> str:
 
 
 @pytest.mark.parametrize("strict_prefix", ["", 'strict+'])
-def test_attribution_cache_key_retains_native_dimensions(strict_prefix: str) -> None:
+@pytest.mark.parametrize("schema_method", [False, True])
+def test_attribution_cache_key_retains_native_dimensions(
+    strict_prefix: str, schema_method: bool
+) -> None:
     source = _ATTRIBUTION_SOURCE.replace('o+s+""+', 'o+s+""+' + strict_prefix)
+    if schema_method:
+        source = source.replace(
+            "HASH(E.inputJSONSchema)", "state.schemaKey(E.inputJSONSchema)"
+        )
+        source = source.replace("l=CACHE(),c=l.get(a)", "c=sharedCache.get(a)")
     found = _discover_multi_provider_attribution(source)
     generated = _patch_attribution(source)
     assert (
@@ -752,7 +858,9 @@ def test_attribution_generated_output_is_unchanged() -> None:
     )
 
 
-@pytest.mark.parametrize("separator", ["\n", "\nconst unused=0;", "\nlet unused=0;"])
+@pytest.mark.parametrize(
+    "separator", ["\n", "\nconst unused=0;", "\nlet unused=0;", "class Boundary{}"]
+)
 def test_attribution_function_boundaries(separator: str) -> None:
     source = _ATTRIBUTION_SOURCE.replace(
         "}function COMPACT_BASH", "}" + separator + "function COMPACT_BASH"
