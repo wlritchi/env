@@ -1,8 +1,64 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { AsyncLocalStorage } from "node:async_hooks";
 
-const { source, surfaceFooter } = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const payload = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (payload.modern) {
+  const scope = new AsyncLocalStorage();
+  let policyCalls = 0;
+  const sandbox = {
+    _ccAttributionScope: scope,
+    [payload.effective]: () => {
+      policyCalls++;
+      throw new Error("Captured prompt recomputed its attribution snapshot");
+    },
+  };
+  // Stub unrelated prompt guidance, not attribution or its request-local scope.
+  for (const match of payload.source.matchAll(/(?<![\w$.])([\w$]+)\(/g)) {
+    const name = match[1];
+    if (!["if", "function", "Boolean", ...payload.prompts].includes(name) && !(name in sandbox))
+      sandbox[name] = () => "";
+  }
+  for (const match of payload.source.matchAll(/if\(!([\w$]+)\([^)]*\)\)return\s*(?:""|[\w$]+\()/g))
+    sandbox[match[1]] = () => true;
+  const context = vm.createContext(
+    new Proxy(sandbox, {
+      get(target, key) {
+        if (key in target) return target[key];
+        if (key in globalThis) return globalThis[key];
+        return "native guidance";
+      },
+    }),
+  );
+  vm.runInContext(payload.source + "\n" + payload.systemHelper, context);
+  for (const name of payload.prompts) {
+    const snapshots = [
+      { commit: "Co-Authored-By: GPT-6 Astra <noreply@openai.com>", pr: "custom PR" },
+      { commit: "Co-Authored-By: GLM 5.3 <noreply@z.ai>", pr: "second PR" },
+      { commit: "", pr: "" },
+      ...(payload.source.includes("===null?") ? [null] : []),
+    ];
+    const results = await Promise.all(
+      snapshots.map((snapshot) => scope.run({ snapshot }, () => context[name]([]))),
+    );
+    for (let i = 0; i < snapshots.length; i++) {
+      const snapshot = snapshots[i];
+      const result = results[i];
+      assert.equal(typeof result, "string");
+      assert.ok(result.includes("Git") || result.includes("git"));
+      if (snapshot?.commit) assert.ok(result.includes(snapshot.commit));
+      else assert.ok(!result.includes("Co-Authored-By:"));
+      if (snapshot?.pr) assert.ok(result.includes(snapshot.pr));
+      const blocks = context._ccMultiProviderSystemAttribution("native", "zai:test", snapshot);
+      assert.equal(blocks.length, snapshot?.commit || snapshot?.pr ? 2 : 1);
+      if (snapshot?.commit) assert.ok(blocks[1].text.includes(snapshot.commit));
+    }
+  }
+  assert.equal(policyCalls, 0);
+  process.exit(0);
+}
+const { source, surfaceFooter } = payload;
 let footerGate = false;
 let clientKind = "cli";
 let settings = {};

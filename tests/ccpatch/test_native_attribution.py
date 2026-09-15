@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,11 @@ def _captures(source: str) -> list[tuple[str, str]]:
     return captures
 
 
+@lru_cache(maxsize=4)
+def _patched_native_source(path: Path) -> str:
+    return MULTI_PROVIDER_SDK.apply(path.read_text())
+
+
 @pytest.mark.parametrize(
     "architecture", ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
 )
@@ -104,6 +110,10 @@ def test_native_cached_bash_attribution(
             "and the .182 Linux x64 harness baseline"
         )
     source = path.read_text()
+    version = re.search(r'VERSION:"2\.1\.(\d+)"', source)
+    if version is not None and int(version[1]) >= 212:
+        test_modern_captured_attribution(int(version[1]), architecture, tmp_path)
+        return
     originals = _captures(source)
     canonical = _captures(reference.read_text())
     footer_functions: list[tuple[str, str]] = []
@@ -378,12 +388,13 @@ def test_native_cached_bash_attribution(
             if token != baseline_token:
                 mapping = names
                 if originals[index][0] in local_names and len(token) == 1:
-                    mapping = local_names[originals[index][0]]
+                    # Separate lexical scopes can reuse the same minified local.
+                    continue
                 assert mapping.setdefault(token, baseline_token) == baseline_token
     for name, normalized in footer_names.items():
         assert names.setdefault(name, normalized) == normalized
     originals.extend(footer_functions)
-    patched = MULTI_PROVIDER_SDK.apply(source)
+    patched = _patched_native_source(path)
     for _, function in footer_functions:
         assert function in patched
     functions: list[str] = []
@@ -620,10 +631,24 @@ _MODERN_VERSIONS = [
 ]
 
 
-@pytest.mark.parametrize("version", _MODERN_VERSIONS)
-def test_modern_captured_attribution(version: int) -> None:
+@pytest.mark.parametrize(
+    ("version", "architecture"),
+    [
+        (version, architecture)
+        for version in _MODERN_VERSIONS
+        for architecture in ("linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64")
+        if (
+            Path(__file__).resolve().parents[2]
+            / f"build/sweep-resume/2.1.{version}/{architecture}/original.js"
+        ).is_file()
+    ]
+    or [(272, "linux-x64")],
+)
+def test_modern_captured_attribution(
+    version: int, architecture: str, tmp_path: Path
+) -> None:
     root = Path(__file__).resolve().parents[2] / "build/sweep-resume"
-    path = root / f"2.1.{version}/linux-x64/original.js"
+    path = root / f"2.1.{version}/{architecture}/original.js"
     runtime = shutil.which("node")
     if not path.is_file() or runtime is None:
         pytest.skip("requires captured release and node")
@@ -669,6 +694,47 @@ def test_modern_captured_attribution(version: int) -> None:
     system_helper = _attribution_function(
         generated, "_ccMultiProviderSystemAttribution"
     )
+    original_declaration = re.search(rf"async function {re.escape(name)}\(", source)
+    assert original_declaration is not None
+    original_serializer = _function(source, original_declaration.end())[1]
+    inner = _function(generated, end + len(f"async function {name}_ccInner("))[1]
+    assert (
+        inner.replace(name + "_ccInner", name, 1).replace(
+            f"+JSON.stringify([{context}.model??null,{context}._ccAttributionSnapshot??null])",
+            "",
+            1,
+        )
+        == original_serializer
+    )
+    prompts: list[str] = []
+    prompt_names: list[str] = []
+    for anchor in ("- Interactive flags (", "# Committing changes with git"):
+        prompt_name, prompt_source = _function(generated, generated.index(anchor))
+        prompts.append(prompt_source)
+        prompt_names.append(prompt_name)
+    payload = tmp_path / "modern.json"
+    payload.write_text(
+        json.dumps(
+            {
+                "modern": True,
+                "source": "\n".join(prompts),
+                "prompts": prompt_names,
+                "systemHelper": system_helper,
+                "effective": effective[1],
+            }
+        )
+    )
+    prompt_result = subprocess.run(  # noqa: S603 - captured native Git prompts
+        [
+            runtime,
+            str(Path(__file__).with_name("native_attribution_regression.mjs")),
+            str(payload),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert prompt_result.returncode == 0, prompt_result.stdout + prompt_result.stderr
     script = (
         system_helper
         + 'for(const snapshot of [null,undefined,{commit:"",pr:""}]){if(_ccMultiProviderSystemAttribution("native","zai:test",snapshot).length!==1)throw Error("suppression")}'
