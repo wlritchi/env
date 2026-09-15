@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,6 +15,7 @@ from wlrenv.ccpatch.module_runtime import (
     ensure_module_reference,
     finalize_module_runtime,
     module_reference,
+    register_module_bootstrap,
     source_modules,
 )
 from wlrenv.ccpatch.patches import (
@@ -25,8 +28,30 @@ from wlrenv.ccpatch.patches import (
 )
 
 
+@pytest.fixture(scope="module", params=[None, 272], ids=["synthetic", "native-272"])
+def provider_bootstrap(request: pytest.FixtureRequest) -> str | None:
+    if request.param is None:
+        return None
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "build/sweep-resume/2.1.272/linux-x64/original.js"
+    )
+    if not path.is_file():
+        pytest.skip("requires captured pristine .272 linux-x64 source")
+    source = background_provider_environment((2, 1, 272)).apply(path.read_text())
+    registrations = [
+        json.loads(bytes.fromhex(match[1]))
+        for match in re.finditer(r"/\* ccpatch-bootstrap:([0-9a-f ]+) \*/", source)
+    ]
+    matches = [code for key, code in registrations if key == "provider"]
+    assert len(matches) == 1
+    return matches[0]
+
+
 @pytest.mark.parametrize("pty", [False, True])
-def test_provider_bootstrap_capture_claim_and_policy(tmp_path: Path, pty: bool) -> None:
+def test_provider_bootstrap_capture_claim_and_policy(
+    tmp_path: Path, pty: bool, provider_bootstrap: str | None
+) -> None:
     native = (
         'const selection=["CLAUDE_CODE_USE_BEDROCK","CLAUDE_CODE_USE_VERTEX"],'
         'urls=["ANTHROPIC_BASE_URL","ANTHROPIC_VERTEX_BASE_URL"],'
@@ -64,6 +89,11 @@ def test_provider_bootstrap_capture_claim_and_policy(tmp_path: Path, pty: bool) 
     checks = (
         'const s=globalThis.__ccpatchRuntime.provider;'
         'if(s!==globalThis.providerState)throw Error("singleton reset");'
+        'for(const payload of [null,[],{UNTRUSTED_KEY:"value"},{ANTHROPIC_API_KEY:42}]){'
+        'let rejected=false;try{s._ccProviderRetain(payload)}catch(e){rejected=e.code==="EPROVIDERENV"}'
+        'if(!rejected)throw Error("invalid retained snapshot accepted");}'
+        'const retained=s._ccProviderRetain({ANTHROPIC_API_KEY:"retained",ANTHROPIC_AUTH_TOKEN:null});'
+        'if(!Object.isFrozen(retained)||retained.ANTHROPIC_AUTH_TOKEN!==null)throw Error("retained snapshot changed");'
         'if(s._ccProviderPtyHost){'
         'if(!process.env.CLAUDE_CODE_PROVIDER_ENV_TRANSIENT)throw Error("PTY transport lost");'
         '}else{'
@@ -91,7 +121,11 @@ def test_provider_bootstrap_capture_claim_and_policy(tmp_path: Path, pty: bool) 
         f"\n/* ccpatch-module:{name.encode().hex()} */\n{body}"
         for name, body in modules.items()
     )
-    source = finalize_module_runtime(subset.apply(source))
+    source = finalize_module_runtime(
+        subset.apply(source)
+        if provider_bootstrap is None
+        else register_module_bootstrap(source, "provider", provider_bootstrap)
+    )
     for module in source_modules(source):
         (tmp_path / module.name).write_text(module.source)
     node = shutil.which("node")

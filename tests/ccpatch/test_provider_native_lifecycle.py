@@ -26,6 +26,7 @@ from wlrenv.ccpatch.patches import (
     _initialize_provider_registry,
     _provider_env_207,
     _provider_key_sources,
+    _provider_serialized_keys,
     _replace_provider_snapshot,
 )
 
@@ -64,9 +65,7 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
     """Run the complete CLI settings path without daemon or network access."""
     binary = os.environ.get("CCPATCH_STARTUP_BINARY")
     if not binary:
-        pytest.skip(
-            "set CCPATCH_STARTUP_BINARY to a patched .207, .208, or .209 executable"
-        )
+        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched native executable")
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
@@ -123,9 +122,7 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
 def _startup_binary() -> str:
     binary = os.environ.get("CCPATCH_STARTUP_BINARY")
     if not binary:
-        pytest.skip(
-            "set CCPATCH_STARTUP_BINARY to a patched .207, .208, or .209 executable"
-        )
+        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched native executable")
     return str(Path(binary).resolve())
 
 
@@ -201,19 +198,41 @@ def _connect_native(path: Path, process: subprocess.Popen[str]) -> socket.socket
     pytest.fail(f"native socket did not become ready: {path}")
 
 
-@pytest.mark.parametrize("payload", [True, False], ids=["payload", "missing-payload"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        True,
+        False,
+        "invalid-json",
+        "null",
+        '{"ANTHROPIC_API_KEY":42}',
+        '{"UNTRUSTED_KEY":"value"}',
+    ],
+    ids=[
+        "payload",
+        "missing-payload",
+        "invalid-json",
+        "null",
+        "invalid-value",
+        "unknown-key",
+    ],
+)
 @pytest.mark.parametrize(
     "reject_first", [False, True], ids=["claim", "reject-then-claim"]
 )
 def test_provider_207_real_spare_claim(
-    payload: bool, reject_first: bool, tmp_path: Path
+    payload: bool | str, reject_first: bool, tmp_path: Path
 ) -> None:
     """Cross the native settings, prewarm, Unix claim, and main-init boundaries."""
     binary = _startup_binary()
     env = _startup_env(tmp_path)
     env["CLAUDE_BG_CLAIM_AUTH"] = "synthetic-claim-auth"
     claim_env = (
-        {"CLAUDE_CODE_PROVIDER_ENV_TRANSIENT": _startup_transport(tmp_path)}
+        {
+            "CLAUDE_CODE_PROVIDER_ENV_TRANSIENT": payload
+            if isinstance(payload, str)
+            else _startup_transport(tmp_path)
+        }
         if payload
         else {}
     )
@@ -253,7 +272,7 @@ def test_provider_207_real_spare_claim(
     output = stdout + stderr
     assert process.returncode != 0
     assert "key registry is unavailable" not in output, output[-2500:]
-    if payload:
+    if payload is True:
         assert "EPROVIDERENV" not in output, output[-2500:]
         assert "requires --verbose" in output, output[-2500:]
     else:
@@ -976,8 +995,20 @@ def test_provider_207_settings_boundary(platform: str, version: int) -> None:
         pytest.skip("requires node")
     original = path.read_text()
     patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
-    call = re.search(r"function _ccProviderKeys\(\)\{if\(\(([\w$]+)\(\),", patched)
+    snapshot = _PROVIDER_ENV_SNAPSHOT.search(original)
+    assert snapshot is not None
+    registry_probe = re.sub(
+        r"function _ccProviderKeys\(\)\{if\([^)]*\)",
+        _initialize_provider_registry,
+        original + _replace_provider_snapshot(snapshot),
+    )
+    call = re.search(
+        r"function _ccProviderKeys\(\)\{if\(\(([\w$]+)\(\),", registry_probe
+    )
     assert call is not None
+    serialized_keys = json.loads(_provider_serialized_keys(original))
+    assert "CLAUDE_CONFIG_DIR" in serialized_keys
+    assert "ANTHROPIC_API_KEY" in serialized_keys
     module = re.search(rf"var {re.escape(call[1])}=([\w$]+)\(\(\)=>\{{", original)
     assert module is not None
     end = original.index("});", module.end()) + 3
@@ -1219,6 +1250,8 @@ def _native_lifecycle_207(version: int = 207) -> dict[str, str]:
         pytest.skip(f"requires captured pristine .{version} linux-x64 source")
     original = _native_208_bindings(path.read_text(), version)
     patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
+    # Map the shared runtime namespace to the isolated harness helper bindings.
+    patched = patched.replace("globalThis.__ccpatchRuntime.provider.", "")
     # Rename minified bindings to the harness names. Do not replace native bodies.
     names = {
         'Bce': 'Yce',
