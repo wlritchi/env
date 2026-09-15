@@ -21,6 +21,7 @@ import pytest
 
 from wlrenv.ccpatch.bunfmt import parse_blob, rebuild_blob
 from wlrenv.ccpatch.container import load_container
+from wlrenv.ccpatch.module_runtime import finalize_module_runtime
 from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_EXPLICIT_KEYS,
     BACKGROUND_PROVIDER_ENV,
@@ -80,7 +81,8 @@ def test_real_binary_has_entrypoint_source(binary_bytes: bytes) -> None:
     blob = parse_blob(load_container(binary_bytes).read_blob())
     entry = [m for m in blob.modules if m.is_entrypoint()]
     assert len(entry) == 1
-    assert len(entry[0].contents) > 1_000_000  # multi-MB minified cli.js
+    assert len(entry[0].contents) > 1_000
+    assert sum(len(module.contents) for module in blob.modules) > 1_000_000
 
 
 def test_write_blob_is_loadable_again(binary_bytes: bytes) -> None:
@@ -279,16 +281,16 @@ def test_patched_binary_help_initializes_on_opt_in_host() -> None:
     path = Path(configured)
     if not path.is_file():
         pytest.fail("CCPATCH_TEST_PATCHED_BINARY must name a patched binary")
-    source = _entry_source(path.read_bytes())
+    blob = parse_blob(load_container(path.read_bytes()).read_blob())
+    source = b"\n".join(module.contents for module in blob.modules)
+    version_match = re.search(rb'VERSION:"2\.1\.(\d+)"', source)
     if (
-        not re.search(
-            r'VERSION:"2\.1\.(?:174|175|176|177|178|179|181|182|183|185|186|187|190|191|193|195|196|197|198|199|200|201|202|203|204|205|206|207|208|209|210|211)"',
-            source,
-        )
-        or "providerEnvVersion:3" not in source
+        version_match is None
+        or not 174 <= int(version_match[1]) <= 272
+        or b"providerEnvVersion:3" not in source
     ):
         pytest.fail(
-            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.211"
+            "CCPATCH_TEST_PATCHED_BINARY must be fully patched Claude Code 2.1.174-2.1.272"
         )
 
     try:
@@ -336,8 +338,10 @@ def test_real_source_secures_background_provider_environment(
     assert patched.count(".providerEnvVersion!==3") == 3
     assert patched.count('code==="EPROVIDERENV"') == 2
     assert 'throw Object.assign(Error(' in patched
+    finalized = finalize_module_runtime(patched)
     for key in _PROVIDER_ENV_EXPLICIT_KEYS:
-        assert f'"{key}"' in patched
+        assert f'"{key}"' in finalized
+    patched = finalized.replace("globalThis.__ccpatchRuntime.provider.", "")
     for pattern in (
         rf"{_ID}\({_ID},{_ID},{_ID}\.socketAuth\(\),{_ID}\.claimAuth\)",
         rf"{_ID}\.buildClaimFrame\({_ID},{_ID},{_ID}\)",
