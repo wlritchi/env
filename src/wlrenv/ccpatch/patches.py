@@ -191,7 +191,8 @@ _THINKING_RENDER = (
     Patch(
         name="drop-thinking-early-return",
         pattern=re.compile(
-            rf'(case"thinking":\{{)if\(!{_ID}(?:&&!{_ID})+\)'
+            rf'(case"thinking":\{{(?:if\((?:{_ID}!==null&&{_ID}!==null&&)?{_ID}\({_ID}\)\)'
+            rf'\{{[^\n]{{0,1000}}?return {_ID}\}})?)if\(!{_ID}(?:&&!{_ID})+\)'
             r'(?:return null;|\{return null;?\})'
         ),
         replacement=r"\1",
@@ -199,7 +200,7 @@ _THINKING_RENDER = (
     Patch(
         name="force-transcript-and-verbose",
         pattern=re.compile(
-            rf"((?:createElement|jsx)\({_ID},\{{addMargin:{_ID},param:{_ID},"
+            rf"({_ID}\({_ID},\{{addMargin:{_ID},param:{_ID},"
             rf"isTranscriptMode:){_ID}(,verbose:){_ID}"
         ),
         replacement=r"\1true\2true",
@@ -306,11 +307,11 @@ CHANNELS_ENABLED = PatchSet(
 _DEV_CHANNEL_FORWARD = (
     Patch(
         name="dev-channel-respawn-value-flag",
-        pattern=re.compile(re.escape('"--channels","--permission-prompt-tool"')),
-        replacement=(
-            '"--channels","--dangerously-load-development-channels",'
-            '"--permission-prompt-tool"'
+        pattern=re.compile(
+            r'("--channels",(?:"--watch-artifact","--watch-artifact-no-autoreact",)?)'
+            r'"--permission-prompt-tool"'
         ),
+        replacement=r'\1"--dangerously-load-development-channels","--permission-prompt-tool"',
     ),
     Patch(
         name="dev-channel-respawn-multivalue",
@@ -339,7 +340,7 @@ def _dispatch_forward_replacement(m: re.Match[str]) -> str:
     channels = _DISPATCH_DEV_CHANNELS.replace(
         "--dangerously-load-development-channels", "--channels"
     )
-    return f"{m.group(1)},...{_DISPATCH_DEV_CHANNELS},...{channels}]"
+    return f"{m.group(1)},...{_DISPATCH_DEV_CHANNELS},...{channels}{m.group(2)}]"
 
 
 def _dev_channel_replacement(m: re.Match[str]) -> str:
@@ -368,7 +369,8 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
         Patch(
             name="dev-channel-dispatch-forward",
             pattern=re.compile(
-                r'(\.\.\.[\w$]+\.strictMcpConfig\?\["--strict-mcp-config"\]:\[\])\]'
+                r'(\.\.\.[\w$]+\.strictMcpConfig\?\["--strict-mcp-config"\]:\[\])'
+                r'((?:,\.\.\.[\w$]+\.restricted\?\["--restricted"\]:\[\])?)\]'
             ),
             replacement=_dispatch_forward_replacement,
         ),
@@ -384,8 +386,8 @@ DEV_CHANNEL_INHERITANCE = PatchSet(
     ),
     verify_present=(
         re.compile(
-            r'"--channels","--dangerously-load-development-channels",'
-            r'"--permission-prompt-tool"'
+            r'"--channels",(?:"--watch-artifact","--watch-artifact-no-autoreact",)?'
+            r'"--dangerously-load-development-channels","--permission-prompt-tool"'
         ),
         re.compile(
             r'"--file","--channels","--dangerously-load-development-channels"\]'
@@ -437,7 +439,8 @@ _PROVIDER_ENV_SCHEMA = re.compile(
     rf'timeoutMs:(?P=schema)\.number\(\),auth:'
 )
 _PROVIDER_ENV_PERSISTED_DEFAULT = re.compile(
-    rf'(?P<isolation>{_ID})=(?P<source>{_ID})==="repl"\?"none":'
+    rf'(?P<isolation>{_ID})=(?P<default>(?:{_ID}\?\.bgIsolation==="default"\?void 0:)?)'
+    rf'(?P<source>{_ID})==="repl"\?"none":'
     rf'(?P<options>{_ID})\?\.bgIsolation,(?P<provider>{_ID})='
     rf'(?P=options)\?\.providerEnv\?\?(?P<snapshot>{_ID})\(\),'
 )
@@ -1205,7 +1208,7 @@ BACKGROUND_PROVIDER_ENV = PatchSet(
             "stop-persisting-provider-env",
             _PROVIDER_ENV_PERSISTED_DEFAULT,
             lambda match: (
-                f'{match.group("isolation")}={match.group("source")}==="repl"?'
+                f'{match.group("isolation")}={match.group("default")}{match.group("source")}==="repl"?'
                 f'"none":{match.group("options")}?.bgIsolation,'
                 f'{match.group("provider")}=void 0,'
             ),
@@ -1528,7 +1531,7 @@ def _provider_env_198_overrides(patches: tuple[Patch, ...]) -> dict[str, Patch]:
         "stop-persisting-provider-env": replace(
             base["stop-persisting-provider-env"],
             replacement=lambda match: (
-                f'{match.group("isolation")}={match.group("source")}==="repl"?'
+                f'{match.group("isolation")}={match.group("default")}{match.group("source")}==="repl"?'
                 f'"none":{match.group("options")}?.bgIsolation,'
                 f'{match.group("provider")}={{CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST:'
                 'process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST},'

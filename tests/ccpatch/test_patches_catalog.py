@@ -267,6 +267,26 @@ def test_dev_channel_inheritance_threads_natively() -> None:
     assert 'd("tengu_mcp_channel_flags",{})' in out
 
 
+def test_dev_channel_preserves_restricted_dispatch() -> None:
+    tail = '...H.restricted?["--restricted"]:[]'
+    source = _DEV_CHANNEL_SRC.replace(
+        '...H.strictMcpConfig?["--strict-mcp-config"]:[]]',
+        '...H.strictMcpConfig?["--strict-mcp-config"]:[],' + tail + "]",
+    )
+    patched = DEV_CHANNEL_INHERITANCE.apply(source)
+    assert tail + "]}" in patched
+    assert source.count(tail) == patched.count(tail) == 1
+
+
+def test_dev_channel_preserves_artifact_watch_flags() -> None:
+    prefix = '"--channels","--watch-artifact","--watch-artifact-no-autoreact",'
+    source = _DEV_CHANNEL_SRC.replace(
+        '"--channels","--permission-prompt-tool"', prefix + '"--permission-prompt-tool"'
+    )
+    patched = DEV_CHANNEL_INHERITANCE.apply(source)
+    assert prefix + '"--dangerously-load-development-channels",' in patched
+
+
 def test_dev_channel_required_no_op_fails() -> None:
     with pytest.raises(PatchError, match="dev-channel-inheritance"):
         DEV_CHANNEL_INHERITANCE.apply("unrelated source")
