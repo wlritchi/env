@@ -130,7 +130,18 @@ def test_fallback_rejects_unrelated_dispatch(source: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "version", [(2, 1, 182), (2, 1, 193), (2, 1, 195), (2, 1, 203), (2, 1, 207)]
+    "version",
+    [
+        (2, 1, 182),
+        (2, 1, 193),
+        (2, 1, 195),
+        (2, 1, 203),
+        (2, 1, 207),
+        (2, 1, 208),
+        (2, 1, 209),
+        (2, 1, 210),
+        (2, 1, 211),
+    ],
 )
 def test_fallback_version_boundary(version: tuple[int, int, int]) -> None:
     names = {patch.name for patch in background_provider_environment(version).patches}
@@ -293,7 +304,7 @@ def test_cached_native_fallback_cardinality() -> None:
         path
         for path in root.glob("2.*/*/original.js")
         if tuple(int(part) for part in path.parent.parent.name.split("."))
-        <= (2, 1, 207)
+        <= (2, 1, 211)
     )
     if not paths:
         pytest.skip("No cached native release sources")
@@ -306,7 +317,7 @@ def test_cached_native_fallback_cardinality() -> None:
         if version >= (2, 1, 195):
             settings_name = (
                 "initialize-provider-before-native-settings"
-                if version == (2, 1, 207)
+                if version >= (2, 1, 207)
                 else "restore-agents-provider-after-settings-writes"
             )
             settings_patch = next(

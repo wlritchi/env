@@ -1499,7 +1499,7 @@ def _override_patches(
 
 
 _PROVIDER_ENV_198_MIN = (2, 1, 198)
-_PROVIDER_ENV_198_MAX = (2, 1, 209)
+_PROVIDER_ENV_198_MAX = (2, 1, 212)
 _CLAIMED_SPARE_AUTH = r"(?P=job)\.short,(?P=auth)\?\.\(\)"
 _CLAIMED_SPARE_AUTH_198 = (
     rf"(?P=job)\.short,{_ID}\((?P=job)\)\?void 0:(?P=auth)\?\.\(\)"
@@ -2360,8 +2360,9 @@ _MULTI_PROVIDER_MAX_OUTPUT = re.compile(
 )
 _MULTI_PROVIDER_ATTRIBUTION = re.compile(
     rf"let (?P<model>{_ID})=(?P<current>{_ID})\(\),(?P<label>{_ID})="
-    rf'(?P<native_label>[^;]{{1,300}}),(?P<pr>{_ID})=`\\uD83E\\uDD16 Generated with '
-    rf'\[Claude Code\]\(\$\{{(?P<url>{_ID})\}}\)`,(?P<commit>{_ID})=`Co-Authored-By: '
+    rf'(?P<native_label>[^;]{{1,300}}),(?P<pr>{_ID})='
+    rf'(?P<native_pr>`\\uD83E\\uDD16 Generated with '
+    rf'\[Claude Code\]\(\$\{{{_ID}\}}\)`|{_ID}\(\)),(?P<commit>{_ID})=`Co-Authored-By: '
     rf'\$\{{(?P=label)\}} <noreply@anthropic\.com>`,(?P<settings>{_ID})=(?P<load>{_ID})\(\)'
     rf'(?P<delimiter>;|,(?={_ID}=(?P=settings)\.attribution;))'
 )
@@ -2550,7 +2551,7 @@ def _replace_multi_provider_attribution(match: re.Match[str]) -> str:
         f"_ccNativeAttributionLabel={match.group('native_label')},"
         f"{{label:{label},domain:_ccAttributionDomain}}="
         f"_ccMultiProviderAttribution({model},_ccNativeAttributionLabel),"
-        f"{pr}=`\\uD83E\\uDD16 Generated with [Claude Code](${{{match.group('url')}}})`,"
+        f"{pr}={match.group('native_pr')},"
         f"{commit}=`Co-Authored-By: ${{{label}}} <noreply@${{_ccAttributionDomain}}>`,"
         f"{settings}={match.group('load')}(){match.group('delimiter')}"
     )
@@ -3001,7 +3002,7 @@ MULTI_PROVIDER_SDK = PatchSet(
         ),
     ),
     min_version=_V_2_1_174,
-    max_version=(2, 1, 209),
+    max_version=(2, 1, 212),
     requires_version=True,
 )
 
@@ -3166,7 +3167,7 @@ THINKING_SUMMARIES_NONINTERACTIVE_198 = PatchSet(
         re.compile(rf'if\({_ID}\(\)\)return"summarized";if\(!{_ID}\)return;'),
     ),
     min_version=(2, 1, 198),
-    max_version=(2, 1, 209),
+    max_version=(2, 1, 212),
     requires_version=True,
 )
 

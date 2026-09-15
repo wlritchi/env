@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const { source } = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const { source, surfaceFooter } = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+let footerGate = false;
+let clientKind = "cli";
 let settings = {};
 let session = null;
 let currentModel = "claude-opus-4-8";
@@ -48,7 +50,9 @@ const context = vm.createContext({
   Fa: "Edit",
   Kc: "Write",
   EV: (items) => items.flat(Infinity),
-  ct: () => false,
+  ct: (gate) => gate === "tengu_pr_footer_surface_suffix" && footerGate,
+  _nativeClientKind: () => clientKind,
+  _nativeMinimalBash: () => false,
   xr: () => "firstParty",
   fSf: () => ({}),
   _Sf: JSON.stringify,
@@ -257,5 +261,51 @@ for (const mode of [true, false]) {
     if (model.startsWith("zai:")) assert.ok(routed.system.at(-1).text.includes(attribution));
   });
   settings = {};
+}
+const surfaces = [
+  ["claude-desktop", "Claude Desktop"],
+  ["claude-desktop-3p", "Claude Desktop"],
+  ["remote_desktop", "Claude Desktop"],
+  ["remote_mobile", "Mobile"],
+  ["local-agent", "Cowork"],
+  ["remote_cowork", "Cowork"],
+  ["claude_in_slack", "Claude Tag in Slack"],
+  ["claude-in-slack", "Claude Tag in Slack"],
+  ["claude-in-teams", "Claude Tag in Teams"],
+  ["claude-code-github-action", "GitHub Actions"],
+  ["cli", undefined],
+  ["unknown-client", undefined],
+];
+for (compact of [true, false]) {
+  for (footerGate of [false, true]) {
+    for (const [kind, surface] of surfaces) {
+      clientKind = kind;
+      const nativePR =
+        "🤖 Generated with [Claude Code](https://claude.com/claude-code)" +
+        (surfaceFooter && footerGate && surface ? ` via ${surface}` : "");
+      for (const attribution of [
+        undefined,
+        { commit: "custom commit" },
+        { pr: "custom PR" },
+        { pr: "" },
+        { commit: "", pr: "" },
+      ]) {
+        settings = attribution ? { attribution } : {};
+        const expectedPR = attribution?.pr ?? nativePR;
+        for (const model of ["claude-opus-4-8", "zai:glm-5.3"]) {
+          const schema = await context.serialize(model);
+          const snapshot = schema[Object.getOwnPropertySymbols(schema)[0]];
+          assert.equal(snapshot.pr, expectedPR, `${kind}/${footerGate}/${model}`);
+          if (expectedPR) assert.ok(schema.description.includes(expectedPR));
+          else assert.ok(!schema.description.includes("Generated with [Claude Code]"));
+          if (model.startsWith("zai:")) {
+            const routed = context.route(nativeClient, { model, system, tools: [schema] })[1];
+            if (expectedPR) assert.ok(routed.system.at(-1).text.includes(expectedPR));
+            else assert.ok(!JSON.stringify(routed.system).includes("End PR bodies"));
+          }
+        }
+      }
+    }
+  }
 }
 console.log("Native attribution serialization and outgoing routing passed");

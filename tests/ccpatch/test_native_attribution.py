@@ -43,10 +43,19 @@ def _function(source: str, position: int) -> tuple[str, str]:
     following = re.search(rf"(?:async )?function {_ID}\(", source[position:])
     assert following is not None
     text = source[match.start() : position + following.start()]
-    text = re.split(r"\}var \w", text, maxsplit=1)[0]
+    text = re.split(r"\}var [\w$]", text, maxsplit=1)[0]
     if not text.endswith("}"):
         text += "}"
     return match[1], text
+
+
+@pytest.mark.parametrize("binding", ["plain", "$leading", "trailing$"])
+def test_function_capture_stops_before_variable(binding: str) -> None:
+    source = f"function helper(){{return 1}}var {binding}=2;function next(){{}}"
+    assert _function(source, source.index("return")) == (
+        "helper",
+        "function helper(){return 1}",
+    )
 
 
 def _captures(source: str) -> list[tuple[str, str]]:
@@ -95,6 +104,34 @@ def test_native_cached_bash_attribution(
     source = path.read_text()
     originals = _captures(source)
     canonical = _captures(reference.read_text())
+    footer_functions: list[tuple[str, str]] = []
+    footer_names: dict[str, str] = {}
+    footer = re.search(rf",{_ID}=({_ID})\(\),{_ID}=`Co-Authored-By:", originals[0][1])
+    if footer is not None:
+        helper = _attribution_function(source, footer[1])
+        gate = re.search(rf'({_ID})\("tengu_pr_footer_surface_suffix",!1\)', helper)
+        surface = re.search(rf"let {_ID}=({_ID})\(\);return", helper)
+        url = re.search(rf"\[Claude Code\]\(\$\{{({_ID})\}}\)", helper)
+        assert gate is not None and surface is not None and url is not None
+        surface_helper = _attribution_function(source, surface[1])
+        client = re.search(rf"switch\(({_ID})\(\)\)", surface_helper)
+        assert client is not None
+        footer_names = {
+            footer[1]: "_nativePRFooter",
+            surface[1]: "_nativePRSurface",
+            gate[1]: "ct",
+            client[1]: "_nativeClientKind",
+            url[1]: "A2e",
+        }
+        footer_functions = [(footer[1], helper), (surface[1], surface_helper)]
+        name, baseline = canonical[0]
+        baseline, count = re.subn(
+            r"`\\uD83E\\uDD16 Generated with \[Claude Code\]\(\$\{[\w$]+\}\)`",
+            "_nativePRFooter()",
+            baseline,
+        )
+        assert count == 1
+        canonical[0] = name, baseline
     session_object = re.search(
         rf"if\(!{_ID}\)return {_ID};return {_ID}\({_ID},{_ID}\.url,({_ID})\({_ID}\)\)",
         originals[len(_ANCHORS)][1],
@@ -287,6 +324,31 @@ def test_native_cached_bash_attribution(
                 baseline,
             ).replace(".outboundOnly)", ".outboundOnly&&!_outbound)")
             local_names[originals[index][0]] = {}
+        if index == 4 and re.search(rf",{_ID}={_ID}\(\),{_ID}=\[\];if\(!", original):
+            # Keep the native minimal-prompt gate in the runtime fixture.
+            avoidance = re.search(r'`- IMPORTANT:.*?`', baseline)
+            cwd = re.search(r'"- Working directory persists.*?"', baseline)
+            assert avoidance is not None and cwd is not None
+            baseline = baseline.replace(
+                'o=nC()?"`cat`',
+                'o=_nativeMinimalBash(),_avoid=[];if(!o){let _commands=nC()?"`cat`',
+            ).replace(
+                '",s=[];if(t)',
+                '";_avoid.push('
+                + avoidance[0].replace('${o}', '${_commands}')
+                + ')}let _cwd=o?"- Working directory persists between calls. Shell state (env vars, functions) does not persist; the shell is initialized from the user\'s profile.":'
+                + cwd[0]
+                + ',s=[];if(t)',
+            )
+            baseline = baseline.replace(
+                cwd[0] + ',' + avoidance[0] + ',', '_cwd,..._avoid,'
+            )
+            baseline = (
+                baseline.replace('let a="', 'let _commands="')
+                .replace(')a+=', ')_commands+=')
+                .replace('s.push(a)', 's.push(_commands)')
+            )
+            local_names[originals[index][0]] = {}
         if index == 7 and '"X:"' in original:
             # Compare the new strict-schema path without changing captured code.
             baseline = baseline.replace(
@@ -316,7 +378,12 @@ def test_native_cached_bash_attribution(
                 if originals[index][0] in local_names and len(token) == 1:
                     mapping = local_names[originals[index][0]]
                 assert mapping.setdefault(token, baseline_token) == baseline_token
+    for name, normalized in footer_names.items():
+        assert names.setdefault(name, normalized) == normalized
+    originals.extend(footer_functions)
     patched = MULTI_PROVIDER_SDK.apply(source)
+    for _, function in footer_functions:
+        assert function in patched
     functions: list[str] = []
     for name, original in originals:
         if name == "prompt":
@@ -357,8 +424,9 @@ def test_native_cached_bash_attribution(
     payload.write_text(
         json.dumps(
             {
+                "surfaceFooter": bool(footer_functions),
                 "source": f"function _nativeBackgroundDisabled(){{return {json.dumps(background_disabled)}}}\n"
-                + normalize(helper + "\n" + "\n".join(functions))
+                + normalize(helper + "\n" + "\n".join(functions)),
             }
         )
     )
@@ -540,7 +608,9 @@ def test_attribution_cache_key_retains_native_dimensions(strict_prefix: str) -> 
     ) in generated
 
 
-@pytest.mark.parametrize("version", ["2.1.202", "2.1.203", "2.1.206", "2.1.207"])
+@pytest.mark.parametrize(
+    "version", ["2.1.202", "2.1.203", "2.1.206", "2.1.207", "2.1.208", "2.1.209"]
+)
 @pytest.mark.parametrize("architecture", ["linux-x64", "linux-arm64"])
 def test_captured_sdk_serializer_strict_cache(
     version: str, architecture: str, tmp_path: Path
@@ -584,7 +654,7 @@ def test_captured_sdk_serializer_strict_cache(
     validator = re.search(
         r"let " + _ID + r"=(" + _ID + r")\([\w$]+\);if\([\w$]+\.ok\)", original
     )
-    if version in {"2.1.203", "2.1.206", "2.1.207"}:
+    if version in {"2.1.203", "2.1.206", "2.1.207", "2.1.208", "2.1.209"}:
         assert strict is not None and validator is not None
     stubs = "".join(f"function {call}(){{return false}}" for call in sorted(calls))
     stubs += (
@@ -642,6 +712,37 @@ def test_captured_sdk_serializer_strict_cache(
         [runtime, str(script_path)], capture_output=True, text=True, timeout=20
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("helper", ["FOOTER", "$footer", "footer$"])
+def test_attribution_retains_native_pr_expression(helper: str) -> None:
+    template = (
+        "`"
+        + chr(92)
+        + "uD83E"
+        + chr(92)
+        + "uDD16 Generated with [Claude Code](${URL})`"
+    )
+    source = _ATTRIBUTION_SOURCE.replace(template, helper + "()")
+    assert source != _ATTRIBUTION_SOURCE
+    assert _patch_attribution(source) == _patch_attribution(
+        _ATTRIBUTION_SOURCE
+    ).replace(template, helper + "()")
+
+
+@pytest.mark.parametrize(
+    "expression", ["FOOTER(model)", "obj.footer()", "FOOTER()+extra"]
+)
+def test_attribution_unknown_pr_expression_fails_closed(expression: str) -> None:
+    template = (
+        "`"
+        + chr(92)
+        + "uD83E"
+        + chr(92)
+        + "uDD16 Generated with [Claude Code](${URL})`"
+    )
+    with pytest.raises(PatchError, match="multi-provider attribution"):
+        _patch_attribution(_ATTRIBUTION_SOURCE.replace(template, expression))
 
 
 def test_attribution_generated_output_is_unchanged() -> None:

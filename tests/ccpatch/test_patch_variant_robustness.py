@@ -102,6 +102,9 @@ def test_registry_anchor_rejects_mutations(old: str, new: str) -> None:
         ((2, 1, 206), True),
         ((2, 1, 208), True),
         ((2, 1, 207), True),
+        ((2, 1, 209), True),
+        ((2, 1, 210), True),
+        ((2, 1, 211), True),
     ],
 )
 def test_default_variant_boundaries(version: Version | None, modern: bool) -> None:
@@ -109,7 +112,7 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     assert len(selected) == 9
     expected = BACKGROUND_PROVIDER_ENV_198 if modern else BACKGROUND_PROVIDER_ENV
     assert selected[4].name == expected.name
-    if version in ((2, 1, 207), (2, 1, 208)):
+    if version in ((2, 1, 207), (2, 1, 208), (2, 1, 209), (2, 1, 210), (2, 1, 211)):
         obsolete = {
             "restore-provider-env-after-settings-initializer",
             "restore-provider-env-at-operational-entry",
@@ -139,13 +142,13 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
     )
     if modern:
         assert all(patch_set.applies_to(version) for patch_set in selected)
-    if version in ((2, 1, 207), (2, 1, 208)):
+    if version in ((2, 1, 207), (2, 1, 208), (2, 1, 209), (2, 1, 210), (2, 1, 211)):
         assert sum(len(patch_set.patches) for patch_set in selected) == 78
-        assert selected[4].max_version == (2, 1, 209)
+        assert selected[4].max_version == (2, 1, 212)
         assert BACKGROUND_PROVIDER_ENV_198.applies_to(version)
         assert THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
-        assert not selected[4].applies_to((2, 1, 209))
-        assert not selected[7].applies_to((2, 1, 209))
+        assert not selected[4].applies_to((2, 1, 212))
+        assert not selected[7].applies_to((2, 1, 212))
 
 
 @pytest.mark.parametrize("scoped", [False, True])
@@ -197,7 +200,11 @@ def test_named_overrides_reject_missing_duplicate_and_misnamed_targets() -> None
 
 
 _CAPTURE_ROOT = Path(__file__).resolve().parents[2] / "build" / "sweep-resume"
-_CAPTURES = sorted(_CAPTURE_ROOT.glob("2.1.*/*/original.js"))
+_CAPTURES = sorted(
+    path
+    for path in _CAPTURE_ROOT.glob("2.1.*/*/original.js")
+    if tuple(map(int, path.parent.parent.name.split("."))) <= (2, 1, 211)
+)
 
 
 @pytest.mark.parametrize(
