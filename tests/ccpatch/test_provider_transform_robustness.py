@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from wlrenv.ccpatch.patches import BACKGROUND_PROVIDER_ENV, PatchError
+from wlrenv.ccpatch.patches import (
+    _PROVIDER_ENV_SNAPSHOT,
+    BACKGROUND_PROVIDER_ENV,
+    PatchError,
+    _attribution_function,
+    _replace_provider_snapshot,
+)
 
 _CASES = [
     (
@@ -203,6 +209,190 @@ def test_authenticated_transfer_rejects_extracted_shutdown_drift(
     source = _RV_GUARD + _RV_SHUTDOWN + _RV_EXTRACTED + _RV_SEND
     assert len(list(patch.pattern.finditer(source))) == 1
     assert patch.pattern.search(source.replace(*change)) is None
+
+
+@pytest.mark.parametrize('legacy', [False, True], ids=['modern', '200-202'])
+@pytest.mark.parametrize('dollars', [False, True], ids=['plain', 'dollar-identifiers'])
+def test_worker_auth_validator_discovery(legacy: bool, dollars: bool) -> None:
+    patch = next(
+        item
+        for item in BACKGROUND_PROVIDER_ENV.patches
+        if item.name == 'serve-authenticated-provider-snapshot-on-worker-rv'
+    )
+    discovery = _RV_DISCOVERY
+    if legacy:
+        discovery = discovery.replace(
+            'if("auth"in request&&validate(request.auth,token))authenticated=!0;',
+            'if(token&&"auth"in request)if(validate(request.auth,token))'
+            'authenticated=!0;else send({type:"auth-rejected"});',
+        )
+    source = (
+        discovery
+        + 'function dispatch(request){'
+        + _RV_GUARD
+        + _RV_SHUTDOWN
+        + _RV_SEND
+        + '}}'
+    )
+    if dollars:
+        for name in ['request', 'validate', 'token', 'authenticated', 'send']:
+            source = re.sub(rf'\b{name}\b', '$' + name + '$', source)
+    patched, count = patch.pattern.subn(patch.replacement, source)
+    assert count == 1
+    expected = (
+        '$validate$($request$.auth,$token$)'
+        if dollars
+        else 'validate(request.auth,token)'
+    )
+    assert patched.count(expected) == 2
+
+
+@pytest.mark.parametrize('other', ['validate', 'otherValidator'])
+@pytest.mark.parametrize('legacy', [False, True])
+def test_worker_auth_validator_ambiguous_discovery(other: str, legacy: bool) -> None:
+    patch = next(
+        item
+        for item in BACKGROUND_PROVIDER_ENV.patches
+        if item.name == 'serve-authenticated-provider-snapshot-on-worker-rv'
+    )
+    extra = (
+        f'if(token&&"auth"in other)if({other}(other.auth,token))authenticated=!0;'
+        if legacy
+        else f'if("auth"in other&&{other}(other.auth,token))authenticated=!0;'
+    )
+    source = (
+        _RV_DISCOVERY
+        + extra
+        + 'function dispatch(request){'
+        + _RV_GUARD
+        + _RV_SHUTDOWN
+        + _RV_SEND
+        + '}}'
+    )
+    with pytest.raises(PatchError):
+        patch.pattern.sub(patch.replacement, source)
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+def test_worker_auth_validator_requires_same_request(legacy: bool) -> None:
+    patch = next(
+        item
+        for item in BACKGROUND_PROVIDER_ENV.patches
+        if item.name == 'serve-authenticated-provider-snapshot-on-worker-rv'
+    )
+    discovery = _RV_DISCOVERY.replace(
+        'validate(request.auth,token)', 'validate(other.auth,token)'
+    )
+    if legacy:
+        discovery = discovery.replace(
+            '"auth"in request&&', 'token&&"auth"in request)if('
+        )
+    source = (
+        discovery
+        + 'function dispatch(request){'
+        + _RV_GUARD
+        + _RV_SHUTDOWN
+        + _RV_SEND
+        + '}}'
+    )
+    with pytest.raises(PatchError):
+        patch.pattern.sub(patch.replacement, source)
+
+
+@pytest.mark.parametrize('version', [200, 201, 202, 203])
+def test_captured_worker_auth_security(version: int) -> None:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / f'build/sweep-resume/2.1.{version}/linux-x64/original.js'
+    )
+    if not path.is_file():
+        pytest.skip(f'captured pristine .{version} source is unavailable')
+    node = shutil.which('node')
+    if node is None:
+        pytest.skip('node is not available')
+    source = path.read_text()
+    patch = next(
+        item
+        for item in BACKGROUND_PROVIDER_ENV.patches
+        if item.name == 'serve-authenticated-provider-snapshot-on-worker-rv'
+    )
+    matches = list(patch.pattern.finditer(source))
+    assert len(matches) == 1
+    match = matches[0]
+    assert not isinstance(patch.replacement, str)
+    replacement = patch.replacement(match)
+    dispatcher = {200: 'bWf', 201: 'bWf', 202: 'Q9f', 203: 'TEy'}[version]
+    start = source.index(f'function {dispatcher}(')
+    end = source.index('async function ', start)
+    native = source[start:end]
+    assert native.endswith('}}')
+    assert native.count(match.group(0)) == 1
+    patched = native.replace(match.group(0), replacement)
+    validator_name = {200: 'Vie', 201: 'Vie', 202: 'tae', 203: 'gTe'}[version]
+    # Restrict the search to the auth body; .202 reuses the name in another module.
+    validators = re.findall(
+        rf'function {validator_name}\(e,t\)\{{if\(typeof e!=="string"[\s\S]*?timingSafeEqual\([^)]*\)\}}',
+        source,
+    )
+    assert len(validators) == 1
+    validator = validators[0]
+    crypto = re.search(r'return ([\w$]+)\.timingSafeEqual', validator)
+    assert crypto is not None
+    session = re.search(r'sessionId:([\w$]+)\(\),gates:\{', source)
+    protocol = re.search(r'proto:([\w$]+),role:"supervisor",supervisorPid:', source)
+    parser = re.search(r'let t;try\{t=([\w$]+)\(e\)', native)
+    assert session is not None and protocol is not None and parser is not None
+    snapshot = _PROVIDER_ENV_SNAPSHOT.search(source)
+    assert snapshot is not None
+    helpers = _replace_provider_snapshot(snapshot)
+    mac = _attribution_function(helpers, '_ccProviderMac')
+    token, authenticated, send = (
+        match.group(key) for key in ['token', 'authenticated', 'send']
+    )
+    stubs = (
+        'const v=()=>{};'
+        if version < 202
+        else 'const T=()=>{};'
+        if version == 202
+        else 'let Onr=false;const w=()=>{},Owd=()=>{},He=()=>{};'
+    )
+    program = (
+        'const assert=require("node:assert/strict"),crypto=require("node:crypto");'
+        f'const {crypto.group(1)}=crypto,{parser.group(1)}=JSON.parse;'
+        f'const {session.group(1)}=()=>"session",{protocol.group(1)}=7;'
+        f'let {token}="secret",{authenticated}=false,outputs=[];'
+        f'const {send}=x=>outputs.push(x),_ccProviderWorkerEnv={{ANTHROPIC_API_KEY:"private"}};'
+        + stubs
+        + validator
+        + mac
+        + patched
+        + f';const dispatch=x=>{dispatcher}(JSON.stringify(x));'
+        'const valid={type:"cc-provider-snapshot-request",auth:"secret",proto:7,version:3,'
+        'sessionId:"session",nonce:"a".repeat(64)};'
+        'const snapshots=()=>outputs.filter(x=>x.type==="cc-provider-snapshot");'
+        'dispatch(valid);assert.equal(snapshots().length,0);'
+        'outputs=[];dispatch({role:"supervisor",auth:"wrong!"});'
+        'assert.deepEqual(outputs,[{type:"auth-rejected"}]);'
+        f'assert.equal({authenticated},false);dispatch(valid);assert.equal(snapshots().length,0);'
+        'dispatch({role:"supervisor",auth:"secret"});'
+        f'assert.equal({authenticated},true);'
+        'for(const invalid of [{auth:"wrong!"},{auth:"short"},{auth:null},{auth:42},{auth:""},'
+        '{proto:8},{version:2},{sessionId:"other"},{nonce:"bad"},{nonce:null},'
+        '{nonce:"A".repeat(64)},{nonce:"a".repeat(63)},{nonce:"a".repeat(65)}]){'
+        'outputs=[];dispatch({...valid,...invalid});assert.deepEqual(outputs,[],JSON.stringify(invalid));}'
+        'outputs=[];dispatch(valid);assert.equal(outputs.length,1);'
+        'const expected={type:"cc-provider-snapshot",proto:7,version:3,sessionId:"session",'
+        'nonce:valid.nonce,payload:{ANTHROPIC_API_KEY:"private"}};'
+        'expected.mac=crypto.createHmac("sha256","secret").update(JSON.stringify(['
+        'expected.type,7,3,"session",valid.nonce,expected.payload])).digest("hex");'
+        'assert.deepEqual(outputs,[expected]);'
+        f'for(const missing of ["",null]){{{token}=missing;outputs=[];dispatch(valid);'
+        'assert.deepEqual(outputs,[]);}'
+    )
+    result = subprocess.run(  # noqa: S603 - Run extracted native functions in isolation.
+        [node, '-e', program], capture_output=True, text=True, timeout=20
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(

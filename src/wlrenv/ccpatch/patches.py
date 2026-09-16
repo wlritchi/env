@@ -1295,7 +1295,8 @@ def _replace_provider_rv_worker(match: re.Match[str]) -> str:
         match.string,
         (
             re.compile(
-                r'"auth"in [\w$]+&&(?P<validator>[\w$]+)\([\w$]+\.auth,'
+                r'"auth"in (?P<auth_request>[\w$]+)(?:&&|\)if\()'
+                r'(?P<validator>[\w$]+)\((?P=auth_request)\.auth,'
                 + re.escape(token)
                 + r'\)'
             ),
