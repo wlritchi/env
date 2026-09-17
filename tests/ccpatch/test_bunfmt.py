@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import struct
+from dataclasses import replace
+
 import pytest
 
 from wlrenv.ccpatch.bunfmt import (
@@ -12,6 +15,12 @@ from wlrenv.ccpatch.bunfmt import (
     BunModule,
     parse_blob,
     rebuild_blob,
+)
+from wlrenv.ccpatch.cli import (
+    ApplyError,
+    _graph_source,
+    _source_modules,
+    _split_graph_source,
 )
 
 
@@ -85,6 +94,49 @@ def test_zeroing_bytecode_round_trips() -> None:
 
     rebuilt = parse_blob(rebuild_blob(blob.map_modules(drop_bytecode)))
     assert all(m.bytecode == b"" for m in rebuilt.modules)
+
+
+def test_split_graph_preserves_modules_and_assets() -> None:
+    blob = _blob(new=True)
+    executable = b"\x01\x01\x01\x00"
+    entry = replace(blob.modules[0], name=b"/$bunfs/root/cli", tail=executable)
+    helper = replace(blob.modules[1], tail=executable)
+    asset = replace(helper, name=b"mermaid.min.js", tail=b"\x00\x05\x00\x01")
+    blob = replace(blob, entry_point_id=1, modules=(helper, entry, asset))
+    modules = _source_modules(blob)
+    assert modules == (helper, entry)
+    assert entry.is_entrypoint()
+    source = _graph_source(modules)
+    assert _split_graph_source(source, modules) == {m.name: m.contents for m in modules}
+    patched = _split_graph_source(
+        source.replace("console.log(1)", "console.log(22)"), modules
+    )
+    assert patched[entry.name] == b"console.log(22)"
+    assert patched[helper.name] == helper.contents
+    with pytest.raises(ApplyError, match="boundary"):
+        _split_graph_source("extra" + source, modules)
+
+
+def test_extended_graph_drops_caches_but_preserves_runtime_policy() -> None:
+    blob = _blob(new=True)
+    runtime = struct.pack("<II", 1, 0x40000000)
+    records = (
+        b"\0" * (4 * len(blob.modules))
+        + struct.pack("<I", 0)
+        + b"\0" * 8
+        + struct.pack("<I", 1)
+        + b"\0" * 8
+        + struct.pack("<III", 0, 0, 0)
+        + runtime
+    )
+    blob = replace(blob, flags=0x1BFF, extra_records=records)
+    rebuilt = parse_blob(rebuild_blob(blob))
+    assert rebuilt.flags == 0x100F
+    assert rebuilt.extra_records == runtime
+    assert all(not m.bytecode and not m.module_info for m in rebuilt.modules)
+    assert rebuilt.entry_point_id == blob.entry_point_id
+    assert rebuilt.compile_exec_argv == blob.compile_exec_argv
+    assert rebuild_blob(rebuilt) == rebuilt.original
 
 
 def test_missing_trailer_rejected() -> None:

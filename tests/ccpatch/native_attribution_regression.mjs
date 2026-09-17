@@ -1,8 +1,66 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { AsyncLocalStorage } from "node:async_hooks";
 
-const { source } = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const payload = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (payload.modern) {
+  const scope = new AsyncLocalStorage();
+  let policyCalls = 0;
+  const sandbox = {
+    _ccAttributionScope: scope,
+    [payload.effective]: () => {
+      policyCalls++;
+      throw new Error("Captured prompt recomputed its attribution snapshot");
+    },
+  };
+  // Stub unrelated prompt guidance, not attribution or its request-local scope.
+  for (const match of payload.source.matchAll(/(?<![\w$.])([\w$]+)\(/g)) {
+    const name = match[1];
+    if (!["if", "function", "Boolean", ...payload.prompts].includes(name) && !(name in sandbox))
+      sandbox[name] = () => "";
+  }
+  for (const match of payload.source.matchAll(/if\(!([\w$]+)\([^)]*\)\)return\s*(?:""|[\w$]+\()/g))
+    sandbox[match[1]] = () => true;
+  const context = vm.createContext(
+    new Proxy(sandbox, {
+      get(target, key) {
+        if (key in target) return target[key];
+        if (key in globalThis) return globalThis[key];
+        return "native guidance";
+      },
+    }),
+  );
+  vm.runInContext(payload.source + "\n" + payload.systemHelper, context);
+  for (const name of payload.prompts) {
+    const snapshots = [
+      { commit: "Co-Authored-By: GPT-6 Astra <noreply@openai.com>", pr: "custom PR" },
+      { commit: "Co-Authored-By: GLM 5.3 <noreply@z.ai>", pr: "second PR" },
+      { commit: "", pr: "" },
+      ...(payload.source.includes("===null?") ? [null] : []),
+    ];
+    const results = await Promise.all(
+      snapshots.map((snapshot) => scope.run({ snapshot }, () => context[name]([]))),
+    );
+    for (let i = 0; i < snapshots.length; i++) {
+      const snapshot = snapshots[i];
+      const result = results[i];
+      assert.equal(typeof result, "string");
+      assert.ok(result.includes("Git") || result.includes("git"));
+      if (snapshot?.commit) assert.ok(result.includes(snapshot.commit));
+      else assert.ok(!result.includes("Co-Authored-By:"));
+      if (snapshot?.pr) assert.ok(result.includes(snapshot.pr));
+      const blocks = context._ccMultiProviderSystemAttribution("native", "zai:test", snapshot);
+      assert.equal(blocks.length, snapshot?.commit || snapshot?.pr ? 2 : 1);
+      if (snapshot?.commit) assert.ok(blocks[1].text.includes(snapshot.commit));
+    }
+  }
+  assert.equal(policyCalls, 0);
+  process.exit(0);
+}
+const { source, surfaceFooter } = payload;
+let footerGate = false;
+let clientKind = "cli";
 let settings = {};
 let session = null;
 let currentModel = "claude-opus-4-8";
@@ -48,7 +106,9 @@ const context = vm.createContext({
   Fa: "Edit",
   Kc: "Write",
   EV: (items) => items.flat(Infinity),
-  ct: () => false,
+  ct: (gate) => gate === "tengu_pr_footer_surface_suffix" && footerGate,
+  _nativeClientKind: () => clientKind,
+  _nativeMinimalBash: () => false,
   xr: () => "firstParty",
   fSf: () => ({}),
   _Sf: JSON.stringify,
@@ -257,5 +317,51 @@ for (const mode of [true, false]) {
     if (model.startsWith("zai:")) assert.ok(routed.system.at(-1).text.includes(attribution));
   });
   settings = {};
+}
+const surfaces = [
+  ["claude-desktop", "Claude Desktop"],
+  ["claude-desktop-3p", "Claude Desktop"],
+  ["remote_desktop", "Claude Desktop"],
+  ["remote_mobile", "Mobile"],
+  ["local-agent", "Cowork"],
+  ["remote_cowork", "Cowork"],
+  ["claude_in_slack", "Claude Tag in Slack"],
+  ["claude-in-slack", "Claude Tag in Slack"],
+  ["claude-in-teams", "Claude Tag in Teams"],
+  ["claude-code-github-action", "GitHub Actions"],
+  ["cli", undefined],
+  ["unknown-client", undefined],
+];
+for (compact of [true, false]) {
+  for (footerGate of [false, true]) {
+    for (const [kind, surface] of surfaces) {
+      clientKind = kind;
+      const nativePR =
+        "🤖 Generated with [Claude Code](https://claude.com/claude-code)" +
+        (surfaceFooter && footerGate && surface ? ` via ${surface}` : "");
+      for (const attribution of [
+        undefined,
+        { commit: "custom commit" },
+        { pr: "custom PR" },
+        { pr: "" },
+        { commit: "", pr: "" },
+      ]) {
+        settings = attribution ? { attribution } : {};
+        const expectedPR = attribution?.pr ?? nativePR;
+        for (const model of ["claude-opus-4-8", "zai:glm-5.3"]) {
+          const schema = await context.serialize(model);
+          const snapshot = schema[Object.getOwnPropertySymbols(schema)[0]];
+          assert.equal(snapshot.pr, expectedPR, `${kind}/${footerGate}/${model}`);
+          if (expectedPR) assert.ok(schema.description.includes(expectedPR));
+          else assert.ok(!schema.description.includes("Generated with [Claude Code]"));
+          if (model.startsWith("zai:")) {
+            const routed = context.route(nativeClient, { model, system, tools: [schema] })[1];
+            if (expectedPR) assert.ok(routed.system.at(-1).text.includes(expectedPR));
+            else assert.ok(!JSON.stringify(routed.system).includes("End PR bodies"));
+          }
+        }
+      }
+    }
+  }
 }
 console.log("Native attribution serialization and outgoing routing passed");

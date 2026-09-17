@@ -15,6 +15,7 @@ from wlrenv.ccpatch.agents_handoff import (
     _handoff,
     agents_view_handoff,
 )
+from wlrenv.ccpatch.module_runtime import finalize_module_runtime, source_modules
 from wlrenv.ccpatch.patches import DEV_CHANNEL_INHERITANCE, PatchError
 
 _ROOT = Path(__file__).resolve().parents[2] / "build/sweep-resume"
@@ -124,6 +125,58 @@ def test_native_agents_handoff(version: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_split_handoff_uses_module_local_native_functions() -> None:
+    bodies = {
+        "getter.js": 'function getter(){return state.replConfigArgv}',
+        "config.js": 'function parser(args){let flag=!1,value,config={addDir:[],pluginDir:[],};return {config}}function serializer(config){return[...config.settings?["--settings",config.settings]:[]]}',
+        "launch.js": 'if(gate("tengu_bg_leftarrow_inprocess",!0))try{return await mount(job,load,{dispatchDefaults:defaults})}catch(error){log(error)}return spawn({args:["agents",...serialize(defaults)],env:{CLAUDE_AGENTS_SELECT:job,...environment()}})',
+    }
+    source = ''.join(
+        f'\n/* ccpatch-module:{name.encode().hex()} */\n{body}'
+        for name, body in bodies.items()
+    )
+    patchset = agents_view_handoff((2, 1, 195))
+    source = source.replace(
+        'function serializer',
+        'const channels=[0,...(entry.channels??[]).flatMap((item)=>["--channels",item])];function serializer',
+    )
+    patched = patchset.apply(source)
+    modules = source_modules(finalize_module_runtime(patched))
+    assert len(modules) == 3
+    for module in modules:
+        assert module.source.startswith('globalThis.__ccpatchRuntime??=')
+    assert 'agentsHandoff.getter=getter;' in modules[0].source
+    assert 'agentsHandoff.parser=parser;' in modules[1].source
+    assert 'agentsHandoff.serializer=serializer;' in modules[1].source
+    assert 'agentsHandoff.dispatchArgs()' in modules[2].source
+    assert 'agentsHandoff.parser=parser;' not in modules[2].source
+
+
 def test_handoff_rejects_unknown_source() -> None:
     with pytest.raises(PatchError):
         agents_view_handoff((2, 1, 203)).apply("unknown")
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "state.replConfigArgv",
+        "state.replConfigArgv()",
+        "state.host.launchOptions.replConfigArgv()",
+        "state().host.launchOptions.replConfigArgv()",
+    ],
+)
+def test_launch_option_getter_shapes(expression: str) -> None:
+    assert _GETTER.fullmatch(f"function getter(){{return {expression}}}") is not None
+
+
+def test_restricted_handoff_preserves_native_security() -> None:
+    source = 'gate("tengu_bg_leftarrow_inprocess",!0))try{return await mount(job,load,{...restricted()&&{dispatchExtraArgs:["--restricted"]},dispatchDefaults:defaults,...selection?.autoOpenJobId!==void 0&&{autoOpenJobId:selection.autoOpenJobId},originSpawn:origin,storageV5:storage,credentials:credentials,fleetNudgeStore:selection?.fleetNudgeStore})}catch(error){log(error)}let result=await spawn({args:["agents",...serialize(defaults)],env:{CLAUDE_AGENTS_SELECT:selection?.autoOpenJobId??job,...environment(),...restricted()&&{CLAUDE_CODE_RESTRICTED:"1"}}})'
+    match = _HANDOFF.fullmatch(source)
+    assert match is not None
+    patched = _handoff(match)
+    assert (
+        'dispatchExtraArgs:[...(restricted()?["--restricted"]:[]),..._ccAgentsDispatchArgs()]'
+        in patched
+    )
+    assert '...restricted()&&{CLAUDE_CODE_RESTRICTED:"1"}' in patched

@@ -10,14 +10,32 @@ from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_RESPAWN_GUARD,
     BACKGROUND_PROVIDER_ENV,
     CHANNELS_ENABLED,
+    THINKING_SUMMARIES_NONINTERACTIVE,
+    THINKING_SUMMARIES_NONINTERACTIVE_198,
     Patch,
     PatchError,
     PatchSet,
+    background_provider_environment,
     checked_replace,
+    default_patch_sets,
     discover_identifiers,
     parse_version,
     thinking_expanded,
 )
+
+
+@pytest.mark.parametrize("release", range(198, 275))
+def test_thinking_variant_selected_through_verified_release(release: int) -> None:
+    variant = default_patch_sets((2, 1, release))[7]
+    assert variant is THINKING_SUMMARIES_NONINTERACTIVE_198
+    assert variant.applies_to((2, 1, release))
+
+
+def test_thinking_variant_stops_after_verified_release() -> None:
+    assert THINKING_SUMMARIES_NONINTERACTIVE_198.max_version == (2, 1, 275)
+    assert not THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to((2, 1, 275))
+    assert default_patch_sets((2, 1, 275))[7] is THINKING_SUMMARIES_NONINTERACTIVE
+
 
 # A minified-ish snippet exercising all three thinking patches.
 _RENDER = (
@@ -208,6 +226,41 @@ def test_thinking_guard_rejects_nonmatching_bodies(guard_body: str) -> None:
     source = _SOURCE.replace("return null;", guard_body)
     with pytest.raises(PatchError, match="drop-thinking-early-return"):
         thinking_expanded((2, 1, 203)).apply(source)
+
+
+@pytest.mark.parametrize("default", ["", 'n?.bgIsolation==="default"?void 0:'])
+def test_provider_persistence_preserves_default_isolation(default: str) -> None:
+    patch = next(
+        patch
+        for patch in background_provider_environment((2, 1, 211)).patches
+        if patch.name == "stop-persisting-provider-env"
+    )
+    isolation = f'H={default}t==="repl"?"none":n?.bgIsolation,'
+    patched = PatchSet("persistence", (patch,)).apply(
+        isolation + "I=n?.providerEnv??snapshot(),"
+    )
+    assert patched.startswith(isolation)
+    assert "snapshot()" not in patched
+    assert "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST" in patched
+
+
+@pytest.mark.parametrize("checks", ["ffs!==null&&mfs!==null&&", ""])
+@pytest.mark.parametrize("factory", ["q.createElement", "e"])
+def test_thinking_preserves_specialized_renderer_before_visibility_guard(
+    checks: str, factory: str
+) -> None:
+    renderer = (
+        f"if({checks}ffs(nO)){{let BW;"
+        "if(cache[34]!==margin)BW=R.jsx(mfs,{param:nO,addMargin:margin}),"
+        "cache[34]=margin,cache[35]=BW;else BW=cache[35];return BW}"
+    )
+    source = _SOURCE.replace('case"thinking":{', 'case"thinking":{' + renderer).replace(
+        "q.createElement", factory
+    )
+    patched = thinking_expanded((2, 1, 211)).apply(source)
+    assert renderer in patched
+    assert "if(!Ab&&!Cd)return null;" not in patched
+    assert "isTranscriptMode:true,verbose:true" in patched
 
 
 def test_version_gating_excludes_ungroup_below_2_1_151() -> None:

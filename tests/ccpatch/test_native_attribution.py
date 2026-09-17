@@ -8,15 +8,18 @@ import os
 import re
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
 
+from wlrenv.ccpatch.module_runtime import source_modules
 from wlrenv.ccpatch.patches import (
     MULTI_PROVIDER_SDK,
     PatchError,
     _attribution_function,
     _discover_multi_provider_attribution,
+    _thread_modern_attribution,
     _thread_multi_provider_attribution,
     _transform_attribution_serializer,
     default_patch_sets,
@@ -43,10 +46,19 @@ def _function(source: str, position: int) -> tuple[str, str]:
     following = re.search(rf"(?:async )?function {_ID}\(", source[position:])
     assert following is not None
     text = source[match.start() : position + following.start()]
-    text = re.split(r"\}var \w", text, maxsplit=1)[0]
+    text = re.split(r"\}var [\w$]", text, maxsplit=1)[0]
     if not text.endswith("}"):
         text += "}"
     return match[1], text
+
+
+@pytest.mark.parametrize("binding", ["plain", "$leading", "trailing$"])
+def test_function_capture_stops_before_variable(binding: str) -> None:
+    source = f"function helper(){{return 1}}var {binding}=2;function next(){{}}"
+    assert _function(source, source.index("return")) == (
+        "helper",
+        "function helper(){return 1}",
+    )
 
 
 def _captures(source: str) -> list[tuple[str, str]]:
@@ -72,6 +84,11 @@ def _captures(source: str) -> list[tuple[str, str]]:
     return captures
 
 
+@lru_cache(maxsize=4)
+def _patched_native_source(path: Path) -> str:
+    return MULTI_PROVIDER_SDK.apply(path.read_text())
+
+
 @pytest.mark.parametrize(
     "architecture", ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
 )
@@ -93,8 +110,40 @@ def test_native_cached_bash_attribution(
             "and the .182 Linux x64 harness baseline"
         )
     source = path.read_text()
+    version = re.search(r'VERSION:"2\.1\.(\d+)"', source)
+    if version is not None and int(version[1]) >= 212:
+        test_modern_captured_attribution(int(version[1]), architecture, tmp_path)
+        return
     originals = _captures(source)
     canonical = _captures(reference.read_text())
+    footer_functions: list[tuple[str, str]] = []
+    footer_names: dict[str, str] = {}
+    footer = re.search(rf",{_ID}=({_ID})\(\),{_ID}=`Co-Authored-By:", originals[0][1])
+    if footer is not None:
+        helper = _attribution_function(source, footer[1])
+        gate = re.search(rf'({_ID})\("tengu_pr_footer_surface_suffix",!1\)', helper)
+        surface = re.search(rf"let {_ID}=({_ID})\(\);return", helper)
+        url = re.search(rf"\[Claude Code\]\(\$\{{({_ID})\}}\)", helper)
+        assert gate is not None and surface is not None and url is not None
+        surface_helper = _attribution_function(source, surface[1])
+        client = re.search(rf"switch\(({_ID})\(\)\)", surface_helper)
+        assert client is not None
+        footer_names = {
+            footer[1]: "_nativePRFooter",
+            surface[1]: "_nativePRSurface",
+            gate[1]: "ct",
+            client[1]: "_nativeClientKind",
+            url[1]: "A2e",
+        }
+        footer_functions = [(footer[1], helper), (surface[1], surface_helper)]
+        name, baseline = canonical[0]
+        baseline, count = re.subn(
+            r"`\\uD83E\\uDD16 Generated with \[Claude Code\]\(\$\{[\w$]+\}\)`",
+            "_nativePRFooter()",
+            baseline,
+        )
+        assert count == 1
+        canonical[0] = name, baseline
     session_object = re.search(
         rf"if\(!{_ID}\)return {_ID};return {_ID}\({_ID},{_ID}\.url,({_ID})\({_ID}\)\)",
         originals[len(_ANCHORS)][1],
@@ -287,6 +336,31 @@ def test_native_cached_bash_attribution(
                 baseline,
             ).replace(".outboundOnly)", ".outboundOnly&&!_outbound)")
             local_names[originals[index][0]] = {}
+        if index == 4 and re.search(rf",{_ID}={_ID}\(\),{_ID}=\[\];if\(!", original):
+            # Keep the native minimal-prompt gate in the runtime fixture.
+            avoidance = re.search(r'`- IMPORTANT:.*?`', baseline)
+            cwd = re.search(r'"- Working directory persists.*?"', baseline)
+            assert avoidance is not None and cwd is not None
+            baseline = baseline.replace(
+                'o=nC()?"`cat`',
+                'o=_nativeMinimalBash(),_avoid=[];if(!o){let _commands=nC()?"`cat`',
+            ).replace(
+                '",s=[];if(t)',
+                '";_avoid.push('
+                + avoidance[0].replace('${o}', '${_commands}')
+                + ')}let _cwd=o?"- Working directory persists between calls. Shell state (env vars, functions) does not persist; the shell is initialized from the user\'s profile.":'
+                + cwd[0]
+                + ',s=[];if(t)',
+            )
+            baseline = baseline.replace(
+                cwd[0] + ',' + avoidance[0] + ',', '_cwd,..._avoid,'
+            )
+            baseline = (
+                baseline.replace('let a="', 'let _commands="')
+                .replace(')a+=', ')_commands+=')
+                .replace('s.push(a)', 's.push(_commands)')
+            )
+            local_names[originals[index][0]] = {}
         if index == 7 and '"X:"' in original:
             # Compare the new strict-schema path without changing captured code.
             baseline = baseline.replace(
@@ -314,9 +388,15 @@ def test_native_cached_bash_attribution(
             if token != baseline_token:
                 mapping = names
                 if originals[index][0] in local_names and len(token) == 1:
-                    mapping = local_names[originals[index][0]]
+                    # Separate lexical scopes can reuse the same minified local.
+                    continue
                 assert mapping.setdefault(token, baseline_token) == baseline_token
-    patched = MULTI_PROVIDER_SDK.apply(source)
+    for name, normalized in footer_names.items():
+        assert names.setdefault(name, normalized) == normalized
+    originals.extend(footer_functions)
+    patched = _patched_native_source(path)
+    for _, function in footer_functions:
+        assert function in patched
     functions: list[str] = []
     for name, original in originals:
         if name == "prompt":
@@ -357,8 +437,9 @@ def test_native_cached_bash_attribution(
     payload.write_text(
         json.dumps(
             {
+                "surfaceFooter": bool(footer_functions),
                 "source": f"function _nativeBackgroundDisabled(){{return {json.dumps(background_disabled)}}}\n"
-                + normalize(helper + "\n" + "\n".join(functions))
+                + normalize(helper + "\n" + "\n".join(functions)),
             }
         )
     )
@@ -523,6 +604,159 @@ for(const verbose of [false,true]){
 _ATTRIBUTION_SOURCE = 'function ATTR(){if(MODE()==="remote"){if(ENV.CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION)return{commit:"",pr:""};return REMOTE()}let H=CURRENT(),$=ISFIRST(H)?DISPLAY(FIRST.firstParty):ISNATIVE(H)?DISPLAY(H):"Claude",q=`\\uD83E\\uDD16 Generated with [Claude Code](${URL})`,K=`Co-Authored-By: ${$} <noreply@anthropic.com>`,_=SETTINGS();if(_.attribution)return{commit:_.attribution.commit??K,pr:_.attribution.pr??q};if(_.includeCoAuthoredBy===!1)return{commit:"",pr:""};return{commit:K,pr:q}}function COMPACT_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}function FULL_GIT(F){if(!GIT())return"";let n="",{commit:r,pr:o}=ATTR();return r+o}function COMPACT_BASH(F){return COMPACT_GIT(F)}function BASH_DISPATCH(M,F){if(SHORT(M))return COMPACT_BASH(F);return FULL_GIT(F)}var BASH={async prompt({model:M,tools:T}){let F=[];return BASH_DISPATCH(M,F)},isConcurrencySafe(){return!1}};async function SERIALIZE_NATIVE(E,T){let o="",s="",a=o+s+""+("inputJSONSchema"in E&&E.inputJSONSchema?`${E.name}:${HASH(E.inputJSONSchema)}`:E.name),l=CACHE(),c=l.get(a);return c}function _ccMultiProviderRoute(_ccNativeClient,_ccRequest,_ccOptions={}){delete _ccOutbound[_ccField];return[_ccCached.client,_ccOutbound,{}]}'
 
 
+_MODERN_VERSIONS = [
+    *range(212, 230),
+    *range(231, 244),
+    245,
+    246,
+    247,
+    248,
+    250,
+    251,
+    252,
+    257,
+    258,
+    259,
+    260,
+    261,
+    263,
+    265,
+    266,
+    267,
+    268,
+    269,
+    270,
+    271,
+    272,
+    273,
+    274,
+]
+
+
+@pytest.mark.parametrize(
+    ("version", "architecture"),
+    [
+        (version, architecture)
+        for version in _MODERN_VERSIONS
+        for architecture in ("linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64")
+        if (
+            Path(__file__).resolve().parents[2]
+            / f"build/sweep-resume/2.1.{version}/{architecture}/original.js"
+        ).is_file()
+    ]
+    or [(272, "linux-x64")],
+)
+def test_modern_captured_attribution(
+    version: int, architecture: str, tmp_path: Path
+) -> None:
+    root = Path(__file__).resolve().parents[2] / "build/sweep-resume"
+    path = root / f"2.1.{version}/{architecture}/original.js"
+    runtime = shutil.which("node")
+    if not path.is_file() or runtime is None:
+        pytest.skip("requires captured release and node")
+    source = next(
+        module.source
+        for module in source_modules(path.read_text())
+        if "# Committing changes with git" in module.source
+    )
+    route = _ATTRIBUTION_SOURCE[
+        _ATTRIBUTION_SOURCE.index("function _ccMultiProviderRoute(") :
+    ]
+    generated = _thread_modern_attribution(source + route)
+    check = subprocess.run(  # noqa: S603 - local syntax check
+        [runtime, "--input-type=module", "--check"],
+        input=generated,
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    assert check.returncode == 0, check.stderr
+    assert "if(!_ccSnapshot)return _ccBlocks" in generated
+    assert "Symbol.for(\"ccpatch.attribution\")" in generated
+    # Policy awaits and replay branches must remain byte-identical.
+    for match in re.finditer(
+        r'await [\w$]+(?:\.attributionTextOf)?\("(?:commit|pr)",[\w$]+\.(?:commit|pr)\)',
+        source,
+    ):
+        assert match.group(0) in generated
+    for match in re.finditer(
+        r'function [\w$]+\(\)\{return [\w$]+\(\)\?null:[\w$]+\(\)\}', source
+    ):
+        assert match.group(0) in generated
+    serializer = re.search(
+        r'async function ([\w$]+)\(([\w$]+),([\w$]+)\)\{return _ccAttributionScope.run',
+        generated,
+    )
+    assert serializer is not None
+    name, tool, context = serializer.groups()
+    end = generated.index(f"async function {name}_ccInner", serializer.start())
+    wrapper = generated[serializer.start() : end]
+    effective = re.search(r'\?await ([\w$]+)\(\):void 0', wrapper)
+    assert effective is not None
+    system_helper = _attribution_function(
+        generated, "_ccMultiProviderSystemAttribution"
+    )
+    original_declaration = re.search(rf"async function {re.escape(name)}\(", source)
+    assert original_declaration is not None
+    original_serializer = _function(source, original_declaration.end())[1]
+    inner = _function(generated, end + len(f"async function {name}_ccInner("))[1]
+    assert (
+        inner.replace(name + "_ccInner", name, 1).replace(
+            f"+JSON.stringify([{context}.model??null,{context}._ccAttributionSnapshot??null])",
+            "",
+            1,
+        )
+        == original_serializer
+    )
+    prompts: list[str] = []
+    prompt_names: list[str] = []
+    for anchor in ("- Interactive flags (", "# Committing changes with git"):
+        prompt_name, prompt_source = _function(generated, generated.index(anchor))
+        prompts.append(prompt_source)
+        prompt_names.append(prompt_name)
+    payload = tmp_path / "modern.json"
+    payload.write_text(
+        json.dumps(
+            {
+                "modern": True,
+                "source": "\n".join(prompts),
+                "prompts": prompt_names,
+                "systemHelper": system_helper,
+                "effective": effective[1],
+            }
+        )
+    )
+    prompt_result = subprocess.run(  # noqa: S603 - captured native Git prompts
+        [
+            runtime,
+            str(Path(__file__).with_name("native_attribution_regression.mjs")),
+            str(payload),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert prompt_result.returncode == 0, prompt_result.stdout + prompt_result.stderr
+    script = (
+        system_helper
+        + 'for(const snapshot of [null,undefined,{commit:"",pr:""}]){if(_ccMultiProviderSystemAttribution("native","zai:test",snapshot).length!==1)throw Error("suppression")}'
+        + 'let custom=_ccMultiProviderSystemAttribution("native","zai:test",{commit:"custom commit",pr:"custom PR"});if(!custom[1].text.includes("custom commit")||!custom[1].text.includes("custom PR"))throw Error("custom attribution");'
+        + 'const {AsyncLocalStorage}=require("node:async_hooks");const _ccAttributionScope=new AsyncLocalStorage;'
+        'let calls=0;'
+        f'async function {effective[1]}(){{calls++;let model=_ccAttributionScope.getStore().model;await Promise.resolve();return model==="replay"?null:{{commit:model,pr:"native PR"}}}}'
+        f'async function {name}_ccInner({tool},{context}){{await Promise.resolve();return {{name:{tool}.name,description:JSON.stringify({context}._ccAttributionSnapshot)}}}}'
+        + wrapper
+        + f'(async()=>{{let results=await Promise.all(["zai:a","openai:b","replay"].map(model=>{name}({{name:"Bash"}},{{model}})));'
+        'if(calls!==3)throw Error("policy calls");for(let i=0;i<results.length;i++){let value=results[i][Symbol.for("ccpatch.attribution")];'
+        'if(i===2){if(value!==null)throw Error("replay")}else if(value.commit!==["zai:a","openai:b"][i]||!Object.isFrozen(value))throw Error("isolation");'
+        'if(JSON.stringify(results[i]).includes("ccpatch.attribution"))throw Error("wire leak");}})().catch(e=>{console.error(e);process.exitCode=1})'
+    )
+    result = subprocess.run(  # noqa: S603 - captured local wrapper
+        [runtime, "-e", script], capture_output=True, text=True, timeout=20
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def _patch_attribution(source: str) -> str:
     match = re.fullmatch(r"[\s\S]*", source)
     assert match is not None
@@ -530,8 +764,16 @@ def _patch_attribution(source: str) -> str:
 
 
 @pytest.mark.parametrize("strict_prefix", ["", 'strict+'])
-def test_attribution_cache_key_retains_native_dimensions(strict_prefix: str) -> None:
+@pytest.mark.parametrize("schema_method", [False, True])
+def test_attribution_cache_key_retains_native_dimensions(
+    strict_prefix: str, schema_method: bool
+) -> None:
     source = _ATTRIBUTION_SOURCE.replace('o+s+""+', 'o+s+""+' + strict_prefix)
+    if schema_method:
+        source = source.replace(
+            "HASH(E.inputJSONSchema)", "state.schemaKey(E.inputJSONSchema)"
+        )
+        source = source.replace("l=CACHE(),c=l.get(a)", "c=sharedCache.get(a)")
     found = _discover_multi_provider_attribution(source)
     generated = _patch_attribution(source)
     assert (
@@ -540,7 +782,9 @@ def test_attribution_cache_key_retains_native_dimensions(strict_prefix: str) -> 
     ) in generated
 
 
-@pytest.mark.parametrize("version", ["2.1.202", "2.1.203", "2.1.206", "2.1.207"])
+@pytest.mark.parametrize(
+    "version", ["2.1.202", "2.1.203", "2.1.206", "2.1.207", "2.1.208", "2.1.209"]
+)
 @pytest.mark.parametrize("architecture", ["linux-x64", "linux-arm64"])
 def test_captured_sdk_serializer_strict_cache(
     version: str, architecture: str, tmp_path: Path
@@ -584,7 +828,7 @@ def test_captured_sdk_serializer_strict_cache(
     validator = re.search(
         r"let " + _ID + r"=(" + _ID + r")\([\w$]+\);if\([\w$]+\.ok\)", original
     )
-    if version in {"2.1.203", "2.1.206", "2.1.207"}:
+    if version in {"2.1.203", "2.1.206", "2.1.207", "2.1.208", "2.1.209"}:
         assert strict is not None and validator is not None
     stubs = "".join(f"function {call}(){{return false}}" for call in sorted(calls))
     stubs += (
@@ -644,6 +888,37 @@ def test_captured_sdk_serializer_strict_cache(
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize("helper", ["FOOTER", "$footer", "footer$"])
+def test_attribution_retains_native_pr_expression(helper: str) -> None:
+    template = (
+        "`"
+        + chr(92)
+        + "uD83E"
+        + chr(92)
+        + "uDD16 Generated with [Claude Code](${URL})`"
+    )
+    source = _ATTRIBUTION_SOURCE.replace(template, helper + "()")
+    assert source != _ATTRIBUTION_SOURCE
+    assert _patch_attribution(source) == _patch_attribution(
+        _ATTRIBUTION_SOURCE
+    ).replace(template, helper + "()")
+
+
+@pytest.mark.parametrize(
+    "expression", ["FOOTER(model)", "obj.footer()", "FOOTER()+extra"]
+)
+def test_attribution_unknown_pr_expression_fails_closed(expression: str) -> None:
+    template = (
+        "`"
+        + chr(92)
+        + "uD83E"
+        + chr(92)
+        + "uDD16 Generated with [Claude Code](${URL})`"
+    )
+    with pytest.raises(PatchError, match="multi-provider attribution"):
+        _patch_attribution(_ATTRIBUTION_SOURCE.replace(template, expression))
+
+
 def test_attribution_generated_output_is_unchanged() -> None:
     generated = _patch_attribution(_ATTRIBUTION_SOURCE)
     assert hashlib.sha256(generated.encode()).hexdigest() == (
@@ -651,7 +926,9 @@ def test_attribution_generated_output_is_unchanged() -> None:
     )
 
 
-@pytest.mark.parametrize("separator", ["\n", "\nconst unused=0;", "\nlet unused=0;"])
+@pytest.mark.parametrize(
+    "separator", ["\n", "\nconst unused=0;", "\nlet unused=0;", "class Boundary{}"]
+)
 def test_attribution_function_boundaries(separator: str) -> None:
     source = _ATTRIBUTION_SOURCE.replace(
         "}function COMPACT_BASH", "}" + separator + "function COMPACT_BASH"

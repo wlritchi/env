@@ -29,6 +29,7 @@ from wlrenv.ccpatch.patches import (
     MULTI_PROVIDER_SDK,
     THINKING_SUMMARIES_NONINTERACTIVE,
     THINKING_SUMMARIES_NONINTERACTIVE_198,
+    Patch,
     PatchError,
     PatchSet,
     _model_costs_patch,
@@ -265,6 +266,26 @@ def test_dev_channel_inheritance_threads_natively() -> None:
     assert "CLAUDE_DEV_CHANNELS" not in out  # the env round-trip is gone
     # the original telemetry block is preserved (length-free append)
     assert 'd("tengu_mcp_channel_flags",{})' in out
+
+
+def test_dev_channel_preserves_restricted_dispatch() -> None:
+    tail = '...H.restricted?["--restricted"]:[]'
+    source = _DEV_CHANNEL_SRC.replace(
+        '...H.strictMcpConfig?["--strict-mcp-config"]:[]]',
+        '...H.strictMcpConfig?["--strict-mcp-config"]:[],' + tail + "]",
+    )
+    patched = DEV_CHANNEL_INHERITANCE.apply(source)
+    assert tail + "]}" in patched
+    assert source.count(tail) == patched.count(tail) == 1
+
+
+def test_dev_channel_preserves_artifact_watch_flags() -> None:
+    prefix = '"--channels","--watch-artifact","--watch-artifact-no-autoreact",'
+    source = _DEV_CHANNEL_SRC.replace(
+        '"--channels","--permission-prompt-tool"', prefix + '"--permission-prompt-tool"'
+    )
+    patched = DEV_CHANNEL_INHERITANCE.apply(source)
+    assert prefix + '"--dangerously-load-development-channels",' in patched
 
 
 def test_dev_channel_required_no_op_fails() -> None:
@@ -818,7 +839,7 @@ def test_background_provider_environment_rejects_partial_source() -> None:
     source = _PROVIDER_ENV_SRC.replace(
         '"ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN",', '"ANTHROPIC_API_KEY",'
     )
-    with pytest.raises(PatchError, match="provider groups absent"):
+    with pytest.raises(PatchError, match="provider group credentials absent"):
         BACKGROUND_PROVIDER_ENV.apply(source)
 
 
@@ -832,6 +853,28 @@ def test_background_provider_environment_removes_sanitized_state_schema() -> Non
     patched = BACKGROUND_PROVIDER_ENV.apply(source)
     assert "providerEnv:z.record(z.string(),z.string())" not in patched
     assert "mapValues(filtered,neutralize)" not in patched
+
+
+def test_multi_provider_side_query_preserves_retry_callback() -> None:
+    native = (
+        "let START=performance.now(),R3=await N3.beta.messages.create(REQ3,"
+        "{signal:SIG3,...TIME3!==void 0&&{timeout:TIME3}})"
+    )
+    handler = ".catch((ERROR)=>{RECORD(ERROR);throw ERROR})"
+    retry = (
+        ",RESULT;try{RESULT=await R3(N3)}catch(ERROR){RESULT=await R3(await REFRESH())}"
+    )
+    source = _MULTI_PROVIDER_SRC.replace(
+        native,
+        native.replace("await N3.", "(CLIENT)=>CLIENT.") + handler + retry,
+    )
+    patched = MULTI_PROVIDER_SDK.apply(source)
+    assert (
+        "R3=(CLIENT)=>(([_ccClient,_ccOutbound,_ccOutboundOptions])=>"
+        "_ccClient.beta.messages.create(_ccOutbound,_ccOutboundOptions))"
+        "(_ccMultiProviderRoute(CLIENT,REQ3,"
+        "{signal:SIG3,...TIME3!==void 0&&{timeout:TIME3}}))" + handler + retry
+    ) in patched
 
 
 def test_multi_provider_agent_catalogue_accepts_template_description() -> None:
@@ -1434,6 +1477,9 @@ def test_198_variants_are_narrowly_selected() -> None:
         (2, 1, 206),
         (2, 1, 207),
         (2, 1, 208),
+        (2, 1, 209),
+        (2, 1, 210),
+        (2, 1, 211),
     ):
         sets = default_patch_sets(version)
         assert sets[4].name == BACKGROUND_PROVIDER_ENV_198.name
@@ -1443,10 +1489,15 @@ def test_198_variants_are_narrowly_selected() -> None:
         for patch_set in (sets[4], sets[7]):
             assert not patch_set.applies_to((2, 1, 197))
             assert not patch_set.applies_to(None)
-            assert not patch_set.applies_to((2, 1, 209))
-            assert patch_set.max_version == (2, 1, 209)
-        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 209))
-        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 209)
+        assert sets[4].applies_to((2, 1, 274))
+        assert not sets[4].applies_to((2, 1, 275))
+        assert sets[4].max_version == (2, 1, 275)
+        assert sets[7].applies_to((2, 1, 274))
+        assert not sets[7].applies_to((2, 1, 275))
+        assert sets[7].max_version == (2, 1, 275)
+        assert MULTI_PROVIDER_SDK.applies_to((2, 1, 274))
+        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 275))
+        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 275)
 
 
 def test_198_provider_respawn_uses_transient_environment() -> None:
@@ -1632,8 +1683,16 @@ def test_version_gating_skips_below_2_1_151() -> None:
     assert CATPPUCCIN_SYNTAX.applies_to((2, 1, 170))
 
 
-def test_model_costs_prepends_provider_models() -> None:
-    src = "},Xz_=v8H;ej$={[sJ(FY6.firstParty)]:Xw6,[sJ(UY6.firstParty)]:V_H}"
+@pytest.mark.parametrize(
+    ("prefix", "suffix"),
+    [
+        ("},Xz_=v8H;ej$={", "}"),
+        ("},Xz_=v8H;ids=new Set(native);ej$=Object.assign(Object.create(null),{", "})"),
+        ("var ej$=Object.assign(Object.create(null),{", "})"),
+    ],
+)
+def test_model_costs_prepends_provider_models(prefix: str, suffix: str) -> None:
+    src = prefix + "[sJ(FY6.firstParty)]:Xw6,[sJ(UY6.firstParty)]:V_H" + suffix
     out = PatchSet(
         name="c",
         patches=(
@@ -1650,9 +1709,36 @@ def test_model_costs_prepends_provider_models() -> None:
             ),
         ),
     ).apply(src)
-    assert 'ej$={"gpt-5.5":{inputTokens:5,outputTokens:30,' in out
+    assert prefix + '"gpt-5.5":{inputTokens:5,outputTokens:30,' in out
+    assert out.endswith(suffix)
     assert "promptCacheWriteTokens:0,promptCacheReadTokens:0.5" in out
     assert ',[sJ(FY6.firstParty)]:Xw6' in out
+
+
+def test_bound_patch_resolves_native_module_alias() -> None:
+    owner = "/$bunfs/root/owner.js"
+    consumer = "/$bunfs/root/consumer.js"
+    source = (
+        f"\n/* ccpatch-module:{owner.encode().hex()} */\n"
+        "const native=42;export{native as publicValue};"
+        f"\n/* ccpatch-module:{consumer.encode().hex()} */\n"
+        'import{publicValue as localValue}from"./owner.js";'
+        "const native=99;USE"
+    )
+
+    def replacement(match: re.Match[str], bindings: dict[str, str]) -> str:
+        return f"consume({bindings['value']})"
+
+    patch = Patch(
+        "qualified",
+        re.compile("USE"),
+        "",
+        identifiers=(re.compile(r"const (?P<value>native)=42"),),
+        bound_replacement=replacement,
+    )
+    result = PatchSet("qualified", (patch,)).apply(source)
+    assert "consume(localValue)" in result
+    assert "consume(native)" not in result
 
 
 class _CompactFlavor(NamedTuple):
@@ -1759,6 +1845,134 @@ def test_compact_session_applies(f: _CompactFlavor, model_guard: str) -> None:
     assert f'{f.verdict}.level==="compact"||{f.verdict}.level==="blocked"' in out
     # the TodoWrite build is preserved immediately after the injected tool
     assert f",{f.todo_tool}={f.builder}({{name:wk" in out
+
+
+def test_compact_session_preserves_native_safety_checks() -> None:
+    src = _compact_src(_COMPACT_FLAVORS[0])
+    src = src.replace(
+        'if(K==="compact")return!1;if(!aT())return!1;',
+        "if(EWr(K))return!1;if(QNt(K))return!1;if(!mL())return!1;",
+    ).replace("Ue()&&!ni()&&!X4$($,q)", "VSe()&&!X3e($,q)")
+    out = COMPACT_SESSION.apply(src)
+    start = out.index("function xXf")
+    native = src[src.index("function xXf") :]
+    patched = out[start:]
+    injection = (
+        "if(globalThis.__ccPendingCompact)return globalThis.__ccPendingCompact=!1,!0;"
+    )
+    assert patched.replace(injection, "") == native
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("node or bun is required for safety-check execution")
+    script = (
+        "let denied=false,failed=false,enabled=true;"
+        "const EWr=()=>denied,QNt=()=>failed,mL=()=>enabled,"
+        "VSe=()=>true,X3e=()=>false;"
+        + patched
+        + ";for(const reason of ['denied','failed','disabled','allowed']){"
+        "denied=reason==='denied';failed=reason==='failed';"
+        "enabled=reason!=='disabled';globalThis.__ccPendingCompact=true;"
+        "const allowed=reason==='allowed';"
+        "if(xXf([],null,null,null)!==allowed)throw Error(reason);"
+        "if(globalThis.__ccPendingCompact===allowed)throw Error('flag '+reason);"
+        "}if(xXf([],null,null,null)!==false)throw Error('native threshold guard');"
+    )
+    result = subprocess.run(  # noqa: S603 - Execute only the fixed safety fixture.
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_compact_session_declaration_list_syntax() -> None:
+    f = _COMPACT_FLAVORS[0]
+    src = "var " + _compact_src(f)
+    out = COMPACT_SESSION.apply(src)
+    assert f",{f.todo_tool}=globalThis.__ccCompactTool=" in out
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("node or bun is required for syntax validation")
+    result = subprocess.run(  # noqa: S603 - Parse only the fixed compact fixture.
+        [runtime, "-e", "new Function(" + json.dumps(out) + ")"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("factory", ["ye", "$object", "z.object"])
+@pytest.mark.parametrize("contract", ["legacy", "dual", "factory"])
+def test_compact_session_object_factory_alias(factory: str, contract: str) -> None:
+    f = _COMPACT_FLAVORS[0]
+    src = _compact_src(f).replace(f"{f.schema_ns}.object", factory)
+    if contract != "legacy":
+        src = src.replace(
+            "async call({todos:H},$){return{data:{}}}",
+            "create(){return{async call({todos:H},$){return{data:{}}}}}",
+        )
+    out = COMPACT_SESSION.apply(src)
+    assert f"get inputSchema(){{return {factory}({{}})}}" in out
+    assert src[: src.index(f",{f.todo_tool}=") + 1] in out
+    assert f",{f.todo_tool}={f.builder}({{name:wk" in out
+    with pytest.raises(PatchError, match="define-compact-session-tool"):
+        COMPACT_SESSION.apply(out)
+
+    runtime = shutil.which("node") or shutil.which("bun")
+    if runtime is None:
+        pytest.skip("node or bun is required for tool execution")
+    start = out.index("globalThis.__ccCompactTool=")
+    tool = out[start : out.index(f",{f.todo_tool}=", start)]
+    declaration = (
+        "const z={object:objectFactory};"
+        if factory == "z.object"
+        else f"const {factory}=objectFactory;"
+    )
+    # Reproduce legacy descriptor copying and the factory probe and call adapter.
+    builder = (
+        "value=>value"
+        if contract == "legacy"
+        else "value=>{const create=value.create;"
+        "if(value.call)throw Error('mixed contracts');"
+        + (
+            "const probe=create(new Proxy({},{get:()=>undefined}));"
+            "if('permissionCheckFailureDecision' in probe)throw Error('unexpected hook');"
+            if contract == "factory"
+            else "if(!create)throw Error('missing contract');"
+        )
+        + "return Object.assign(Object.defineProperties({},"
+        "Object.getOwnPropertyDescriptors(value)),{"
+        "call:(input,context)=>create.call(value,context).call(input,{}),"
+        "validateInput:async(input,context)=>{const tool=create.call(value,context);"
+        "return tool.validateInput?tool.validateInput(input,{}):{result:true}},"
+        "checkPermissions:async(input,context)=>{const tool=create.call(value,context);"
+        "return tool.checkPermissions?tool.checkPermissions(input,{}):"
+        "{behavior:'allow',updatedInput:input}}})}"
+    )
+    script = (
+        "function objectFactory(shape){return {parse(value){"
+        "if(Object.keys(shape).length)throw Error('nonempty schema');return value}}}"
+        + declaration
+        + f"const {f.builder}={builder};"
+        + tool
+        + ";(async()=>{const t=globalThis.__ccCompactTool;"
+        "await t.validateInput?.({},{});await t.checkPermissions?.({},{});"
+        "if(globalThis.__ccPendingCompact!==undefined||"
+        "globalThis.__ccLastSelfCompact!==undefined)throw Error('factory side effects');"
+        "t.inputSchema.parse({});"
+        "if(!(await t.prompt()).includes('Schedule compaction'))throw Error('prompt');"
+        "if(t.renderToolUseMessage()!==null)throw Error('renderer');"
+        "const result=await t.call({},{});"
+        "if(!globalThis.__ccPendingCompact)throw Error('not scheduled');"
+        "if(t.mapToolResultToToolResultBlockParam(result.data,'id').content"
+        "!==result.data.message)throw Error('result');"
+        "globalThis.__ccPendingCompact=false;await t.call({},{});"
+        "if(globalThis.__ccPendingCompact)throw Error('cooldown');"
+        "})().catch(error=>{console.error(error);process.exitCode=1});"
+    )
+    result = subprocess.run(  # noqa: S603 - Execute only the fixed compact fixture.
+        [runtime, "-e", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(

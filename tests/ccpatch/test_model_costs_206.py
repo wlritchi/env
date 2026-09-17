@@ -32,10 +32,17 @@ def _run_js(tmp_path: Path, source: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_catalogue_cost_runtime(tmp_path: Path) -> None:
+@pytest.mark.parametrize("null_prototype", [False, True])
+def test_catalogue_cost_runtime(tmp_path: Path, null_prototype: bool) -> None:
     patch = _model_costs_patch(_MULTI_PROVIDER_MODEL_COSTS)
     assert callable(patch.replacement)
-    patched, count = patch.pattern.subn(patch.replacement, _INITIALIZER)
+    initializer = _INITIALIZER
+    if null_prototype:
+        initializer = (
+            initializer.replace("bYe={", "bYe=Object.assign(Object.create(null),{")
+            + ")"
+        )
+    patched, count = patch.pattern.subn(patch.replacement, initializer)
     assert count == 1
     _run_js(
         tmp_path,

@@ -22,9 +22,11 @@ from wlrenv.ccpatch.patches import (
     _PROVIDER_ENV_SNAPSHOT,
     BACKGROUND_PROVIDER_ENV_198,
     PatchError,
+    _attribution_function,
     _initialize_provider_registry,
     _provider_env_207,
     _provider_key_sources,
+    _provider_serialized_keys,
     _replace_provider_snapshot,
 )
 
@@ -63,7 +65,7 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
     """Run the complete CLI settings path without daemon or network access."""
     binary = os.environ.get("CCPATCH_STARTUP_BINARY")
     if not binary:
-        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched .207 or .208 executable")
+        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched native executable")
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
@@ -120,7 +122,7 @@ def test_provider_207_real_startup(entry: str, tmp_path: Path) -> None:
 def _startup_binary() -> str:
     binary = os.environ.get("CCPATCH_STARTUP_BINARY")
     if not binary:
-        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched .207 or .208 executable")
+        pytest.skip("set CCPATCH_STARTUP_BINARY to a patched native executable")
     return str(Path(binary).resolve())
 
 
@@ -196,19 +198,41 @@ def _connect_native(path: Path, process: subprocess.Popen[str]) -> socket.socket
     pytest.fail(f"native socket did not become ready: {path}")
 
 
-@pytest.mark.parametrize("payload", [True, False], ids=["payload", "missing-payload"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        True,
+        False,
+        "invalid-json",
+        "null",
+        '{"ANTHROPIC_API_KEY":42}',
+        '{"UNTRUSTED_KEY":"value"}',
+    ],
+    ids=[
+        "payload",
+        "missing-payload",
+        "invalid-json",
+        "null",
+        "invalid-value",
+        "unknown-key",
+    ],
+)
 @pytest.mark.parametrize(
     "reject_first", [False, True], ids=["claim", "reject-then-claim"]
 )
 def test_provider_207_real_spare_claim(
-    payload: bool, reject_first: bool, tmp_path: Path
+    payload: bool | str, reject_first: bool, tmp_path: Path
 ) -> None:
     """Cross the native settings, prewarm, Unix claim, and main-init boundaries."""
     binary = _startup_binary()
     env = _startup_env(tmp_path)
     env["CLAUDE_BG_CLAIM_AUTH"] = "synthetic-claim-auth"
     claim_env = (
-        {"CLAUDE_CODE_PROVIDER_ENV_TRANSIENT": _startup_transport(tmp_path)}
+        {
+            "CLAUDE_CODE_PROVIDER_ENV_TRANSIENT": payload
+            if isinstance(payload, str)
+            else _startup_transport(tmp_path)
+        }
         if payload
         else {}
     )
@@ -248,7 +272,7 @@ def test_provider_207_real_spare_claim(
     output = stdout + stderr
     assert process.returncode != 0
     assert "key registry is unavailable" not in output, output[-2500:]
-    if payload:
+    if payload is True:
         assert "EPROVIDERENV" not in output, output[-2500:]
         assert "requires --verbose" in output, output[-2500:]
     else:
@@ -266,13 +290,567 @@ def _recv_exact(client: socket.socket, size: int) -> bytes:
     return bytes(result)
 
 
-def test_provider_208_claim_bookkeeping_precedes_handoff() -> None:
+def _native_208_bindings(source: str, version: int) -> str:
+    """Normalize .209-.211 bindings only; retain captured native function bodies."""
+    if version not in {209, 210, 211}:
+        return source
+    names = {
+        'F8e': '$8e',
+        'FI': '$I',
+        'n3a': '$ja',
+        'lfp': '$pp',
+        'P8n': 'A8n',
+        'ZE_': 'AE_',
+        'rA_': 'CE_',
+        'HRe': 'CRe',
+        'Rkt': 'Ckt',
+        'Mpe': 'Dpe',
+        'Lr': 'Dr',
+        'QE_': 'EE_',
+        'wqe': 'Eqe',
+        'Pzo': 'Ezo',
+        'Xon': 'Fon',
+        'mfp': 'Gpp',
+        'nA_': 'HE_',
+        'kt': 'Ht',
+        'q6i': 'I6i',
+        'U8o': 'I8o',
+        'J9c': 'I9c',
+        'M_t': 'I_t',
+        'QH': 'JH',
+        'O7b': 'JKb',
+        'Xo': 'Jo',
+        'Efp': 'Jpp',
+        'w5y': 'K3y',
+        'iLo': 'KRo',
+        'Yle': 'Kle',
+        'bfp': 'Kpp',
+        'Rf': 'Lf',
+        'Gzn': 'Lzn',
+        'OIe': 'MIe',
+        '$We': 'MWe',
+        'O_': 'M_',
+        '$it': 'Mit',
+        'sfp': 'Mpp',
+        'A7b': 'NKb',
+        '$f': 'Nf',
+        'cfp': 'Npp',
+        'FUe': 'OUe',
+        'r3a': 'Oja',
+        'afp': 'Opp',
+        'zuo': 'Ouo',
+        'BMt': 'PMt',
+        'Fwt': 'Pwt',
+        'xD_': 'QL_',
+        '$Os': 'SOs',
+        'LQo': 'SQo',
+        'tA_': 'TE_',
+        'Hk': 'Tk',
+        'Qon': 'Uon',
+        'pfp': 'Upp',
+        'Ytr': 'Utr',
+        'E5y': 'V3y',
+        'nLo': 'VRo',
+        'n4r': 'VUr',
+        'ji': 'Vi',
+        'p3a': 'Vja',
+        'yfp': 'Vpp',
+        'hfp': 'Wpp',
+        'aVr': 'X8r',
+        'CD_': 'XL_',
+        'J_': 'X_',
+        'vfp': 'Xpp',
+        'hQu': 'YJu',
+        'sLo': 'YRo',
+        'Sfp': 'Ypp',
+        'k5y': 'Z3y',
+        'lxr': 'ZHr',
+        'g7s': 'ZKs',
+        'bCe': '_Ce',
+        'kZr': '_Zr',
+        'A_t': '__t',
+        'w7s': 'a7s',
+        'RQo': 'bQo',
+        'IZr': 'bZr',
+        'C7s': 'c7s',
+        'uHe': 'cHe',
+        'PUd': 'cUd',
+        'dye': 'cye',
+        'x7s': 'd7s',
+        'yDt': 'dDt',
+        'OUd': 'dUd',
+        'Scr': 'dcr',
+        'l7t': 'e7t',
+        'SQu': 'eQu',
+        'Doy': 'eoy',
+        'rue': 'eue',
+        'dwo': 'ewo',
+        'I7s': 'f7s',
+        'UAp': 'gAp',
+        'M5y': 'i5y',
+        'g_n': 'i_n',
+        'art': 'irt',
+        'nus': 'jcs',
+        'Zon': 'jon',
+        'ffp': 'jpp',
+        'Xtr': 'jtr',
+        'Zuo': 'juo',
+        'B8o': 'k8o',
+        'iA_': 'kE_',
+        'Ia': 'ka',
+        'T7s': 'l7s',
+        'DUd': 'lUd',
+        'o0e': 'n0e',
+        'd3t': 'n3t',
+        'p3t': 'o3t',
+        'kUd': 'oUd',
+        'k7s': 'p7s',
+        '$Ud': 'pUd',
+        'dr': 'pr',
+        'rVr': 'q8r',
+        'rLo': 'qRo',
+        'd3a': 'qja',
+        'gfp': 'qpp',
+        'a0t': 'r0t',
+        'hcr': 'scr',
+        'r2': 't2',
+        'H7s': 'u7s',
+        'MUd': 'uUd',
+        'bcr': 'ucr',
+        'dt': 'ut',
+        'JE_': 'vE_',
+        'LZr': 'vZr',
+        'eA_': 'wE_',
+        'Ae': 'we',
+        'kre': 'xre',
+        'b$': 'y$',
+        '_4': 'y4',
+        '__e': 'y_e',
+        'A5y': 'z3y',
+        'oVr': 'z8r',
+        'oLo': 'zRo',
+        'Yet': 'zet',
+        '_fp': 'zpp',
+        'bs': 'ws',
+        'Iz': 'Rz',
+        'Kon': '$on',
+        'ye': 'ge',
+        'Wt': 'qt',
+        'Wtt': 'jtt',
+        'o4': 'n4',
+        'O_t': 'R_t',
+        '_cr': 'ccr',
+        'T5y': 'Y3y',
+        'C5y': 'X3y',
+        'H5y': 'J3y',
+        'x5y': 'Q3y',
+        'P5y': 'o5y',
+        'O5y': 's5y',
+        'cUt': 'tUt',
+        'sd': 'ld',
+        'LUd': 'aUd',
+        'gS': 'hS',
+        'di': 'mi',
+    }
+    if version == 210:
+        names = {
+            'Dqe': '$8e',
+            'DI': '$I',
+            'EWa': '$ja',
+            'ABd': '$pp',
+            'fzn': 'A8n',
+            'aVy': 'AE_',
+            'uVy': 'CE_',
+            'rLe': 'CRe',
+            'RDt': 'Ckt',
+            'nfe': 'Dpe',
+            'Lr': 'Dr',
+            'sVy': 'EE_',
+            'VWe': 'Eqe',
+            'rYo': 'Ezo',
+            'VQr': 'Fon',
+            'kBd': 'Gpp',
+            'dVy': 'HE_',
+            'vt': 'Ht',
+            'VQi': 'I6i',
+            'mzo': 'I8o',
+            'mJc': 'I9c',
+            '$bt': 'I_t',
+            'nx': 'JH',
+            'PoS': 'JKb',
+            'ti': 'Jo',
+            '$Bd': 'Jpp',
+            'cJg': 'K3y',
+            '_wo': 'KRo',
+            'Uce': 'Kle',
+            'PBd': 'Kpp',
+            'Yf': 'Lf',
+            'pso': 'Lzn',
+            'dRe': 'MIe',
+            'Lqe': 'MWe',
+            'P_': 'M_',
+            'Olt': 'Mit',
+            'EBd': 'Mpp',
+            'EoS': 'NKb',
+            'Of': 'Nf',
+            'wBd': 'Npp',
+            'b4e': 'OUe',
+            'SWa': 'Oja',
+            'vBd': 'Opp',
+            'ywo': 'Ouo',
+            'ODt': 'PMt',
+            'ZTt': 'Pwt',
+            'rO_': 'QL_',
+            'cls': 'SOs',
+            'nti': 'SQo',
+            'cVy': 'TE_',
+            'Hk': 'Tk',
+            'YQr': 'Uon',
+            'HBd': 'Upp',
+            'Yar': 'Utr',
+            'aJg': 'V3y',
+            'mwo': 'VRo',
+            '$Wr': 'VUr',
+            'Ji': 'Vi',
+            'IWa': 'Vja',
+            'LBd': 'Vpp',
+            'IBd': 'Wpp',
+            'RXr': 'X8r',
+            'eO_': 'XL_',
+            'by': 'X_',
+            'OBd': 'Xpp',
+            'SBd': 'YJu',
+            'bwo': 'YRo',
+            'MBd': 'Ypp',
+            'mJg': 'Z3y',
+            'Zkr': 'ZHr',
+            'Nks': 'ZKs',
+            'i0e': '_Ce',
+            'UVr': '_Zr',
+            'Cbt': '__t',
+            'zks': 'a7s',
+            'rti': 'bQo',
+            'jVr': 'bZr',
+            'Yks': 'c7s',
+            'cCe': 'cHe',
+            'Rzu': 'cUd',
+            'f_e': 'cye',
+            'Jks': 'd7s',
+            'Vkt': 'dDt',
+            'Dzu': 'dUd',
+            'rrr': 'dcr',
+            'Jer': 'e7t',
+            'BFd': 'eQu',
+            'oVy': 'eoy',
+            'jce': 'eue',
+            'Ulo': 'ewo',
+            'Zks': 'f7s',
+            'Lvp': 'gAp',
+            'SJg': 'i5y',
+            '_Sn': 'i_n',
+            'Tot': 'irt',
+            'Rks': 'jcs',
+            'XQr': 'jon',
+            'xBd': 'jpp',
+            'Xar': 'jtr',
+            'QSo': 'juo',
+            'fzo': 'k8o',
+            'fVy': 'kE_',
+            'Da': 'ka',
+            'Kks': 'l7s',
+            'Izu': 'lUd',
+            'z0e': 'n0e',
+            '_5t': 'n3t',
+            'b5t': 'o3t',
+            'Czu': 'oUd',
+            'Qks': 'p7s',
+            'Pzu': 'pUd',
+            'ar': 'pr',
+            'NQr': 'q8r',
+            'fwo': 'qRo',
+            'kWa': 'qja',
+            'RBd': 'qpp',
+            'txt': 'r0t',
+            'Jtr': 'scr',
+            'm2': 't2',
+            'Xks': 'u7s',
+            'Lzu': 'uUd',
+            'trr': 'ucr',
+            'ut': 'ut',
+            'iVy': 'vE_',
+            'WVr': 'vZr',
+            'lVy': 'wE_',
+            'Ae': 'we',
+            'sne': 'xre',
+            'O0': 'y$',
+            'O4': 'y4',
+            'fye': 'y_e',
+            'lJg': 'z3y',
+            'BQr': 'z8r',
+            'gwo': 'zRo',
+            'qtt': 'zet',
+            'DBd': 'zpp',
+            'Ts': 'ws',
+            'Sz': 'Rz',
+            'WQr': '$on',
+            'he': 'ge',
+            'qt': 'qt',
+            'Ait': 'jtt',
+            'L$': 'n4',
+            'Nbt': 'R_t',
+            'err': 'ccr',
+            'uJg': 'Y3y',
+            'dJg': 'X3y',
+            'pJg': 'J3y',
+            'fJg': 'Q3y',
+            'bJg': 'o5y',
+            'EJg': 's5y',
+            'h4t': 'tUt',
+            'ad': 'ld',
+            'kzu': 'aUd',
+            'yS': 'hS',
+            'gi': 'mi',
+            'hJ': '$J',
+            'Mt': 'Ft',
+            '$R': 'FR',
+            'FM': 'LM',
+            'iS': 'ey',
+            'bS': 'FC',
+            'yc': 'vc',
+            'bg': 'Sg',
+            '_g': 'bg',
+            'Re': 'Le',
+            'Se': 've',
+            'xh': 'Rh',
+            'Lj': 'bj',
+            'jX': 'wJ',
+            'we': 'Te',
+            'Ie': 'Re',
+            'le': 'ie',
+            'Ft': 'Nt',
+            '$': 'O',
+            'ue': 'le',
+        }
+    if version == 211:
+        names = {
+            'Bqe': '$8e',
+            'VI': '$I',
+            'uVa': '$ja',
+            'PNd': '$pp',
+            'oXn': 'A8n',
+            'w6y': 'AE_',
+            'H6y': 'CE_',
+            'TLe': 'CRe',
+            'VDt': 'Ckt',
+            'Efe': 'Dpe',
+            'Ir': 'Dr',
+            'A6y': 'EE_',
+            '_6e': 'Eqe',
+            'HJo': 'Ezo',
+            'cZr': 'Fon',
+            'UNd': 'Gpp',
+            'x6y': 'HE_',
+            'Ct': 'Ht',
+            'Yes': 'I6i',
+            'U7o': 'I8o',
+            'pul': 'I9c',
+            'gSt': 'I_t',
+            'Ex': 'JH',
+            'JlS': 'JKb',
+            'Qo': 'Jo',
+            'YNd': 'Jpp',
+            'pey': 'K3y',
+            'Uwo': 'KRo',
+            'Xce': 'Kle',
+            'VNd': 'Kpp',
+            'nm': 'Lf',
+            'nlo': 'Lzn',
+            'MRe': 'MIe',
+            'Fqe': 'MWe',
+            'Ch': 'M_',
+            'zlt': 'Mit',
+            'LNd': 'Mpp',
+            'NlS': 'NKb',
+            'Yf': 'Nf',
+            'MNd': 'Npp',
+            'V4e': 'OUe',
+            'cVa': 'Oja',
+            'DNd': 'Opp',
+            'Bwo': 'Ouo',
+            'JDt': 'PMt',
+            'D0t': 'Pwt',
+            'ZN_': 'QL_',
+            'Tni': 'SQo',
+            'C6y': 'TE_',
+            '$k': 'Tk',
+            'pZr': 'Uon',
+            'NNd': 'Upp',
+            'Jar': 'Utr',
+            'uey': 'V3y',
+            '$wo': 'VRo',
+            'Q6r': 'VUr',
+            'zi': 'Vi',
+            'bVa': 'Vja',
+            'WNd': 'Vpp',
+            'jNd': 'Wpp',
+            'qXr': 'X8r',
+            'JN_': 'XL_',
+            'Py': 'X_',
+            'KNd': 'Xpp',
+            'RNd': 'YJu',
+            'jwo': 'YRo',
+            'zNd': 'Ypp',
+            'yey': 'Z3y',
+            'fRr': 'ZHr',
+            'txs': 'ZKs',
+            'w0e': '_Ce',
+            'uzr': '_Zr',
+            'iSt': '__t',
+            'uxs': 'a7s',
+            'wni': 'bQo',
+            'dzr': 'bZr',
+            'pxs': 'c7s',
+            'SCe': 'cHe',
+            'mYu': 'cUd',
+            'y_e': 'cye',
+            'mxs': 'd7s',
+            'IIt': 'dDt',
+            'gYu': 'dUd',
+            'Urr': 'dcr',
+            'Dtr': 'e7t',
+            'J1d': 'eQu',
+            '_6y': 'eoy',
+            'Jce': 'eue',
+            'Vuo': 'ewo',
+            'gxs': 'f7s',
+            'o0p': 'gAp',
+            'Aey': 'i5y',
+            'cvn': 'i_n',
+            'nit': 'irt',
+            'KHs': 'jcs',
+            'fZr': 'jon',
+            'BNd': 'jpp',
+            'Qar': 'jtr',
+            'TEo': 'juo',
+            'B7o': 'k8o',
+            'I6y': 'kE_',
+            'Ha': 'ka',
+            'dxs': 'l7s',
+            'fYu': 'lUd',
+            'oCe': 'n0e',
+            'oGt': 'n3t',
+            'iGt': 'o3t',
+            'cYu': 'oUd',
+            'hxs': 'p7s',
+            'yYu': 'pUd',
+            'dr': 'pr',
+            'tZr': 'q8r',
+            'Owo': 'qRo',
+            '_Va': 'qja',
+            'GNd': 'qpp',
+            'Orr': 'scr',
+            'w2': 't2',
+            'fxs': 'u7s',
+            'hYu': 'uUd',
+            'Brr': 'ucr',
+            'ut': 'ut',
+            'b6y': 'vE_',
+            'fzr': 'vZr',
+            'T6y': 'wE_',
+            'Ae': 'we',
+            'Sne': 'xre',
+            'J0': 'y$',
+            'K4': 'y4',
+            'Cye': 'y_e',
+            'dey': 'z3y',
+            'nZr': 'z8r',
+            'Fwo': 'zRo',
+            'Trt': 'zet',
+            'qNd': 'zpp',
+            'As': 'ws',
+            'X5': 'Rz',
+            'aZr': '$on',
+            'me': 'ge',
+            'zt': 'qt',
+            'rst': 'jtt',
+            'z$': 'n4',
+            'ySt': 'R_t',
+            'fey': 'Y3y',
+            'mey': 'X3y',
+            'hey': 'J3y',
+            'gey': 'Q3y',
+            'vey': 'o5y',
+            'wey': 's5y',
+            'ejt': 'tUt',
+            'pd': 'ld',
+            'pYu': 'aUd',
+            'RS': 'hS',
+            'mi': 'mi',
+            'EJ': '$J',
+            'Ut': 'Ft',
+            'WR': 'FR',
+            'qM': 'LM',
+            'SS': 'ey',
+            'DS': 'FC',
+            'dc': 'vc',
+            'Mg': 'bg',
+            'Le': 'Le',
+            'ye': 've',
+            'Bh': 'Rh',
+            'Kj': 'bj',
+            'tJ': 'wJ',
+            've': 'Te',
+            'Ie': 'Re',
+            'le': 'ie',
+            'jt': 'Nt',
+            'ce': 'le',
+            'xe': 'ke',
+            'N0': 'v0',
+            'Lh': 'Eh',
+            'O': 'O',
+            'Lxt': 'r0t',
+            'uus': 'SOs',
+            'Frr': 'ccr',
+            'ag': 'Sg',
+        }
+    # Move unrelated captured bindings away from the .208 harness names.
+    collisions = set(names.values()) - names.keys()
+    names.update({name: f"_cc{version}Original_{name}" for name in collisions})
+    tokens = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][\w$]*')
+
+    def normalize(fragment: str) -> str:
+        return tokens.sub(
+            lambda match: (
+                match[0]
+                if match.start()
+                and fragment[match.start() - 1] == "."
+                and fragment[max(0, match.start() - 3) : match.start()] != "..."
+                else (
+                    match[0]
+                    if match[0] == "$"
+                    and fragment[match.end() : match.end() + 1] == "{"
+                    else names.get(match[0], match[0])
+                )
+            ),
+            fragment,
+        )
+
+    return "".join(
+        normalize(fragment)
+        for fragment in re.split(
+            r"(?=(?:async )?function [\w$]+\(|class [\w$]+\{)", source
+        )
+    )
+
+
+@pytest.mark.parametrize("version", [208, 209, 210, 211])
+def test_provider_claim_bookkeeping_precedes_handoff(version: int) -> None:
     """A claimed pool slot does not prove that a spare received its claim."""
-    source = ROOT / "build/sweep-resume/2.1.208/linux-x64/original.js"
+    source = ROOT / f"build/sweep-resume/2.1.{version}/linux-x64/original.js"
     runtime = shutil.which("node")
     if not source.is_file() or runtime is None:
-        pytest.skip("requires captured .208 source and node")
-    original = source.read_text()
+        pytest.skip("requires captured .208/.209 source and node")
+    original = _native_208_bindings(source.read_text(), version)
     patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
     patched_start = patched.index("function Oja(")
     native = patched[patched_start : patched.index("function NKb(", patched_start)]
@@ -294,15 +872,15 @@ def test_provider_208_claim_bookkeeping_precedes_handoff() -> None:
 
 
 def _native_208_pty_launch(
-    binary: str, path: Path, env: dict[str, str], drop_transport: bool
+    binary: str, path: Path, env: dict[str, str], drop_transport: bool, version: int
 ) -> tuple[list[str], dict[str, str]]:
     """Extract the native wrapper and PTY launcher, not replacement argv logic."""
-    source = ROOT / "build/sweep-resume/2.1.208/linux-x64/original.js"
+    source = ROOT / f"build/sweep-resume/2.1.{version}/linux-x64/original.js"
     runtime = shutil.which("node")
     launcher = shutil.which("env")
     if not source.is_file() or runtime is None or launcher is None:
-        pytest.skip("requires captured .208 source, node, and env")
-    original = source.read_text()
+        pytest.skip("requires captured .208/.209 source, node, and env")
+    original = _native_208_bindings(source.read_text(), version)
     wrapper = [launcher]
     if drop_transport:
         wrapper += ["-u", "CLAUDE_CODE_PROVIDER_ENV_TRANSIENT"]
@@ -352,7 +930,10 @@ def _native_208_pty_launch(
 @pytest.mark.parametrize(
     "entry", ["payload", "missing-payload", "wrapper-forward", "wrapper-drop"]
 )
-def test_provider_207_real_pty_cold_child(entry: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("version", [208, 209, 210, 211])
+def test_provider_207_real_pty_cold_child(
+    entry: str, version: int, tmp_path: Path
+) -> None:
     """Use Bun.Terminal and native framed output, without a daemon supervisor."""
     binary = _startup_binary()
     env = _startup_env(tmp_path)
@@ -367,7 +948,7 @@ def test_provider_207_real_pty_cold_child(entry: str, tmp_path: Path) -> None:
         argv += _startup_argv()
         if entry.startswith("wrapper-"):
             argv, env = _native_208_pty_launch(
-                binary, path, env, entry == "wrapper-drop"
+                binary, path, env, entry == "wrapper-drop", version
             )
         with _native_process(argv, tmp_path, env) as process:
             with _connect_native(path, process) as client:
@@ -404,18 +985,30 @@ def test_provider_207_real_pty_cold_child(entry: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "platform", ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
 )
-@pytest.mark.parametrize("version", [207, 208])
+@pytest.mark.parametrize("version", [207, 208, 209, 210, 211])
 def test_provider_207_settings_boundary(platform: str, version: int) -> None:
     path = ROOT / f"build/sweep-resume/2.1.{version}/{platform}/original.js"
     if not path.is_file():
-        pytest.skip("requires captured pristine .207 source")
+        pytest.skip("requires captured pristine .207/.208/.209 source")
     runtime = shutil.which("node")
     if runtime is None:
         pytest.skip("requires node")
     original = path.read_text()
     patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
-    call = re.search(r"function _ccProviderKeys\(\)\{if\(\(([\w$]+)\(\),", patched)
+    snapshot = _PROVIDER_ENV_SNAPSHOT.search(original)
+    assert snapshot is not None
+    registry_probe = re.sub(
+        r"function _ccProviderKeys\(\)\{if\([^)]*\)",
+        _initialize_provider_registry,
+        original + _replace_provider_snapshot(snapshot),
+    )
+    call = re.search(
+        r"function _ccProviderKeys\(\)\{if\(\(([\w$]+)\(\),", registry_probe
+    )
     assert call is not None
+    serialized_keys = json.loads(_provider_serialized_keys(original))
+    assert "CLAUDE_CONFIG_DIR" in serialized_keys
+    assert "ANTHROPIC_API_KEY" in serialized_keys
     module = re.search(rf"var {re.escape(call[1])}=([\w$]+)\(\(\)=>\{{", original)
     assert module is not None
     end = original.index("});", module.end()) + 3
@@ -504,7 +1097,7 @@ def test_provider_207_settings_boundary(platform: str, version: int) -> None:
     filter_stubs = "".join(
         f"function {name}(env){{return env??{{}}}}" for name in filter_names
     )
-    if version == 208:
+    if version >= 208:
         launcher_start = original.index(f"function {filter_names[-1]}(")
         launcher_end = original.index("function ", launcher_start + 9)
         launcher_filter = original[launcher_start:launcher_end]
@@ -534,7 +1127,7 @@ def test_provider_207_settings_boundary(platform: str, version: int) -> None:
             timeout=20,
         )
         assert result.returncode == 0, result.stdout + result.stderr
-    hidden_filter = filter_names[-2] if version == 208 else filter_names[-1]
+    hidden_filter = filter_names[-2] if version >= 208 else filter_names[-1]
     hidden_start = original.index(f"function {hidden_filter}(")
     hidden_end = original.index("function ", hidden_start + 9)
     filter_stubs = filter_stubs.replace(
@@ -576,7 +1169,10 @@ def test_provider_207_settings_boundary(platform: str, version: int) -> None:
     )
     assert admin_match is not None
     residue_start = original.index(f"function {admin_match[4]}(")
-    residue_end = original.index("function ", residue_start + 9)
+    residue_end = min(
+        original.index("function ", residue_start + 9),
+        original.index("var ", residue_start + 9),
+    )
     admin_code = (
         f"var {admin_match[3]}=process.env;let admin;"
         f"function {admin_match[2]}(value){{admin=value}}"
@@ -652,8 +1248,10 @@ def _native_lifecycle_207(version: int = 207) -> dict[str, str]:
     path = ROOT / f"build/sweep-resume/2.1.{version}/linux-x64/original.js"
     if not path.is_file():
         pytest.skip(f"requires captured pristine .{version} linux-x64 source")
-    original = path.read_text()
+    original = _native_208_bindings(path.read_text(), version)
     patched = _provider_env_207(BACKGROUND_PROVIDER_ENV_198).apply(original)
+    # Map the shared runtime namespace to the isolated harness helper bindings.
+    patched = patched.replace("globalThis.__ccpatchRuntime.provider.", "")
     # Rename minified bindings to the harness names. Do not replace native bodies.
     names = {
         'Bce': 'Yce',
@@ -796,7 +1394,7 @@ def _native_lifecycle_207(version: int = 207) -> dict[str, str]:
         'uOa': 'EBa',
     }
     names.update({"m6o": "L8o", "KSc": "Hwc", "s2n": "e4n"})
-    if version == 208:
+    if version >= 208:
         names = {
             'Bce': 'eue',
             'As': 'ws',
@@ -977,14 +1575,45 @@ def _native_lifecycle_207(version: int = 207) -> dict[str, str]:
         f'var {name}=["ANTHROPIC_API_KEY","ANTHROPIC_AUTH_TOKEN","ANTHROPIC_BASE_URL"];'
         for name in _provider_key_sources(original)
     )
-    if version == 208:
+    if version >= 208:
         # Adapt manager locals only. Keep worker and transport bodies intact.
-        adoption = extract("await Promise.all(Object.entries(T.workers)", ",x+k+R>0)")
-        locals_map = {"T": "A", "x": "T", "k": "x", "R": "I", "b": "_"}
+        if version == 211:
+            adoption = extract(
+                "await Promise.all(Object.entries(x.workers)", ",I+R+k>0)"
+            )
+            locals_map = {"x": "A", "I": "T", "R": "x", "k": "I", "v": "_"}
+        elif version == 210:
+            adoption = extract(
+                "await Promise.all(Object.entries(x.workers)", ",k+R+I>0)"
+            )
+            locals_map = {"x": "A", "k": "T", "R": "x", "I": "I", "E": "_"}
+        else:
+            adoption = extract(
+                "await Promise.all(Object.entries(T.workers)", ",x+k+R>0)"
+            )
+            locals_map = {"T": "A", "x": "T", "k": "x", "R": "I", "b": "_"}
         adoption = tokens.sub(
             lambda match: locals_map.get(match[0], match[0]), adoption
         )
         worker = extract("class eue{", "var Uon,a7s,$J,YRo,")
+        if version == 211:
+            # Keep the new notice framing and revival guard from the native capture.
+            captured = path.read_text()
+            constants = []
+            for name in ("zXr", "E6y", "v6y"):
+                match = re.search(rf'{name}=("(?:\\.|[^"\\])*"|\d+)', captured)
+                assert match is not None
+                constants.append(f"const {match[0]};")
+            exit_codes = re.search(r"S6y=new Set\(\[[\d,]+\]\)", captured)
+            assert exit_codes is not None
+            constants.append(f"const {exit_codes[0]};")
+            worker = (
+                "".join(constants)
+                + "const et=(_key,fallback)=>fallback;"
+                + _attribution_function(captured, "KXr")
+                + _attribution_function(captured, "FNd")
+                + worker
+            )
         assert "onExit(e,t,r){" in worker
         return {
             "version": str(version),
@@ -1022,9 +1651,9 @@ def _native_lifecycle_207(version: int = 207) -> dict[str, str]:
     }
 
 
-@pytest.fixture(scope="module", params=[206, 207, 208])
+@pytest.fixture(scope="module", params=[206, 207, 208, 209, 210, 211])
 def native_lifecycle_source(request: pytest.FixtureRequest) -> dict[str, str]:
-    if request.param in {207, 208}:
+    if request.param in {207, 208, 209, 210, 211}:
         return _native_lifecycle_207(request.param)
     path = ROOT / "build/sweep-resume/2.1.206/linux-x64/original.js"
     if not path.is_file():
@@ -1155,9 +1784,9 @@ def test_native_208_wrapper_failures(
     test_native_provider_lifecycle(native_wrapper_source, scenario, tmp_path)
 
 
-@pytest.fixture(scope="module")
-def native_wrapper_source() -> dict[str, str]:
-    return _native_lifecycle_207(208)
+@pytest.fixture(scope="module", params=[208, 209, 210, 211])
+def native_wrapper_source(request: pytest.FixtureRequest) -> dict[str, str]:
+    return _native_lifecycle_207(request.param)
 
 
 @pytest.mark.skipif(
