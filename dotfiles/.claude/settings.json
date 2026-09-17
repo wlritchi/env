@@ -2,7 +2,7 @@
   "agentPushNotifEnabled": true,
   "alwaysThinkingEnabled": true,
   "cleanupPeriodDays": 99999,
-  "effortLevel": "medium",
+  "effortLevel": "xhigh",
   "enabledPlugins": {
     "agent-sdk-dev@claude-plugins-official": true,
     "clangd-lsp@claude-plugins-official": true,
@@ -47,6 +47,14 @@
     }
   },
   "model": "fable",
+  "modelSettings": {
+    "claude-fable-5-1": {
+      "effortLevel": "high"
+    },
+    "openai:gpt-6-astra": {
+      "effortLevel": "high"
+    }
+  },
   "permissions": {
     "allow": [
       "mcp__plugin_notifications_notifications"
