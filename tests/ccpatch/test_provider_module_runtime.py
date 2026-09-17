@@ -28,17 +28,23 @@ from wlrenv.ccpatch.patches import (
 )
 
 
-@pytest.fixture(scope="module", params=[None, 272], ids=["synthetic", "native-272"])
+@pytest.fixture(
+    scope="module",
+    params=[None, 272, 273, 274],
+    ids=["synthetic", "native-272", "native-273", "native-274"],
+)
 def provider_bootstrap(request: pytest.FixtureRequest) -> str | None:
     if request.param is None:
         return None
     path = (
         Path(__file__).resolve().parents[2]
-        / "build/sweep-resume/2.1.272/linux-x64/original.js"
+        / f"build/sweep-resume/2.1.{request.param}/linux-x64/original.js"
     )
     if not path.is_file():
-        pytest.skip("requires captured pristine .272 linux-x64 source")
-    source = background_provider_environment((2, 1, 272)).apply(path.read_text())
+        pytest.skip(f"requires captured pristine .{request.param} linux-x64 source")
+    source = background_provider_environment((2, 1, request.param)).apply(
+        path.read_text()
+    )
     registrations = [
         json.loads(bytes.fromhex(match[1]))
         for match in re.finditer(r"/\* ccpatch-bootstrap:([0-9a-f ]+) \*/", source)

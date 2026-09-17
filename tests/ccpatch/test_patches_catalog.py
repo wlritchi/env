@@ -1489,15 +1489,15 @@ def test_198_variants_are_narrowly_selected() -> None:
         for patch_set in (sets[4], sets[7]):
             assert not patch_set.applies_to((2, 1, 197))
             assert not patch_set.applies_to(None)
-        assert sets[4].applies_to((2, 1, 272))
-        assert not sets[4].applies_to((2, 1, 273))
-        assert sets[4].max_version == (2, 1, 273)
-        assert sets[7].applies_to((2, 1, 272))
-        assert not sets[7].applies_to((2, 1, 273))
-        assert sets[7].max_version == (2, 1, 273)
-        assert MULTI_PROVIDER_SDK.applies_to((2, 1, 272))
-        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 273))
-        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 273)
+        assert sets[4].applies_to((2, 1, 274))
+        assert not sets[4].applies_to((2, 1, 275))
+        assert sets[4].max_version == (2, 1, 275)
+        assert sets[7].applies_to((2, 1, 274))
+        assert not sets[7].applies_to((2, 1, 275))
+        assert sets[7].max_version == (2, 1, 275)
+        assert MULTI_PROVIDER_SDK.applies_to((2, 1, 274))
+        assert not MULTI_PROVIDER_SDK.applies_to((2, 1, 275))
+        assert MULTI_PROVIDER_SDK.max_version == (2, 1, 275)
 
 
 def test_198_provider_respawn_uses_transient_environment() -> None:

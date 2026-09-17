@@ -24,7 +24,7 @@ from wlrenv.ccpatch.patches import (
 )
 
 
-@pytest.mark.parametrize("release", range(198, 273))
+@pytest.mark.parametrize("release", range(198, 275))
 def test_thinking_variant_selected_through_verified_release(release: int) -> None:
     variant = default_patch_sets((2, 1, release))[7]
     assert variant is THINKING_SUMMARIES_NONINTERACTIVE_198
@@ -32,9 +32,9 @@ def test_thinking_variant_selected_through_verified_release(release: int) -> Non
 
 
 def test_thinking_variant_stops_after_verified_release() -> None:
-    assert THINKING_SUMMARIES_NONINTERACTIVE_198.max_version == (2, 1, 273)
-    assert not THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to((2, 1, 273))
-    assert default_patch_sets((2, 1, 273))[7] is THINKING_SUMMARIES_NONINTERACTIVE
+    assert THINKING_SUMMARIES_NONINTERACTIVE_198.max_version == (2, 1, 275)
+    assert not THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to((2, 1, 275))
+    assert default_patch_sets((2, 1, 275))[7] is THINKING_SUMMARIES_NONINTERACTIVE
 
 
 # A minified-ish snippet exercising all three thinking patches.

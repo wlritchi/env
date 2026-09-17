@@ -172,6 +172,6 @@ def agents_view_handoff(version: Version | None) -> PatchSet:
             ),
         ),
         min_version=(2, 1, 182),
-        max_version=(2, 1, 273),
+        max_version=(2, 1, 275),
         requires_version=True,
     )

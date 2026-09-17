@@ -217,6 +217,54 @@ def test_added_binding_preserves_existing_cycle(tmp_path: Path) -> None:
     }
 
 
+def test_added_binding_uses_transitive_edges_and_stays_live(tmp_path: Path) -> None:
+    graph = _graph(
+        {
+            "native.mjs": 'globalThis.order=["native"];let value=1;'
+            'function update(){value=2}export{update};',
+            "bridge.mjs": 'import {update} from "./native.mjs";'
+            'globalThis.order.push("bridge");export{update};',
+            "entry.mjs": 'import {update} from "./bridge.mjs";'
+            'globalThis.order.push("entry");update();'
+            'console.log(JSON.stringify({value:PLACEHOLDER,order:globalThis.order}));',
+        }
+    )
+    graph, alias = ensure_module_reference(
+        graph,
+        graph.index("let value"),
+        "value",
+        graph.index('globalThis.order.push("entry")'),
+    )
+    assert 'from "./native.mjs"' not in source_modules(graph)[2].source
+    assert (
+        module_reference(
+            graph,
+            graph.index("let value"),
+            "value",
+            graph.index('globalThis.order.push("entry")'),
+        )
+        == alias
+    )
+    assert _execute(tmp_path, graph.replace("PLACEHOLDER", alias), "entry.mjs") == {
+        "value": 2,
+        "order": ["native", "bridge", "entry"],
+    }
+
+
+def test_transitive_search_terminates_on_disconnected_cycle() -> None:
+    graph = _graph(
+        {
+            "native.mjs": "const x=1;export{x};",
+            "a.mjs": 'import {b} from "./b.mjs";export const a=()=>b;',
+            "b.mjs": 'import {a} from "./a.mjs";export const b=()=>a;',
+        }
+    )
+    with pytest.raises(ModuleRuntimeError, match="cannot add dependency edge"):
+        ensure_module_reference(
+            graph, graph.index("const x"), "x", graph.index("export const a")
+        )
+
+
 def test_added_binding_refuses_new_dependency_edge() -> None:
     graph = _graph({"a.mjs": "const x=1;export{x};", "b.mjs": "const y=2;"})
     with pytest.raises(ModuleRuntimeError, match="cannot add dependency edge"):

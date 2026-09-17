@@ -8,6 +8,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import pairwise
 
 _MARKER = re.compile(r"\n/\* ccpatch-module:([0-9a-f]+) \*/\n")
 _BOOTSTRAP = re.compile(r"/\* ccpatch-bootstrap:([0-9a-f]+(?: [0-9a-f]+)*) \*/")
@@ -219,6 +220,44 @@ def module_reference(
         candidates.update(
             local for public, local in _aliases(match[1]) if public in exported
         )
+    if not candidates:
+        modules = source_modules(source)
+        imports: dict[str, tuple[re.Match[str], ...]] = {}
+        exports: dict[str, tuple[re.Match[str], ...]] = {}
+        exported_bindings = {(owner.name, public) for public in exported}
+        changed = True
+        while changed:
+            changed = False
+            for module in modules:
+                if not any(public in module.source for _, public in exported_bindings):
+                    continue
+                if module.name not in imports:
+                    imports[module.name] = tuple(
+                        _declaration_matches(module.source, "import")
+                    )
+                    exports[module.name] = tuple(
+                        _declaration_matches(module.source, "export")
+                    )
+                imported: set[str] = set()
+                for match in imports[module.name]:
+                    target = match[2]
+                    if target.startswith("."):
+                        target = posixpath.normpath(
+                            posixpath.join(posixpath.dirname(module.name), target)
+                        )
+                    imported.update(
+                        local
+                        for public, local in _aliases(match[1])
+                        if (target, public) in exported_bindings
+                    )
+                if module.name == consumer.name:
+                    candidates.update(imported)
+                for match in exports[module.name]:
+                    for local, public in _aliases(match[1]):
+                        binding = (module.name, public)
+                        if local in imported and binding not in exported_bindings:
+                            exported_bindings.add(binding)
+                            changed = True
     if len(candidates) != 1:
         raise ModuleRuntimeError(
             f"no unique import of {owner.name}:{native_name} in {consumer.name}"
@@ -248,9 +287,36 @@ def ensure_module_reference(
         if target == owner.name:
             edges.append(match)
     if not edges:
-        raise ModuleRuntimeError(
-            f"cannot add dependency edge from {consumer.name} to {owner.name}"
-        )
+        modules = {module.name: module for module in source_modules(source)}
+        pending = [(consumer.name, [consumer.name])]
+        visited = {consumer.name}
+        route: list[str] | None = None
+        for current, path in pending:
+            for match in _declaration_matches(modules[current].source, "import"):
+                target = match[2]
+                if target.startswith("."):
+                    target = posixpath.normpath(
+                        posixpath.join(posixpath.dirname(current), target)
+                    )
+                if target == owner.name:
+                    route = [*path, target]
+                    break
+                if target in modules and target not in visited:
+                    visited.add(target)
+                    pending.append((target, [*path, target]))
+            if route is not None:
+                break
+        if route is None:
+            raise ModuleRuntimeError(
+                f"cannot add dependency edge from {consumer.name} to {owner.name}"
+            )
+        binding = native_name
+        for parent, child in reversed(list(pairwise(route))):
+            modules = {module.name: module for module in source_modules(source)}
+            source, binding = ensure_module_reference(
+                source, modules[child].start, binding, modules[parent].start
+            )
+        return source, binding
     index = 0
     while True:
         alias = f"__ccpatchNativeBinding{index}"

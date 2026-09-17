@@ -91,6 +91,21 @@ def test_captured_registry_prefix_preserved(
     assert not COMPACT_SESSION.verify_absent[1].search(unrelated)
 
 
+@pytest.mark.parametrize("registry", ["tools", "$tools", "tools$"])
+def test_registered_tool_factory_preserved(registry: str) -> None:
+    source = (
+        f"function {registry}(){{let design=load();return[first,second,...design?[design]:[]]}}"
+        f"register({registry});"
+    )
+    assert _REGISTRATION.apply(source) == source.replace("return[", "return[" + _SPREAD)
+    with pytest.raises(PatchError, match="register-compact-session-in-toollist"):
+        _REGISTRATION.apply(source.replace(f"register({registry})", "register(other)"))
+    with pytest.raises(PatchError, match="register-compact-session-in-toollist"):
+        _REGISTRATION.apply(source + source)
+    with pytest.raises(PatchError, match="register-compact-session-in-toollist"):
+        _REGISTRATION.apply(_REGISTRATION.apply(source))
+
+
 @pytest.mark.parametrize(
     ("old", "new"),
     [
@@ -169,13 +184,13 @@ def test_default_variant_boundaries(version: Version | None, modern: bool) -> No
         assert all(patch_set.applies_to(version) for patch_set in selected)
     if version in ((2, 1, 207), (2, 1, 208), (2, 1, 209), (2, 1, 210), (2, 1, 211)):
         assert sum(len(patch_set.patches) for patch_set in selected) == 77
-        assert selected[4].max_version == (2, 1, 273)
+        assert selected[4].max_version == (2, 1, 275)
         assert BACKGROUND_PROVIDER_ENV_198.applies_to(version)
         assert THINKING_SUMMARIES_NONINTERACTIVE_198.applies_to(version)
-        assert selected[4].applies_to((2, 1, 272))
-        assert not selected[4].applies_to((2, 1, 273))
-        assert selected[7].applies_to((2, 1, 272))
-        assert not selected[7].applies_to((2, 1, 273))
+        assert selected[4].applies_to((2, 1, 274))
+        assert not selected[4].applies_to((2, 1, 275))
+        assert selected[7].applies_to((2, 1, 274))
+        assert not selected[7].applies_to((2, 1, 275))
 
 
 @pytest.mark.parametrize("scoped", [False, True])
