@@ -10,8 +10,11 @@ description: >-
   comments that leak internal or runtime details (customer names, incident
   specifics) that belong in a ticket rather than the codebase, comments
   that reference enumerations from planning ("Hazard #2", "Option B") that
-  the code itself never defines, and flowery or metaphorical language that
-  ASD-STE100 style would reject (idioms, anthropomorphism, editorializing).
+  the code itself never defines, flowery or metaphorical language that
+  ASD-STE100 style would reject (idioms, anthropomorphism, editorializing),
+  and over-precise comments or docstrings that enumerate every edge case and
+  detail when a reasonable consumer needs only the surprising or impactful
+  ones.
   Dispatch as a local review subagent on the diff before opening a PR. Provide
   the diff scope as input (e.g. "unstaged changes", "staged changes", or
   "commits on this branch vs main").
@@ -32,7 +35,8 @@ relative to the main branch: try `git diff main...HEAD` plus
 `git diff HEAD` for uncommitted work; fall back to `master` if there is no
 `main`. Review only comments that the diff adds or modifies — pre-existing
 comments in surrounding context are out of scope unless the change makes them
-wrong.
+wrong. When the scope is a branch or a set of commits, the commit messages are
+in scope for the over-precision category (item 7 below) only.
 
 Read enough of the surrounding file to judge each comment fairly. A comment
 that looks redundant in a diff hunk may be justified by nearby context, and
@@ -121,6 +125,27 @@ Acceptable comments:
    and do not demand full STE vocabulary compliance — only reject wording
    where a reader must decode figurative language to get the point.
 
+7. **Over-precision**: comments and docstrings that try to be exhaustive
+   rather than useful. Language models in particular tend to equivocate: a
+   docstring lists every edge case, every parameter's handling of `None`,
+   every error path, and every caveat, so that nothing it says can be called
+   wrong. The result buries the one fact the reader needed. Judge each
+   comment from the point of view of a reasonable consumer — for a docstring,
+   someone calling the function; for a comment, someone modifying the
+   adjacent code; for a commit message, someone reading the log. Ask what
+   that reader must know to use or change the code correctly. Keep the
+   behaviors that would surprise them or that carry real consequences
+   (raises instead of returning empty, mutates its argument, is not
+   thread-safe, blocks, is O(n²)). Everything else is documented by the code
+   itself; if it isn't, the code is too complex, and that is the finding, not
+   the comment length. Flag docstrings that itemize routine edge cases the
+   implementation makes obvious, "Note that..." and "Also handles..." lists
+   that pad the description, and hedges ("may", "in some cases", "typically")
+   that exist to avoid committing to a claim rather than to convey genuine
+   uncertainty. Recommendation: the trimmed text, keeping only the surprising
+   or impactful details. This category is about elision, not compression —
+   a long comment about one genuinely subtle point is fine.
+
 Do not flag: license headers, shebangs, editor/vim modelines, linter or
 type-checker directives (`# noqa`, `// eslint-disable`, `# type: ignore`),
 doc-comment metadata required by tooling, or commented-out code (out of scope
@@ -134,7 +159,8 @@ conversational message. For each finding give:
 - `file:line` (line number in the new version of the file)
 - The comment text (or its first line, if long)
 - Category: `what-not-why` | `tombstone` | `workaround-essay` |
-  `internal-details` | `orphaned-reference` | `flowery-language`
+  `internal-details` | `orphaned-reference` | `flowery-language` |
+  `over-precision`
 - A one-sentence explanation of the problem
 - A concrete recommendation: usually the replacement comment text (or
   "delete"), or for `workaround-essay`, what to reconsider about the approach
