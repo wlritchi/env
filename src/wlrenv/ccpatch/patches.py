@@ -2821,6 +2821,31 @@ def _recognize_provider_window(source: str) -> str:
     )
 
 
+# Provider endpoints do not implement Anthropic Message Threads inheritance.
+_MULTI_PROVIDER_STATELESS_MODEL = re.compile(
+    rf'(?P<declaration>function {_ID}\((?P<model>{_ID})\)\{{)'
+    rf'(?=let {_ID}={_ID}\("tengu_curious_tower_stateless_models",""\);)'
+)
+
+
+def _disable_provider_message_threads(source: str) -> str:
+    matches = list(_MULTI_PROVIDER_STATELESS_MODEL.finditer(source))
+    if not matches and "CLAUDE_CODE_TETHER_LIVE" not in source:
+        return source
+    if len(matches) != 1:
+        raise PatchError(
+            "multi-provider-sdk: message threads model guard absent or ambiguous"
+        )
+    match = matches[0]
+    return checked_replace(
+        source,
+        match.group(0),
+        match.group(0)
+        + f'if(_ccMultiProviderModelProvider({match.group("model")})!=="anthropic")return!0;',
+        context="provider message threads",
+    )
+
+
 _MULTI_PROVIDER_RECOGNITION = re.compile(
     rf'function (?P<function>{_ID})\((?P<model>{_ID})\)\{{let (?P<name>{_ID})='
     rf'(?P<display>{_ID})\((?P=model)\);if\(!(?P=name)\)return null;let '
@@ -3573,6 +3598,7 @@ class _SDKPatchSet(PatchSet):
         source = super().apply(source)
         source = _recognize_provider_catalog(source)
         source = _recognize_provider_window(source)
+        source = _disable_provider_message_threads(source)
         if not split:
             return source
         assert native_tail is not None
