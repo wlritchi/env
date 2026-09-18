@@ -333,11 +333,57 @@ function anthropicToContext(request) {
 
   const context = {
     systemPrompt: normalizeSystemPrompt(request.system),
-    messages,
+    messages: pairToolResults(messages),
   };
   const tools = anthropicToolsToPi(request.tools);
   if (tools.length > 0) context.tools = tools;
   return context;
+}
+
+function pairToolResults(messages) {
+  const paired = [];
+  let pendingIds = new Set();
+  let results = [];
+  let userMessages = [];
+  const flush = () => {
+    // pi-ai inserts synthetic results when user text interrupts a tool turn.
+    paired.push(...results, ...userMessages);
+    results = [];
+    userMessages = [];
+  };
+
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      flush();
+      paired.push(message);
+      pendingIds = new Set(
+        message.content
+          .filter((block) => block.type === "toolCall")
+          .map((block) => block.id),
+      );
+    } else if (message.role === "toolResult") {
+      if (pendingIds.delete(message.toolCallId)) {
+        results.push(message);
+      } else {
+        // Keep unmatched output as context, not an invalid tool response.
+        userMessages.push({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `[Unmatched tool result: ${message.toolName} (${message.toolCallId})]`,
+            },
+            ...message.content,
+          ],
+          timestamp: message.timestamp,
+        });
+      }
+    } else {
+      userMessages.push(message);
+    }
+  }
+  flush();
+  return paired;
 }
 
 function pushUserMessage(messages, content, toolNames, timestamp) {

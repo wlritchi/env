@@ -114,6 +114,109 @@ const tokenModel = {
   compat: { supportsOpenAIGrammarTools: false },
 };
 
+for (const splitMessages of [false, true]) {
+  test(`pairs parallel tool results before user text (split messages: ${splitMessages})`, () => {
+    const ids = ["call_first|fc_first", "call_second|fc_second"];
+    const blocks = [
+      { type: "text", text: "before" },
+      { type: "tool_result", tool_use_id: ids[0], content: "first result" },
+      { type: "text", text: "between" },
+      { type: "tool_result", tool_use_id: ids[1], content: "second result" },
+      { type: "text", text: "after" },
+    ];
+    const request = {
+      model: tokenModel.id,
+      messages: [
+        {
+          role: "assistant",
+          content: ids.map((id) => ({
+            type: "tool_use",
+            id,
+            name: "Read",
+            input: {},
+          })),
+        },
+        ...(splitMessages
+          ? blocks.map((block) => ({ role: "user", content: [block] }))
+          : [{ role: "user", content: blocks }]),
+      ],
+    };
+    const input = canonicalResponsesPayload(tokenModel, request).payload.input;
+    const outputs = input.filter(
+      (item) => item.type === "function_call_output",
+    );
+    assert.deepEqual(
+      outputs.map((item) => [item.call_id, item.output]),
+      [
+        ["call_first", "first result"],
+        ["call_second", "second result"],
+      ],
+    );
+    assert.deepEqual(
+      input.slice(0, 4).map((item) => item.type),
+      [
+        "function_call",
+        "function_call",
+        "function_call_output",
+        "function_call_output",
+      ],
+    );
+    assert.deepEqual(
+      input.slice(4).map((item) => item.content[0].text),
+      ["before", "between", "after"],
+    );
+  });
+}
+
+test("preserves orphaned and duplicate tool results as user context", () => {
+  const request = {
+    model: tokenModel.id,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_orphan",
+            content: "orphan output",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "call_actual", name: "Read", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_actual",
+            content: "actual output",
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "call_actual",
+            content: "duplicate output",
+          },
+        ],
+      },
+    ],
+  };
+  const input = canonicalResponsesPayload(tokenModel, request).payload.input;
+  assert.deepEqual(
+    input
+      .filter((item) => item.type === "function_call_output")
+      .map((item) => item.output),
+    ["actual output"],
+  );
+  const userText = JSON.stringify(input.filter((item) => item.role === "user"));
+  assert.match(userText, /orphan output/);
+  assert.match(userText, /duplicate output/);
+});
+
 function tokenRequest(content, extra = {}) {
   return {
     model: "claude-opus-4-8",

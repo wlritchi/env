@@ -2760,6 +2760,35 @@ _MULTI_PROVIDER_PICKER = re.compile(
     rf'|,[^;]{{1,100}};if\({_ID}\)\{{[^{{}}]{{1,300}}\}}let '
     rf'[^;]{{1,100}},\w+=(?:process\.env|{_ID})\.ANTHROPIC_CUSTOM_MODEL_OPTION;)'
 )
+_MULTI_PROVIDER_MODEL_KNOWLEDGE = re.compile(
+    rf'(?P<prefix>isKnown:\((?P<model>{_ID})\)=>)'
+    rf'(?P<native>{_ID}\({_ID}\((?P=model),\{{identity:!0\}}\)\))'
+    rf'(?=,isModelId:\({_ID}\)=>)'
+)
+
+
+def _recognize_provider_catalog(source: str) -> str:
+    matches = list(_MULTI_PROVIDER_MODEL_KNOWLEDGE.finditer(source))
+    if (
+        not matches
+        and "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT" not in source
+    ):
+        return source
+    if len(matches) != 1:
+        raise PatchError(
+            "multi-provider-sdk: model knowledge registration absent or ambiguous"
+        )
+    match = matches[0]
+    return checked_replace(
+        source,
+        match.group(0),
+        match.group("prefix")
+        + f"_ccMultiProviderCatalogInfo({match.group('model')})!==null||"
+        + match.group("native"),
+        context="provider model knowledge",
+    )
+
+
 _MULTI_PROVIDER_RECOGNITION = re.compile(
     rf'function (?P<function>{_ID})\((?P<model>{_ID})\)\{{let (?P<name>{_ID})='
     rf'(?P<display>{_ID})\((?P=model)\);if\(!(?P=name)\)return null;let '
@@ -3510,6 +3539,7 @@ class _SDKPatchSet(PatchSet):
                         assert definition is not None and consumer is not None
         native_tail = _MULTI_PROVIDER_SDK_TAIL.search(source) if split else None
         source = super().apply(source)
+        source = _recognize_provider_catalog(source)
         if not split:
             return source
         assert native_tail is not None

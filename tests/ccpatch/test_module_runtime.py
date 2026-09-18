@@ -291,7 +291,11 @@ def test_sdk_bootstrap_precedes_owner_and_shares_clients(
             'const b=_ccMultiProviderRoute(native,{model:"moonshot:kimi-k3"});'
             'console.log(JSON.stringify({early,same:a[0]===b[0],'
             'model:a[1].model,native:_ccMultiProviderRoute(native,{model:"opus"})[0]===native}));',
-            "early.mjs": 'export const early=_ccMultiProviderCatalogInfo("moonshot:kimi-k3").contextWindow;',
+            "early.mjs": 'let knowledge;const register=e=>knowledge=e,known=()=>false,identity=e=>e;'
+            'register({isKnown:(e)=>known(identity(e,{identity:!0})),isModelId:(e)=>false});'
+            'if(!knowledge.isKnown("openai:gpt-6-astra"))throw Error("provider unknown at startup");'
+            'if(knowledge.isKnown("openai:future"))throw Error("unknown provider accepted");'
+            'export const early=_ccMultiProviderCatalogInfo("moonshot:kimi-k3").contextWindow;',
             "native.mjs": 'class Native{constructor(options){this.options=options}}'
             'async function factory({apiKey}){let options={apiKey:null};return new Native(options)}'
             'async function next(){}export {factory};',
