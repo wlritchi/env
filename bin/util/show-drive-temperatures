@@ -11,6 +11,8 @@ describe_usage() {
     local mountpoint
     local device
     local osd_id
+    local label_match
+    local id_length
 
     while IFS= read -r mountpoint; do
         if [ -n "$mountpoint" ]; then
@@ -20,8 +22,14 @@ describe_usage() {
 
     while IFS= read -r device; do
         # The bluestore label at the start of the device holds the OSD id in its "whoami" key, as
-        # a string with a 32-bit little-endian length prefix.
-        osd_id="$(sudo head -c 4096 "$device" | rg -ao --replace '$1' '(?-u)whoami[\x00-\x1f]\x00{3}([0-9]+)' | head -n1 || true)"
+        # a string with a 32-bit little-endian length prefix. The bytes after the string can be
+        # digits, so the length is necessary to find the end of the id.
+        label_match="$(sudo head -c 4096 "$device" | rg -ao --replace '$1$2' '(?-u)whoami([\x01-\x09])\x00{3}([0-9]+)' | head -n1 || true)"
+        osd_id=''
+        if [ -n "$label_match" ]; then
+            id_length="$(printf '%d' "'${label_match:0:1}")"
+            osd_id="${label_match:1:id_length}"
+        fi
         usages+=("osd.${osd_id:-?}")
     done < <(lsblk -nlpo NAME,FSTYPE "$drive" | awk '$2 == "ceph_bluestore" { print $1 }' | sort -u)
 
