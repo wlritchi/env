@@ -30,6 +30,11 @@ describe_usage() {
     printf '%s' "${joined%, }"
 }
 
+# Print the size of a drive in decimal terabytes, at most two decimal places.
+describe_size() {
+    lsblk -bdno SIZE "$1" | awk '{ size = sprintf("%.2f", $1 / 1e12); sub(/\.?0+$/, "", size); print size "TB" }'
+}
+
 for drive in /dev/sd*; do
     if echo "$drive" | rg -q '[0-9]$'; then
         continue
@@ -39,6 +44,6 @@ for drive in /dev/sd*; do
     else
         serial_no="$( ( sudo smartctl -i "$drive" || true) | rg Serial | sed -re 's/.* //')"
         usage="$(describe_usage "$drive")"
-        printf '%s (%s): %s%s\n' "$drive" "$serial_no" "$temp" "${usage:+ [$usage]}"
+        printf '%s (%s, %s): %s%s\n' "$drive" "$serial_no" "$(describe_size "$drive")" "$temp" "${usage:+ [$usage]}"
     fi
 done
