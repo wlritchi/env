@@ -62,6 +62,7 @@ This repository uses Nix Flakes with home-manager for declarative package and en
 - **Update dependencies**: `wlr-update-locks` updates flake.lock (and other lockfiles)
 - **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash (takes precedence over `~/.local/bin`)
 - **Special integrations**: Uses krew2nix for declarative kubectl plugin management
+- **Claude Code**: The patched `claude`, `ccpatch`, and the `cc-openai-proxy` user service come from the `ccpatch` flake input (github:wlritchi/ccpatch) via `programs.ccpatch.enable` in `machines/common.nix`. To take a new ccpatch release, run `nix flake update ccpatch`, then `wlr-nix-rebuild`.
 
 ### macOS: nix-darwin and Homebrew
 On macOS, `wlr-nix-rebuild` also runs nix-darwin (via `darwin-rebuild`) for system-level config:

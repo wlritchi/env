@@ -5,33 +5,8 @@
   ...
 }:
 
-let
-  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
-in
 {
   launchd.agents = {
-    cc-openai-proxy = {
-      enable = true;
-      config = {
-        ProgramArguments = [
-          "${cc-openai-proxy}/bin/cc-openai-proxy"
-          "--host"
-          "127.0.0.1"
-          "--port"
-          "17780"
-          "--auth-token-file"
-          "${config.home.homeDirectory}/Library/Application Support/cc-openai-proxy/auth-token"
-        ];
-        Umask = 63;
-        RunAtLoad = true;
-        KeepAlive = true;
-        ProcessType = "Background";
-        ThrottleInterval = 1;
-        StandardOutPath = "${config.home.homeDirectory}/Library/Logs/cc-openai-proxy.log";
-        StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/cc-openai-proxy.log";
-      };
-    };
-
     # Git sync - runs every hour
     git-sync = {
       enable = true;

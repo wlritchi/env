@@ -2,6 +2,10 @@
   description = "home-manager config";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/release-26.05";
+    ccpatch = {
+      url = "github:wlritchi/ccpatch";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     homebrew-cask = {
       url = "github:homebrew/homebrew-cask";
@@ -30,6 +34,7 @@
   };
   outputs =
     {
+      ccpatch,
       homebrew-cask,
       homebrew-core,
       home-manager,
@@ -103,7 +108,7 @@
         home-manager.lib.homeManagerConfiguration {
           pkgs = mkPkgs {
             inherit system;
-            # Always allow our build-time-patched Claude Code (the only unfree
+            # Always allow the ccpatch-built Claude Code (the only unfree
             # package in the base config); compose with any predicate an overlay
             # repo extends us with.
             extraUnfreePredicate =
@@ -113,6 +118,7 @@
           modules = [ platformModule ] ++ extraModules;
           extraSpecialArgs = {
             inherit
+              ccpatch
               hostname
               username
               krew2nix

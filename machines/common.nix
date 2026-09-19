@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  ccpatch,
   krew2nix,
   try,
   ...
@@ -9,19 +10,15 @@
 
 let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
-  cc-openai-proxy = pkgs.callPackage ./pkgs/cc-openai-proxy.nix { };
-  cc-openai-proxy-launcher = pkgs.callPackage ./pkgs/cc-openai-proxy-launcher.nix {
-    inherit cc-openai-proxy;
-  };
-  claude-code = pkgs.callPackage ./pkgs/claude-code.nix {
-    inherit cc-openai-proxy-launcher;
-  };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
 in
 {
-  imports = [ ./uv-tools.nix ];
+  imports = [
+    ./uv-tools.nix
+    ccpatch.homeManagerModules.default
+  ];
 
   options.custom.krewPlugins = lib.mkOption {
     type = lib.types.listOf lib.types.str;
@@ -34,6 +31,9 @@ in
       "ctx"
       "ns"
     ];
+
+    # Patched Claude Code, plus the cc-openai-proxy user service.
+    programs.ccpatch.enable = true;
 
     home.packages =
       (with pkgs; [
@@ -78,7 +78,7 @@ in
           plugins: map (name: plugins.${name}) config.custom.krewPlugins
         ))
         ccstatusline
-        claude-code
+        (ccpatch.lib.mkPackages pkgs).ccpatch
         delta-realpath
         entire
         tryPkg

@@ -17,6 +17,26 @@
         "type": "github"
       }
     },
+    "ccpatch": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789814806,
+        "narHash": "sha256-UzpmaoOFpVRdV/gC8XfJWFhJxjJXmI7SvMuRPVehM6Q=",
+        "owner": "wlritchi",
+        "repo": "ccpatch",
+        "rev": "92b7c3dc1d3e932eaadbe226d7f2ccb41edbabdb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "wlritchi",
+        "repo": "ccpatch",
+        "type": "github"
+      }
+    },
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": "nixpkgs-lib"
@@ -216,6 +236,7 @@
     },
     "root": {
       "inputs": {
+        "ccpatch": "ccpatch",
         "home-manager": "home-manager",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
