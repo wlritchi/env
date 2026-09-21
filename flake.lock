@@ -24,11 +24,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1789814806,
-        "narHash": "sha256-UzpmaoOFpVRdV/gC8XfJWFhJxjJXmI7SvMuRPVehM6Q=",
+        "lastModified": 1789982115,
+        "narHash": "sha256-IgM16KLyDtgC7+J5EmPwdw97POpJUxXtMnVtkSjTE6I=",
         "owner": "wlritchi",
         "repo": "ccpatch",
-        "rev": "92b7c3dc1d3e932eaadbe226d7f2ccb41edbabdb",
+        "rev": "f3a74311a7be4da94267c7a5a8102431f563fb3b",
         "type": "github"
       },
       "original": {
