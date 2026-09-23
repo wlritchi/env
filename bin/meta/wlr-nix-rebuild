@@ -6,6 +6,60 @@ if ! command -v nix >/dev/null 2>&1; then
     exit 1
 fi
 
+usage() {
+    cat <<'USAGE'
+usage: wlr-nix-rebuild [--override-input INPUT FLAKEREF]...
+
+Rebuild the home-manager (and on macOS, nix-darwin) environment.
+
+INPUT names a public flake input (for example `ccpatch`). FLAKEREF replaces
+it for this run only. Persistent per-machine overrides go in
+  ${XDG_CONFIG_HOME:-~/.config}/wlrenv/nix-input-overrides
+with one `INPUT=FLAKEREF` per line (`#` starts a comment; a leading `~/`
+expands to $HOME). A local git checkout is best given as a git+file:// ref,
+which follows .gitignore and works with fsmonitor enabled:
+  ccpatch=git+file:///home/me/ccpatch
+USAGE
+}
+
+# Collect input overrides as `INPUT=FLAKEREF` pairs: the config file first,
+# then the command line.
+overrides_file="${XDG_CONFIG_HOME:-$HOME/.config}/wlrenv/nix-input-overrides"
+input_overrides=()
+if [[ -f "$overrides_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z "$line" ]] && continue
+        if [[ "$line" != *=* ]]; then
+            wlr-err "$overrides_file: expected INPUT=FLAKEREF, got: $line"
+            exit 1
+        fi
+        input_overrides+=("$line")
+    done < "$overrides_file"
+fi
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --override-input)
+            if [[ $# -lt 3 ]]; then
+                usage >&2
+                exit 1
+            fi
+            input_overrides+=("$2=$3")
+            shift 3
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
 # Use one committed public revision for the configuration and tool launchers.
 public_rev="$(git -C "$WLR_ENV_PATH" rev-parse --verify 'HEAD^{commit}')"
 public_ref="git+file://$WLR_ENV_PATH?rev=$public_rev"
@@ -13,14 +67,26 @@ public_ref="git+file://$WLR_ENV_PATH?rev=$public_rev"
 # Keep private working-tree changes visible without updating its lock file.
 PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
 override_args=()
+input_prefix=""
 if [[ -d "$PRIVATE_ENV_PATH" ]]; then
     FLAKE_PATH="$PRIVATE_ENV_PATH"
     flake_ref="$FLAKE_PATH"
     override_args=(--override-input wlrenv "$public_ref")
+    # Public inputs are nested under the overlay's `wlrenv` input.
+    input_prefix="wlrenv/"
 else
     FLAKE_PATH="$WLR_ENV_PATH"
     flake_ref="$public_ref"
 fi
+
+# Overrides make the result differ from flake.lock, so always say so.
+for override in ${input_overrides[@]+"${input_overrides[@]}"}; do
+    input_name="${override%%=*}"
+    input_ref="${override#*=}"
+    input_ref="${input_ref/#\~\//$HOME/}"
+    wlr-warn "overriding flake input $input_name with $input_ref"
+    override_args+=(--override-input "$input_prefix$input_name" "$input_ref")
+done
 
 cd "$FLAKE_PATH"
 

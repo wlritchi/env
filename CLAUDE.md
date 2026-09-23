@@ -63,6 +63,7 @@ This repository uses Nix Flakes with home-manager for declarative package and en
 - **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash (takes precedence over `~/.local/bin`)
 - **Special integrations**: Uses krew2nix for declarative kubectl plugin management
 - **Claude Code**: The patched `claude`, `ccpatch`, and the `cc-openai-proxy` user service come from the `ccpatch` flake input (github:wlritchi/ccpatch) via `programs.ccpatch.enable` in `machines/common.nix`. To take a new ccpatch release, run `nix flake update ccpatch`, then `wlr-nix-rebuild`.
+- **Local input overrides**: `wlr-nix-rebuild --override-input ccpatch git+file:///home/me/ccpatch` builds one run against a local checkout. To make a machine always use it (including the automatic rebuild on `wlr-check-update`), put `ccpatch=git+file:///home/me/ccpatch` in `~/.config/wlrenv/nix-input-overrides` (one `INPUT=FLAKEREF` per line, `#` comments). Use `git+file://` rather than `path:` for git checkouts: it honors `.gitignore` and works with fsmonitor enabled. The script warns on every active override, and `nix flake update ccpatch` then only matters for other machines.
 
 ### macOS: nix-darwin and Homebrew
 On macOS, `wlr-nix-rebuild` also runs nix-darwin (via `darwin-rebuild`) for system-level config:
