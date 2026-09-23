@@ -334,7 +334,7 @@ def test_macos_confirmation_passes_text_as_data(
     assert args[3] == text
     assert text not in args[2]
     assert "item 1 of argv" in args[2]
-    assert 'default button "Cancel"' in args[2]
+    assert 'default button "Sign"' in args[2]
     assert "on error number -128" in args[2]
     assert run.call_args.kwargs == {
         "check": False,

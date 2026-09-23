@@ -170,7 +170,7 @@ def confirm(text: str) -> bool:
             # Pass payload text as data, not as AppleScript source.
             script = '''on run argv
 try
-    display dialog (item 1 of argv) with title "Confirm Git signature" buttons {"Cancel", "Sign"} default button "Cancel" cancel button "Cancel"
+    display dialog (item 1 of argv) with title "Confirm Git signature" buttons {"Cancel", "Sign"} default button "Sign" cancel button "Cancel"
     return "sign"
 on error number -128
     return "cancel"
