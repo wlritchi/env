@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=../../lib/nix-flake.bash
+source "${BASH_SOURCE[0]%/*}/../../lib/nix-flake.bash"
+
+usage() {
+    cat <<'USAGE'
+usage: wlr-nix-hm [--override-input INPUT FLAKEREF]... SUBCOMMAND [ARG]...
+
+Run a home-manager subcommand (for example `news`, `build`, `generations`)
+with the same flake, overrides, and environment that wlr-nix-rebuild uses.
+
+USAGE
+    wlr_nix_flake_usage_overrides
+}
+
+case "${1:-}" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    '')
+        usage >&2
+        exit 1
+        ;;
+esac
+
+wlr_nix_flake_setup "$@"
+if [[ ${#wlr_nix_flake_args[@]} -eq 0 ]]; then
+    usage >&2
+    exit 1
+fi
+
+wlr_nix_flake_run home-manager "${wlr_nix_flake_args[@]}"

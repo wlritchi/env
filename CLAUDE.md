@@ -58,6 +58,7 @@ This repository uses Nix Flakes with home-manager for declarative package and en
 - **Platform-specific configs**: `machines/linux.nix` and `machines/darwin.nix` for OS-specific settings, selected automatically based on the system
 - **Host-specific overrides**: `machines/hosts/{hostname}.nix` for machine-specific customizations (loaded if file exists, on both Linux and macOS)
 - **Apply changes**: `wlr-nix-rebuild` to rebuild home-manager environment (passes `--impure` and exports `NIX_HOSTNAME` automatically)
+- **Other home-manager subcommands**: `wlr-nix-hm SUBCOMMAND [ARG]...` (e.g. `wlr-nix-hm news`, `wlr-nix-hm build --dry-run`) runs home-manager with the same flake, overrides, and environment as `wlr-nix-rebuild`. Both scripts share `lib/nix-flake.bash`.
 - **Cross-platform QA**: Override `NIX_SYSTEM` to evaluate configs for other platforms (e.g., `NIX_SYSTEM=aarch64-darwin wlr-nix-rebuild`)
 - **Update dependencies**: `wlr-update-locks` updates flake.lock (and other lockfiles)
 - **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash (takes precedence over `~/.local/bin`)

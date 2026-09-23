@@ -1,139 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! command -v nix >/dev/null 2>&1; then
-    wlr-err "Nix not installed"
-    exit 1
-fi
+# shellcheck source=../../lib/nix-flake.bash
+source "${BASH_SOURCE[0]%/*}/../../lib/nix-flake.bash"
 
 usage() {
     cat <<'USAGE'
 usage: wlr-nix-rebuild [--override-input INPUT FLAKEREF]...
 
-Rebuild the home-manager (and on macOS, nix-darwin) environment.
+Rebuild the home-manager (and on macOS, nix-darwin) environment. Use
+wlr-nix-hm to run other home-manager subcommands with the same setup.
 
-INPUT names a public flake input (for example `ccpatch`). FLAKEREF replaces
-it for this run only. Persistent per-machine overrides go in
-  ${XDG_CONFIG_HOME:-~/.config}/wlrenv/nix-input-overrides
-with one `INPUT=FLAKEREF` per line (`#` starts a comment; a leading `~/`
-expands to $HOME). A local git checkout is best given as a git+file:// ref,
-which follows .gitignore and works with fsmonitor enabled:
-  ccpatch=git+file:///home/me/ccpatch
 USAGE
+    wlr_nix_flake_usage_overrides
 }
 
-# Collect input overrides as `INPUT=FLAKEREF` pairs: the config file first,
-# then the command line.
-overrides_file="${XDG_CONFIG_HOME:-$HOME/.config}/wlrenv/nix-input-overrides"
-input_overrides=()
-if [[ -f "$overrides_file" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        line="${line%%#*}"
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        [[ -z "$line" ]] && continue
-        if [[ "$line" != *=* ]]; then
-            wlr-err "$overrides_file: expected INPUT=FLAKEREF, got: $line"
-            exit 1
-        fi
-        input_overrides+=("$line")
-    done < "$overrides_file"
-fi
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --override-input)
-            if [[ $# -lt 3 ]]; then
-                usage >&2
-                exit 1
-            fi
-            input_overrides+=("$2=$3")
-            shift 3
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        *)
-            usage >&2
-            exit 1
-            ;;
-    esac
-done
+case "${1:-}" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+esac
 
-# Use one committed public revision for the configuration and tool launchers.
-public_rev="$(git -C "$WLR_ENV_PATH" rev-parse --verify 'HEAD^{commit}')"
-public_ref="git+file://$WLR_ENV_PATH?rev=$public_rev"
-
-# Keep private working-tree changes visible without updating its lock file.
-PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
-override_args=()
-input_prefix=""
-if [[ -d "$PRIVATE_ENV_PATH" ]]; then
-    FLAKE_PATH="$PRIVATE_ENV_PATH"
-    flake_ref="$FLAKE_PATH"
-    override_args=(--override-input wlrenv "$public_ref")
-    # Public inputs are nested under the overlay's `wlrenv` input.
-    input_prefix="wlrenv/"
-else
-    FLAKE_PATH="$WLR_ENV_PATH"
-    flake_ref="$public_ref"
+wlr_nix_flake_setup "$@"
+if [[ ${#wlr_nix_flake_args[@]} -gt 0 ]]; then
+    usage >&2
+    exit 1
 fi
 
-# Overrides make the result differ from flake.lock, so always say so.
-for override in ${input_overrides[@]+"${input_overrides[@]}"}; do
-    input_name="${override%%=*}"
-    input_ref="${override#*=}"
-    input_ref="${input_ref/#\~\//$HOME/}"
-    wlr-warn "overriding flake input $input_name with $input_ref"
-    override_args+=(--override-input "$input_prefix$input_name" "$input_ref")
-done
-
-cd "$FLAKE_PATH"
-
-export NIX_CONFIG="experimental-features = nix-command flakes"
-
-# Export hostname for impure flake evaluation
-# Get short hostname with fallback chain
-get_short_hostname() {
-    local hn
-    if command -v hostname >/dev/null 2>&1; then
-        hn=$(hostname -s 2>/dev/null) && [ -n "$hn" ] && echo "$hn" && return 0
-    fi
-    if hn=$(uname -n 2>/dev/null) && [ -n "$hn" ]; then
-        echo "${hn%%.*}"
-        return 0
-    fi
-    if [ -f /proc/sys/kernel/hostname ]; then
-        hn=$(cat /proc/sys/kernel/hostname 2>/dev/null) && [ -n "$hn" ] && echo "${hn%%.*}" && return 0
-    fi
-    return 1
-}
-export NIX_HOSTNAME
-NIX_HOSTNAME="$(get_short_hostname)" || NIX_HOSTNAME="default"
-
-# Run home-manager (and darwin-rebuild below) from the public flake's own
-# outputs, so the tool versions always match the inputs locked in flake.lock.
-home_manager=(
-    nix
-    run
-    --impure
-    "$public_ref#home-manager"
-    --
-)
-
-"${home_manager[@]}" switch --impure --flake "${flake_ref}#default" ${override_args[@]+"${override_args[@]}"}
+wlr_nix_flake_run home-manager switch
 
 # On macOS, also run darwin-rebuild for system-level config (Homebrew casks, etc.)
 if [ "$(uname -s)" = "Darwin" ]; then
-    nix_darwin=(
-        nix
-        run
-        --impure
-        "$public_ref#darwin-rebuild"
-        --
-    )
     # Build first (no sudo needed) to check if anything changed
-    "${nix_darwin[@]}" build --impure --flake "${flake_ref}#default" ${override_args[@]+"${override_args[@]}"}
+    wlr_nix_flake_run darwin-rebuild build
 
     # Compare new build to current system - only activate if different
     NEW_SYSTEM="$(readlink ./result)"
@@ -144,7 +44,9 @@ if [ "$(uname -s)" = "Darwin" ]; then
         # default; preserve them so the impure flake sees the same environment
         # as the unprivileged build above.
         sudo --preserve-env=NIX_HOSTNAME,NIX_SYSTEM,NIX_CONFIG,HOME \
-            "${nix_darwin[@]}" switch --impure --flake "${flake_ref}#default" ${override_args[@]+"${override_args[@]}"}
+            nix run --impure "$wlr_nix_flake_public_ref#darwin-rebuild" -- \
+            switch --impure --flake "$wlr_nix_flake_ref#default" \
+            ${wlr_nix_flake_overrides[@]+"${wlr_nix_flake_overrides[@]}"}
     else
         echo "nix-darwin: no changes to activate"
     fi
