@@ -9,6 +9,7 @@ import random
 import shlex
 import subprocess
 import sys
+from base64 import b64decode, b64encode
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
@@ -35,6 +36,7 @@ from typing import (
     ParamSpec,
     TypeVar,
 )
+from urllib.parse import quote, unquote
 
 import numpy as np
 import tiktoken
