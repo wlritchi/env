@@ -72,13 +72,14 @@ repos:
         language: system
         files: ^dotfiles/\.config/linearmouse/linearmouse\.json$
 
-      # Dotfile patch verification
+      # Dotfile patch verification: render every host/uname combination
+      # (public repo plus ~/.wlrenv-private) and fail if a patch does not apply
       - id: verify-patches
         name: verify patches
-        description: Verify that all dotfile patches apply successfully
+        description: Render dotfile patches for every host and uname combination
         entry: bin/meta/wlr-verify-patches
         language: system
-        files: ^(patches/.*\.patch|dotfiles/.*)$
+        files: ^(patches/|dotfiles/|bin/meta/wlr-(sync-dotfiles|verify-patches)$)
         pass_filenames: false
 
       # Python/Nix/Lua hooks

@@ -1,157 +1,279 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verify that all patches in the repository (and the private overlay repo,
-# ~/.wlrenv-private, if present) apply successfully.
+# Usage: wlr-verify-patches
 #
-# Follows the same layering as wlr-sync-dotfiles:
-#   - Base file: scope priority host > uname > global; private shadows public
-#     within each scope.
-#   - Private base => only private patches apply.
-#   - Public base  => public patches apply first, private patches on top.
+# Render every dotfile patch for every host and uname combination that the
+# repositories know about, and exit 1 if any patch does not apply. The
+# layering for each combination comes from `wlr-sync-dotfiles --resolve`, so
+# this checks exactly what a sync would do on that machine, including the
+# private overlay (~/.wlrenv-private) when it is present.
 #
-# Limitation: a patch path pins only one scope dimension (global, host, or
-# uname), so prerequisite patches in the other dimensions are unknown here
-# and assumed absent. wlr-sync-dotfiles applies global, then uname, then host
-# patches on a real machine, so a host patch verified here against the
-# unpatched base may still conflict with a global or uname patch at sync time.
+# Hosts are every directory under dotfiles/host/ or patches/host/ in either
+# repo, plus a machine with no host-specific files. Unames are every
+# directory under dotfiles/uname/ or patches/uname/, plus Linux and Darwin.
+# A host is checked against every uname unless patches/host/<host>/.uname
+# (in either repo) names the one it runs, which skips combinations that can
+# never occur on a real machine.
+#
+# For each combination, a patch is active when its scope matches. The check
+# fails when an active patch has no base file, when wlr-sync-dotfiles does
+# not list it as a layer, or when a layer fails to apply. A public patch on
+# a file whose base comes from the private overlay is inert and only warned
+# about, because the overlay shadows the public base.
 
-# Color output helpers
+WLR_ENV_PATH="${WLR_ENV_PATH:-$(cd "$(dirname "$0")/../.." && pwd)}"
+export WLR_ENV_PATH
+PATH="$WLR_ENV_PATH/bin/early:$PATH"
+SYNC="$WLR_ENV_PATH/bin/meta/wlr-sync-dotfiles"
+
+PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
+repo_roots=("$WLR_ENV_PATH")
+if [ -d "$PRIVATE_ENV_PATH" ]; then
+    repo_roots+=("$PRIVATE_ENV_PATH")
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
-HAS_PRIVATE=false
-[[ -d "$PRIVATE_ENV_PATH" ]] && HAS_PRIVATE=true
+NC='\033[0m'
 
 FAILED=0
-TESTED=0
+RENDERED=0
 SKIPPED=0
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# Resolve the base file for a path the way wlr-sync-dotfiles does, trying
-# each given scope-relative path in order, private before public within each.
-# Echoes "<base_file>|<public or private>".
-resolve_base() {
-    local rel
-    for rel in "$@"; do
-        if $HAS_PRIVATE && [ -f "$PRIVATE_ENV_PATH/dotfiles/$rel" ]; then
-            echo "$PRIVATE_ENV_PATH/dotfiles/$rel|private"
-            return 0
-        elif [ -f "$WLR_ENV_PATH/dotfiles/$rel" ]; then
-            echo "$WLR_ENV_PATH/dotfiles/$rel|public"
+shopt -s nullglob
+
+# Print every value of one scope dimension across both repos, one per line.
+# Args: <host|uname>
+scope_values() {
+    local dim="$1"
+    local root dir
+    for root in "${repo_roots[@]}"; do
+        for dir in "$root/dotfiles/$dim"/* "$root/patches/$dim"/*; do
+            if [ -d "$dir" ]; then
+                basename "$dir"
+            fi
+        done
+    done
+}
+
+# Print the uname a host is pinned to, or nothing when it is not pinned.
+# Args: <hostname>
+pinned_uname() {
+    local host="$1"
+    local root file
+    for root in "${repo_roots[@]}"; do
+        file="$root/patches/host/$host/.uname"
+        if [ -f "$file" ]; then
+            tr -d '[:space:]' <"$file"
             return 0
         fi
     done
-    return 1
 }
 
-# verify_patch <patch_file> <public or private>
-verify_patch() {
-    local patch_file="$1"
-    local repo="$2"
+# Collect the patches that apply for one host and uname combination into
+# active_patches (path -> newline-separated patch files) and active_paths.
+# Args: <hostname> <uname>
+collect_active() {
+    local host="$1"
+    local uname_val="$2"
+    active_patches=()
+    active_paths=()
+    local root scope dir file path
+    for root in "${repo_roots[@]}"; do
+        for scope in global "uname/$uname_val" ${host:+"host/$host"}; do
+            dir="$root/patches/$scope"
+            [ -d "$dir" ] || continue
+            while IFS= read -r file; do
+                path="${file#"$dir/"}"
+                path="${path%.patch}"
+                if [ -z "${active_patches[$path]:-}" ]; then
+                    active_paths+=("$path")
+                fi
+                active_patches["$path"]+="$file"$'\n'
+            done < <(find "$dir" -type f -name '*.patch' | sort)
+        done
+    done
+}
 
-    # scope_rel is the path segment under patches/: "global", or "<dim>/<value>".
-    local scope_rel relative_path
-    local base_candidates=()
-    if [[ "$patch_file" =~ patches/(host|uname)/([^/]+)/(.+)\.patch$ ]]; then
-        scope_rel="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
-        relative_path="${BASH_REMATCH[3]}"
-        base_candidates+=("$scope_rel/$relative_path")
-    elif [[ "$patch_file" =~ patches/global/(.+)\.patch$ ]]; then
-        scope_rel="global"
-        relative_path="${BASH_REMATCH[1]}"
-    else
-        echo -e "${RED}✗${NC} Failed to parse patch path: $patch_file"
-        FAILED=$((FAILED + 1))
-        return
-    fi
-    base_candidates+=("$relative_path")
+report_failure() {
+    local combo="$1"
+    local path="$2"
+    shift 2
+    echo -e "${RED}✗${NC} [$combo] $path"
+    local line
+    for line in "$@"; do
+        echo "   $line"
+    done
+    FAILED=$((FAILED + 1))
+}
 
-    local label="[$repo] $scope_rel/$relative_path"
-
-    local base_info
-    if ! base_info="$(resolve_base "${base_candidates[@]}")"; then
-        echo -e "${RED}✗${NC} $label"
-        echo "   Patch file: $patch_file"
-        echo "   No base file found in dotfiles/ (public or private)."
-        FAILED=$((FAILED + 1))
-        return
-    fi
-    local base_file="${base_info%|*}"
-    local source="${base_info#*|}"
-
-    # A private base shadows the public one, so public patches never apply.
-    if [ "$source" = "private" ] && [ "$repo" = "public" ]; then
-        echo -e "${YELLOW}⊘${NC} $label"
-        echo "   Skipped: base file is shadowed by the private overlay, so this patch is inert."
-        SKIPPED=$((SKIPPED + 1))
-        return
-    fi
-
-    # Prerequisite patches that wlr-sync-dotfiles would apply before this one.
-    # Only the pinned scope dimension is knowable; see limitation note above.
-    local prereqs=()
-    if [ "$repo" = "private" ] && [ "$source" = "public" ]; then
-        local public_patch="$WLR_ENV_PATH/patches/$scope_rel/$relative_path.patch"
-        [ -f "$public_patch" ] && prereqs+=("$public_patch")
-    fi
-
-    TESTED=$((TESTED + 1))
-
-    local current="$base_file"
+# Apply the layers of one resolved file in order. Fails on the first layer
+# that does not apply and reports it.
+# Args: <combo> <path> <base file> <layer file>...
+render_layers() {
+    local combo="$1"
+    local path="$2"
+    local current="$3"
+    shift 3
+    local base="$current"
     local step=0
-    local stage
-    # ${arr[@]+...} guards the expansion for empty arrays under bash 3.2's set -u
-    for stage in ${prereqs[@]+"${prereqs[@]}"} "$patch_file"; do
+    local layer out log
+    for layer in "$@"; do
         step=$((step + 1))
-        local out="$TMP_DIR/step$step"
-        if ! patch "$current" "$stage" -o "$out" >/dev/null 2>&1; then
-            echo -e "${RED}✗${NC} $label"
-            echo "   Patch file: $patch_file"
-            echo "   Base file: $base_file"
-            if [ "$stage" != "$patch_file" ]; then
-                echo "   Failed while applying prerequisite patch: $stage"
+        out="$TMP_DIR/render/step$step"
+        log="$TMP_DIR/render/patch.log"
+        # patch asks whether to reverse a patch that is already applied; an
+        # empty stdin makes it answer no and fail instead of prompting.
+        if ! patch "$current" "$layer" -o "$out" >"$log" 2>&1 </dev/null; then
+            local details=("Base file: $base")
+            if [ "$step" -gt 1 ]; then
+                details+=("Applied first: ${*:1:$((step - 1))}")
             fi
-            echo "   This patch may not apply cleanly to the current version of the file."
-            FAILED=$((FAILED + 1))
-            return
+            details+=("Failed to apply: $layer")
+            while IFS= read -r line; do
+                details+=("  patch: $line")
+            done < <(head -20 "$log")
+            report_failure "$combo" "$path" "${details[@]}"
+            return 1
         fi
         current="$out"
     done
-
-    echo -e "${GREEN}✓${NC} $label"
+    RENDERED=$((RENDERED + 1))
 }
 
-echo "Verifying all patches..."
+# Check whether every active patch for a file is a layer that
+# wlr-sync-dotfiles would apply. A public patch is inert when the private
+# overlay provides the base; anything else missing is a layering bug.
+# Args: <combo> <path> <base repo> <layer file>...
+check_layers_complete() {
+    local combo="$1"
+    local path="$2"
+    local base_repo="$3"
+    shift 3
+    local expected layer found
+    while IFS= read -r expected; do
+        [ -n "$expected" ] || continue
+        found=
+        for layer in "$@"; do
+            if [ "$layer" = "$expected" ]; then
+                found=y
+                break
+            fi
+        done
+        [ -z "$found" ] || continue
+        if [ "$base_repo" = private ] && [ "${expected#"$WLR_ENV_PATH/"}" != "$expected" ]; then
+            echo -e "${YELLOW}⊘${NC} [$combo] $path"
+            echo "   Inert: $expected"
+            echo "   The private overlay provides the base file, so this public patch never applies."
+            SKIPPED=$((SKIPPED + 1))
+        else
+            report_failure "$combo" "$path" \
+                "wlr-sync-dotfiles does not apply this patch here: $expected"
+            return 1
+        fi
+    done <<<"${active_patches[$path]}"
+}
+
+# Resolve and render every active patch for one combination.
+# Args: <hostname> <uname>
+verify_combo() {
+    local host="$1"
+    local uname_val="$2"
+    local combo="host=${host:-(none)} uname=$uname_val"
+
+    declare -A active_patches
+    local active_paths
+    collect_active "$host" "$uname_val"
+    if [ ${#active_paths[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    local resolve_out="$TMP_DIR/resolve.out"
+    local resolve_err="$TMP_DIR/resolve.err"
+    if ! "$SYNC" --resolve --hostname "$host" --uname "$uname_val" -- "${active_paths[@]}" \
+            >"$resolve_out" 2>"$resolve_err"; then
+        report_failure "$combo" "(all)" "wlr-sync-dotfiles --resolve failed:" "$(cat "$resolve_err")"
+        return 0
+    fi
+
+    rm -rf "$TMP_DIR/render"
+    mkdir -p "$TMP_DIR/render"
+
+    local before_failed=$FAILED
+    local before_rendered=$RENDERED
+    declare -A resolved=()
+    local path="" base="" base_repo=""
+    local layers=()
+    local kind f1 f2 f3 f4
+    # Tab is whitespace to read, so an empty field (a global layer's VALUE)
+    # would collapse into the next one. Split on the unit separator instead.
+    while IFS=$'\037' read -r kind f1 f2 f3 f4; do
+        case "$kind" in
+            file)
+                path="$f1"
+                resolved["$path"]=1
+                layers=()
+                ;;
+            base)
+                base_repo="$f1"
+                base="$f2"
+                ;;
+            layer)
+                layers+=("$f4")
+                ;;
+            rendered)
+                if check_layers_complete "$combo" "$path" "$base_repo" ${layers[@]+"${layers[@]}"}; then
+                    render_layers "$combo" "$path" "$base" ${layers[@]+"${layers[@]}"} || true
+                fi
+                ;;
+        esac
+    done < <(tr '\t' '\037' <"$resolve_out")
+
+    for path in "${active_paths[@]}"; do
+        [ -z "${resolved[$path]:-}" ] || continue
+        report_failure "$combo" "$path" \
+            "No base file in dotfiles/ for this host and uname (public or private)." \
+            "Patches without a base: $(tr '\n' ' ' <<<"${active_patches[$path]}")"
+    done
+
+    if [ $FAILED -eq $before_failed ]; then
+        echo -e "${GREEN}✓${NC} [$combo] $((RENDERED - before_rendered)) file(s) rendered"
+    fi
+}
+
+mapfile -t hosts < <(scope_values host | sort -u)
+hosts+=("")
+mapfile -t unames < <({ scope_values uname; printf 'Linux\nDarwin\n'; } | sort -u)
+
+echo "Rendering patches for ${#hosts[@]} host(s) x ${#unames[@]} uname(s)..."
 echo
 
-patch_roots=("$WLR_ENV_PATH/patches|public")
-if $HAS_PRIVATE; then
-    patch_roots+=("$PRIVATE_ENV_PATH/patches|private")
-fi
-
-for root_info in "${patch_roots[@]}"; do
-    root="${root_info%|*}"
-    repo="${root_info#*|}"
-    [ -d "$root" ] || continue
-    while IFS= read -r patch_file; do
-        verify_patch "$patch_file" "$repo"
-    done < <(find "$root" -type f -name "*.patch" | sort)
+for host in "${hosts[@]}"; do
+    pinned=""
+    if [ -n "$host" ]; then
+        pinned="$(pinned_uname "$host")"
+    fi
+    for uname_val in "${unames[@]}"; do
+        if [ -n "$pinned" ] && [ "$pinned" != "$uname_val" ]; then
+            continue
+        fi
+        verify_combo "$host" "$uname_val"
+    done
 done
 
 echo
 if [ $SKIPPED -gt 0 ]; then
-    echo -e "${YELLOW}$SKIPPED patch(es) skipped (shadowed by private overlay).${NC}"
+    echo -e "${YELLOW}$SKIPPED inert public patch(es) shadowed by the private overlay.${NC}"
 fi
 if [ $FAILED -eq 0 ]; then
-    echo -e "${GREEN}All $TESTED patches verified successfully!${NC}"
+    echo -e "${GREEN}All $RENDERED patched file(s) rendered successfully.${NC}"
     exit 0
 else
-    echo -e "${RED}$FAILED out of $TESTED patches failed to apply.${NC}"
+    echo -e "${RED}$FAILED failure(s) across $RENDERED successful render(s).${NC}"
     exit 1
 fi

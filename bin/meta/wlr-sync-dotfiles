@@ -2,11 +2,13 @@
 set -euo pipefail
 
 # Usage: wlr-sync-dotfiles
-#        wlr-sync-dotfiles --resolve [PATH...]
+#        wlr-sync-dotfiles --resolve [--hostname NAME] [--uname NAME] [PATH...]
 #
 # Without arguments, render every dotfile and link it into $HOME.
 # With --resolve, print how each dotfile (or each given PATH) resolves,
-# without rendering or linking. Records are tab-separated, one per line:
+# without rendering or linking. --hostname and --uname resolve as if run on
+# that machine; wlr-verify-patches uses this to check every combination.
+# Records are tab-separated, one per line:
 #   env       HOSTNAME  UNAME
 #   file      PATH
 #   base      REPO      FILE
@@ -14,10 +16,36 @@ set -euo pipefail
 #   rendered  FILE                                       (empty when there are no layers)
 # wlr-reconcile-dotfiles consumes this so the layering logic lives here only.
 
+UNAME_VAL="$(uname)"
 RESOLVE_ONLY=
 if [ "${1:-}" = '--resolve' ]; then
     RESOLVE_ONLY=y
     shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --hostname|--uname)
+                if [ $# -lt 2 ]; then
+                    wlr-err "$1 requires a value"
+                    exit 2
+                fi
+                if [ "$1" = --hostname ]; then
+                    HOSTNAME="$2"
+                else
+                    UNAME_VAL="$2"
+                fi
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                wlr-err "unexpected option: $1"
+                exit 2
+                ;;
+            *) break ;;
+        esac
+    done
 elif [ $# -gt 0 ]; then
     wlr-err "unexpected argument: $1"
     exit 2
@@ -117,8 +145,7 @@ render_file() {
     local base_file=""
     local source=""
     local uses_private=false
-    local uname_val
-    uname_val="$(uname)"
+    local uname_val="$UNAME_VAL"
 
     # Step 1: Determine base file
     # Scope priority: host > uname > global; private shadows public within each scope.
@@ -285,8 +312,6 @@ link_file() {
 # Discover all dotfile paths from both repos
 declare -A seen_paths
 dotfile_paths=()
-
-UNAME_VAL="$(uname)"
 
 # Scan a scope subdirectory of a dotfiles tree, stripping the scope prefix
 # from discovered paths so they map to destinations under $HOME.

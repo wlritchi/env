@@ -24,9 +24,9 @@ valid_answer() {
 }
 
 while ! valid_answer; do
-    tput setaf 4
+    tput setaf 4 2>/dev/null || true
     printf '? '
-    tput sgr0
+    tput sgr0 2>/dev/null || true
     printf '%s ' "$@" "$prompt_str"
     read -n1 answer
     printf '\n'
