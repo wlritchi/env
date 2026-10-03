@@ -52,6 +52,12 @@
     "claude-fable-5-1": {
       "effortLevel": "high"
     },
+    "claude-opus-5": {
+      "effortLevel": "high"
+    },
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    },
     "openai:gpt-6-astra": {
       "effortLevel": "high"
     }
