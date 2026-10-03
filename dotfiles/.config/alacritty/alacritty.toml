@@ -99,7 +99,7 @@ render_timer = false
 PROMPT_TOOLKIT_COLOR_DEPTH = "DEPTH_24_BIT"
 
 [font]
-size = 10.0
+size = 12.0
 
 [font.bold]
 family = "FiraCode Nerd Font"
