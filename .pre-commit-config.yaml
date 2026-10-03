@@ -1,5 +1,6 @@
 ---
-default_install_hook_types: [pre-commit, post-checkout]
+default_install_hook_types:
+  [pre-commit, post-checkout, post-commit, post-merge, post-rewrite]
 default_stages: [pre-commit, pre-push, manual]
 repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
@@ -80,6 +81,17 @@ repos:
         entry: bin/meta/wlr-verify-patches
         language: system
         files: ^(patches/|dotfiles/|bin/meta/wlr-(sync-dotfiles|verify-patches)$)
+        pass_filenames: false
+
+      # After the checked-out tree changes, render patched dotfiles and
+      # update the links in $HOME. Skips worktrees and other clones.
+      - id: sync-dotfiles
+        name: sync dotfiles
+        description: Run wlr-sync-dotfiles after the checked-out tree changes
+        entry: bin/meta/wlr-sync-dotfiles-hook
+        language: system
+        stages: [post-commit, post-merge, post-rewrite, post-checkout]
+        always_run: true
         pass_filenames: false
 
       # Python/Nix/Lua hooks

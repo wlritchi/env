@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage: wlr-sync-dotfiles-hook
+#
+# Git hook entry point (post-commit, post-merge, post-rewrite, post-checkout)
+# that runs wlr-sync-dotfiles, so the rendered dotfiles and the links in
+# $HOME follow the checked-out tree.
+#
+# It only runs in the checkout that $HOME links to ($WLR_ENV_PATH, default
+# ~/.wlrenv). Linked worktrees and other clones are skipped, because a sync
+# from them would point $HOME at their files. It also skips the commits in
+# the middle of a rebase; post-rewrite syncs once when the rebase completes.
+#
+# The sync cannot prompt here. Each prompt (a rendered file that a program
+# edited, or a link that points somewhere else) is answered no, so the hook
+# never discards local changes. Those files are left as they are and the
+# hook fails with a reminder to run wlr-sync-dotfiles by hand.
+
+root="$(git rev-parse --show-toplevel)"
+target="${WLR_ENV_PATH:-$HOME/.wlrenv}"
+if ! [ -d "$target" ] || [ "$(realpath "$root")" != "$(realpath "$target")" ]; then
+    exit 0
+fi
+
+for state in rebase-merge rebase-apply; do
+    if [ -d "$(git rev-parse --git-path "$state")" ]; then
+        exit 0
+    fi
+done
+
+export WLR_ENV_PATH="$root"
+PATH="$WLR_ENV_PATH/bin/early:$PATH"
+
+if ! "$WLR_ENV_PATH/bin/meta/wlr-sync-dotfiles" </dev/null; then
+    wlr-err "Some dotfiles need a decision; run wlr-sync-dotfiles to resolve them."
+    exit 1
+fi
