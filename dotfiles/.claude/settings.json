@@ -47,6 +47,7 @@
     }
   },
   "feedbackDrafts": "off",
+  "maxProseWidth": 100,
   "model": "fable",
   "modelSettings": {
     "claude-fable-5-1": {
@@ -80,5 +81,6 @@
   "switchModelsOnFlag": false,
   "syntaxHighlightingDisabled": false,
   "theme": "custom:catppuccin-macchiato",
+  "tui": "fullscreen",
   "voiceEnabled": true
 }
