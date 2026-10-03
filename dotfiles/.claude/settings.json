@@ -48,7 +48,7 @@
   },
   "feedbackDrafts": "off",
   "maxProseWidth": 100,
-  "model": "fable",
+  "model": "opus",
   "modelSettings": {
     "claude-fable-5-1": {
       "effortLevel": "high"
