@@ -43,6 +43,7 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
 - `dotfiles/`: Configuration files to be symlinked to home directory
   - `dotfiles/host/$HOSTNAME/...` and `dotfiles/uname/$(uname)/...` provide platform- or host-specific base files (or symlinks) that are only synced on matching machines. Base-file priority is host > uname > global; private (`~/.wlrenv-private/dotfiles/`) shadows public within each scope.
   - Use scoped dotfiles for files that should only exist on certain machines (e.g. macOS-only paths). Use `patches/` to override the *content* of an already-included file.
+  - Patched files are rendered to `rendered/$path` (public or private repo) and symlinked from `$HOME`. Each render also writes `rendered/$path.reference`, a pristine copy of the output. If a program edits the rendered file, `wlr-sync-dotfiles` shows the diff against the reference and asks before re-rendering over it; a future tool can fold that drift back into a patch.
 - `patches/`: Host and OS-specific patches for dotfiles
 - `rust-utils/`: Standalone Rust utilities (see rust-utils/README.md for details)
   - Built via Nix derivations in `machines/pkgs/`

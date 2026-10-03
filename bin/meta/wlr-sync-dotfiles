@@ -143,18 +143,33 @@ render_file() {
         return 0
     fi
 
-    # Check if re-rendering is needed
+    # Check if re-rendering is needed. The .reference file is a pristine copy
+    # of the last render, so edits a program makes to the rendered file can be
+    # detected later and folded back into a patch.
     local final="$rendered_dir/$path"
+    local reference="$final.reference"
     local needs_patch=
     local current="$base_file"
 
     mkdir -p "$(dirname "$final")"
+    if ! [ -f "$reference" ]; then
+        needs_patch=y
+    fi
     for patch in "${patches[@]}"; do
         if ! [ -f "$final" ] || ! is_newer "$final" "$patch" || ! is_newer "$final" "$current"; then
             needs_patch=y
             break
         fi
     done
+
+    if [ -n "$needs_patch" ] && [ -f "$final" ] && [ -f "$reference" ] \
+            && ! cmp -s "$final" "$reference"; then
+        wlr-warn "update: $final was modified since it was last rendered" >&2
+        print_diff "$reference" "$final" >&2
+        if ! wlr-ask "Discard these modifications and re-render $path?" >&2; then
+            return 1
+        fi
+    fi
 
     if [ -n "$needs_patch" ]; then
         local tmp=""
@@ -174,6 +189,7 @@ render_file() {
             fi
             current="$tmp"
         done
+        cp -p "$current" "$reference"
         mv "$current" "$final"
     fi
 
@@ -183,7 +199,7 @@ render_file() {
 link_file() {
     local rendered_raw
     if ! rendered_raw="$(render_file "$1")"; then
-        wlr-err "Skipping $1 due to patch failure"
+        wlr-err "Skipping $1"
         return 1
     fi
     local rendered
