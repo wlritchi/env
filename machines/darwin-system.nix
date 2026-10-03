@@ -36,6 +36,10 @@
     autohide-delay = 3.0;
   };
 
+  # Clicking the wallpaper moves all windows aside to show the desktop. Limit
+  # this to Stage Manager ("Only in Stage Manager" in Desktop & Dock settings).
+  system.defaults.WindowManager.EnableStandardClickToShowDesktop = false;
+
   # Disable the four Window > Move & Resize half-tile shortcuts. The Keyboard
   # Shortcuts UI labels them Tile {Left,Right,Top,Bottom} Half with Ctrl+Fn+arrow
   # equivalents, but on external keyboards Fn+arrow is just how the internal
