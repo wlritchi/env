@@ -1,6 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Usage: wlr-sync-dotfiles
+#        wlr-sync-dotfiles --resolve [PATH...]
+#
+# Without arguments, render every dotfile and link it into $HOME.
+# With --resolve, print how each dotfile (or each given PATH) resolves,
+# without rendering or linking. Records are tab-separated, one per line:
+#   env       HOSTNAME  UNAME
+#   file      PATH
+#   base      REPO      FILE
+#   layer     REPO      DIM       VALUE     PATCH_FILE   (DIM is global, uname, or host)
+#   rendered  FILE                                       (empty when there are no layers)
+# wlr-reconcile-dotfiles consumes this so the layering logic lives here only.
+
+RESOLVE_ONLY=
+if [ "${1:-}" = '--resolve' ]; then
+    RESOLVE_ONLY=y
+    shift
+elif [ $# -gt 0 ]; then
+    wlr-err "unexpected argument: $1"
+    exit 2
+fi
+
 # Private repo detection
 PRIVATE_ENV_PATH="$HOME/.wlrenv-private"
 HAS_PRIVATE=false
@@ -59,6 +81,37 @@ sync_dir() {
     fi
 }
 
+# Append one repo's patch for one scope to the caller's patches array, if
+# that patch exists. Reads $path and updates $patches, $layer_records, and
+# $uses_private in the caller's scope.
+# Args: <public|private> <global|uname|host> <scope value, empty for global>
+add_patch() {
+    local repo="$1"
+    local dim="$2"
+    local value="$3"
+    local root
+    case "$repo" in
+        public) root="$WLR_ENV_PATH" ;;
+        private)
+            $HAS_PRIVATE || return 0
+            root="$PRIVATE_ENV_PATH"
+            ;;
+    esac
+    local file
+    if [ "$dim" = global ]; then
+        file="$root/patches/global/$path.patch"
+    else
+        [ -n "$value" ] || return 0
+        file="$root/patches/$dim/$value/$path.patch"
+    fi
+    [ -f "$file" ] || return 0
+    patches+=("$file")
+    layer_records+=("$(printf 'layer\t%s\t%s\t%s\t%s' "$repo" "$dim" "$value" "$file")")
+    if [ "$repo" = private ]; then
+        uses_private=true
+    fi
+}
+
 render_file() {
     local path="$1"
     local base_file=""
@@ -96,38 +149,21 @@ render_file() {
         return 1
     fi
 
-    # Step 2: Collect patches (uname before host = general before specific)
+    # Step 2: Collect patches, general before specific: global, uname, host.
+    # A private base shadows the public file entirely, so only private
+    # patches apply to it. On a public base, private patches layer on top
+    # of the public ones.
     local patches=()
+    local layer_records=()
 
-    if [ "$source" = "private" ]; then
-        # Private source: only private patches apply
-        if [ -n "$uname_val" ] && [ -f "$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch" ]; then
-            patches+=("$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch")
-            uses_private=true
-        fi
-        if [ -n "$HOSTNAME" ] && [ -f "$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch" ]; then
-            patches+=("$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch")
-            uses_private=true
-        fi
-    else
-        # Public source: public patches, then private patches layer on top
-        if [ -n "$uname_val" ] && [ -f "$WLR_ENV_PATH/patches/uname/$uname_val/$path.patch" ]; then
-            patches+=("$WLR_ENV_PATH/patches/uname/$uname_val/$path.patch")
-        fi
-        if [ -n "$HOSTNAME" ] && [ -f "$WLR_ENV_PATH/patches/host/$HOSTNAME/$path.patch" ]; then
-            patches+=("$WLR_ENV_PATH/patches/host/$HOSTNAME/$path.patch")
-        fi
-        if $HAS_PRIVATE; then
-            if [ -n "$uname_val" ] && [ -f "$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch" ]; then
-                patches+=("$PRIVATE_ENV_PATH/patches/uname/$uname_val/$path.patch")
-                uses_private=true
-            fi
-            if [ -n "$HOSTNAME" ] && [ -f "$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch" ]; then
-                patches+=("$PRIVATE_ENV_PATH/patches/host/$HOSTNAME/$path.patch")
-                uses_private=true
-            fi
-        fi
+    if [ "$source" = "public" ]; then
+        add_patch public global ''
+        add_patch public uname "$uname_val"
+        add_patch public host "$HOSTNAME"
     fi
+    add_patch private global ''
+    add_patch private uname "$uname_val"
+    add_patch private host "$HOSTNAME"
 
     # Step 3: Determine rendered location
     local rendered_dir
@@ -135,6 +171,21 @@ render_file() {
         rendered_dir="$PRIVATE_ENV_PATH/rendered"
     else
         rendered_dir="$WLR_ENV_PATH/rendered"
+    fi
+
+    if [ -n "$RESOLVE_ONLY" ]; then
+        printf 'file\t%s\n' "$path"
+        printf 'base\t%s\t%s\n' "$source" "$base_file"
+        local record
+        for record in ${layer_records[@]+"${layer_records[@]}"}; do
+            printf '%s\n' "$record"
+        done
+        if [ ${#patches[@]} -eq 0 ]; then
+            printf 'rendered\t\n'
+        else
+            printf 'rendered\t%s\n' "$rendered_dir/$path"
+        fi
+        return 0
     fi
 
     # If no patches, return the base file directly
@@ -172,21 +223,23 @@ render_file() {
     fi
 
     if [ -n "$needs_patch" ]; then
-        local tmp=""
+        local tmp previous=""
         current="$base_file"
         for patchfile in "${patches[@]}"; do
-            if [ -n "$tmp" ]; then
-                rm "$tmp"
-            fi
             tmp="$(mktemp)"
             if ! patch "$current" "$patchfile" -o "$tmp" >/dev/null 2>&1; then
-                wlr-err "Failed to apply patch: $patchfile"
-                wlr-err "  to file: $path (base: $base_file)"
+                wlr-err "Failed to apply patch: $patchfile" >&2
+                wlr-err "  to file: $path (base: $base_file)" >&2
                 # Show what went wrong
-                patch "$current" "$patchfile" -o /dev/null --verbose 2>&1 | head -20 || true
-                [ -n "$tmp" ] && rm -f "$tmp"
+                patch "$current" "$patchfile" --dry-run --verbose 2>&1 | head -20 >&2 || true
+                rm -f "$tmp" "$previous"
                 return 1
             fi
+            # The previous stage is only safe to remove once the next one is written.
+            if [ -n "$previous" ]; then
+                rm "$previous"
+            fi
+            previous="$tmp"
             current="$tmp"
         done
         cp -p "$current" "$reference"
@@ -213,9 +266,13 @@ link_file() {
             fi
         fi
     elif [ -f "$HOME/$1" ]; then
-        print_diff "$HOME/$1" "$rendered"
-        if wlr-ask "Replace $HOME/$1 with a symlink to $rendered?"; then
+        if cmp -s "$HOME/$1" "$rendered"; then
             ln -sf "$rendered" "$HOME/$1"
+        else
+            print_diff "$HOME/$1" "$rendered"
+            if wlr-ask "Replace $HOME/$1 with a symlink to $rendered?"; then
+                ln -sf "$rendered" "$HOME/$1"
+            fi
         fi
     elif [ -e "$HOME/$1" ]; then
         wlr-warn "update: $HOME/$1 exists, but is not a regular file or symlink"
@@ -278,6 +335,17 @@ for repo_root in "${repo_roots[@]}"; do
     fi
     scan_scope "$repo_root" ""
 done
+
+if [ -n "$RESOLVE_ONLY" ]; then
+    printf 'env\t%s\t%s\n' "$HOSTNAME" "$UNAME_VAL"
+    if [ $# -gt 0 ]; then
+        dotfile_paths=("$@")
+    fi
+    for relative in ${dotfile_paths[@]+"${dotfile_paths[@]}"}; do
+        render_file "$relative" || wlr-warn "no base file for $relative"
+    done
+    exit 0
+fi
 
 # Process each unique dotfile
 failed_files=()

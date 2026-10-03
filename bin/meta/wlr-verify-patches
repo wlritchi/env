@@ -10,11 +10,11 @@ set -euo pipefail
 #   - Private base => only private patches apply.
 #   - Public base  => public patches apply first, private patches on top.
 #
-# Limitation: a patch path pins only one scope dimension (host OR uname), so
-# prerequisite patches in the other dimension are unknown here and assumed
-# absent. wlr-sync-dotfiles applies uname patches before host patches on a
-# real machine, so a host patch verified here against the unpatched base may
-# still conflict with a uname patch at sync time.
+# Limitation: a patch path pins only one scope dimension (global, host, or
+# uname), so prerequisite patches in the other dimensions are unknown here
+# and assumed absent. wlr-sync-dotfiles applies global, then uname, then host
+# patches on a real machine, so a host patch verified here against the
+# unpatched base may still conflict with a global or uname patch at sync time.
 
 # Color output helpers
 RED='\033[0;31m'
@@ -55,25 +55,27 @@ verify_patch() {
     local patch_file="$1"
     local repo="$2"
 
-    local scope_dim scope_val relative_path
-    if [[ "$patch_file" =~ patches/host/([^/]+)/(.+)\.patch$ ]]; then
-        scope_dim="host"
-        scope_val="${BASH_REMATCH[1]}"
-        relative_path="${BASH_REMATCH[2]}"
-    elif [[ "$patch_file" =~ patches/uname/([^/]+)/(.+)\.patch$ ]]; then
-        scope_dim="uname"
-        scope_val="${BASH_REMATCH[1]}"
-        relative_path="${BASH_REMATCH[2]}"
+    # scope_rel is the path segment under patches/: "global", or "<dim>/<value>".
+    local scope_rel relative_path
+    local base_candidates=()
+    if [[ "$patch_file" =~ patches/(host|uname)/([^/]+)/(.+)\.patch$ ]]; then
+        scope_rel="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+        relative_path="${BASH_REMATCH[3]}"
+        base_candidates+=("$scope_rel/$relative_path")
+    elif [[ "$patch_file" =~ patches/global/(.+)\.patch$ ]]; then
+        scope_rel="global"
+        relative_path="${BASH_REMATCH[1]}"
     else
         echo -e "${RED}✗${NC} Failed to parse patch path: $patch_file"
         FAILED=$((FAILED + 1))
         return
     fi
+    base_candidates+=("$relative_path")
 
-    local label="[$repo] $scope_dim/$scope_val/$relative_path"
+    local label="[$repo] $scope_rel/$relative_path"
 
     local base_info
-    if ! base_info="$(resolve_base "$scope_dim/$scope_val/$relative_path" "$relative_path")"; then
+    if ! base_info="$(resolve_base "${base_candidates[@]}")"; then
         echo -e "${RED}✗${NC} $label"
         echo "   Patch file: $patch_file"
         echo "   No base file found in dotfiles/ (public or private)."
@@ -95,7 +97,7 @@ verify_patch() {
     # Only the pinned scope dimension is knowable; see limitation note above.
     local prereqs=()
     if [ "$repo" = "private" ] && [ "$source" = "public" ]; then
-        local public_patch="$WLR_ENV_PATH/patches/$scope_dim/$scope_val/$relative_path.patch"
+        local public_patch="$WLR_ENV_PATH/patches/$scope_rel/$relative_path.patch"
         [ -f "$public_patch" ] && prereqs+=("$public_patch")
     fi
 

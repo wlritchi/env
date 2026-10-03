@@ -130,3 +130,109 @@ def test_early_update_verifies_without_signing_wrapper(
         assert 'bad signature' in result.stderr + result.stdout
         assert not (target / 'update').exists()
     assert config.read_text() == original_config
+
+
+@pytest.mark.parametrize('upstream_moved', [True, False])
+def test_local_commits_are_rebased_onto_upstream(
+    tmp_path: Path, upstream_moved: bool
+) -> None:
+    home = tmp_path / 'home'
+    home.mkdir()
+    startup = tmp_path / 'startup.bash'
+    startup.write_text('curl() { return 0; }\n')
+    config = home / '.gitconfig'
+    config.write_text(
+        '[user]\n\tname = Test User\n\temail = test@example.com\n'
+        '[gpg]\n\tformat = ssh\n[commit]\n\tgpgsign = false\n'
+    )
+    env = {
+        'HOME': str(home),
+        'PATH': f'{ROOT / "bin/early"}:/usr/bin:/bin',
+        'GIT_CONFIG_NOSYSTEM': '1',
+        'GIT_CONFIG_GLOBAL': str(config),
+        'GIT_TERMINAL_PROMPT': '0',
+        'BASH_ENV': str(startup),
+        'LC_ALL': 'C',
+        'TERM': 'xterm',
+    }
+    key = tmp_path / 'trusted'
+    run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(key)], env)
+    remote = tmp_path / 'remote'
+    run(['git', 'init', '-b', 'main', str(remote)], env)
+    (remote / '.allowed_signers').write_text(
+        f'test@example.com {key.with_suffix(".pub").read_text()}'
+    )
+    run(['git', '-C', str(remote), 'add', '.allowed_signers'], env)
+    run(['git', '-C', str(remote), 'commit', '-m', 'Initial signers'], env)
+    public = home / 'public'
+    env['WLR_ENV_PATH'] = str(public)
+    run(['git', 'clone', str(remote), str(public)], env)
+    run(
+        [
+            'git',
+            '-C',
+            str(public),
+            'remote',
+            'set-url',
+            'origin',
+            'https://github.com/wlritchi/env',
+        ],
+        env,
+    )
+    run(
+        [
+            'git',
+            'config',
+            '--global',
+            f'url.{remote}.insteadOf',
+            'https://github.com/wlritchi/env',
+        ],
+        env,
+    )
+    # A local commit, as wlr-reconcile-dotfiles would leave behind.
+    (public / 'local').write_text('Local change\n')
+    run(['git', '-C', str(public), 'add', 'local'], env)
+    run(['git', '-C', str(public), 'commit', '-m', 'Local'], env)
+    if upstream_moved:
+        (remote / 'update').write_text('New content\n')
+        run(['git', '-C', str(remote), 'add', 'update'], env)
+        run(
+            [
+                'git',
+                '-C',
+                str(remote),
+                '-c',
+                'gpg.ssh.program=ssh-keygen',
+                '-c',
+                f'user.signingkey={key}',
+                'commit',
+                '-S',
+                '-m',
+                'Update',
+            ],
+            env,
+        )
+
+    result = subprocess.run(  # noqa: S603
+        ['bash', str(SCRIPT)],  # noqa: S607
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    subjects = run(['git', '-C', str(public), 'log', '--format=%s'], env).splitlines()
+    assert (public / 'local').exists()
+    if upstream_moved:
+        assert result.returncode == 0, output
+        assert 'rebasing' in output
+        assert subjects == ['Local', 'Update', 'Initial signers']
+        assert (public / 'update').exists()
+        assert run(['git', '-C', str(public), 'rev-parse', 'HEAD~1'], env) == run(
+            ['git', '-C', str(remote), 'rev-parse', 'HEAD'], env
+        )
+    else:
+        assert result.returncode == 1, output
+        assert 'ahead of upstream' in output
+        assert subjects == ['Local', 'Initial signers']
+    assert run(['git', '-C', str(public), 'status', '--porcelain', '-uno'], env) == ''

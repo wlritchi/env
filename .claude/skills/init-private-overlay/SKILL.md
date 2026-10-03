@@ -106,7 +106,7 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
 | Surface  | Mechanism                                                                                                                                                                 |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Nix      | `wlr-nix-rebuild` uses the overlay as flake root, builds `#default`, overrides input `wlrenv`→local committed public HEAD. Add config via `private.nix`.                  |
-| Dotfiles | `wlr-sync-dotfiles`: `dotfiles/$path` shadows public; `patches/uname/$(uname)/…` then `patches/host/$HOSTNAME/…` layer onto public files; output goes to `rendered/`.     |
+| Dotfiles | `wlr-sync-dotfiles`: `dotfiles/$path` shadows public; `patches/global/…`, then `patches/uname/$(uname)/…`, then `patches/host/$HOSTNAME/…` layer onto public files; output goes to `rendered/`. |
 | PATH     | `env.bash` adds each _immediate subdir_ of `bin/` to PATH. Scripts directly in `bin/` are NOT added — use `bin/<category>/`.                                              |
 | uv tools | `private.nix` sets `home.uvTools.<name> = { … }` to add/override; `.disabled = true` suppresses a public tool.                                                            |
 | Updates  | `wlr-check-update` fetches `origin`, verifies the new HEAD against the overlay's own `.allowed_signers` (read _before_ fetch), then runs `hooks/post-upgrade` if present. |

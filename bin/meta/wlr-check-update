@@ -23,6 +23,19 @@ fi
 
 wlr-working 'update check'
 
+# Reconcile dotfile drift before pulling, so edits that programs made to live
+# dotfiles are separated from upstream changes. Accepted edits become local
+# commits that the update below rebases onto upstream. The tool is installed
+# by wlr-install-self into uv's tool bin dir, which may not be on PATH yet
+# when this runs from shell startup.
+reconcile="$(command -v wlr-reconcile-dotfiles 2>/dev/null || true)"
+if [ -z "$reconcile" ] && [ -x "$HOME/.local/bin/wlr-reconcile-dotfiles" ]; then
+    reconcile="$HOME/.local/bin/wlr-reconcile-dotfiles"
+fi
+if [ -n "$reconcile" ] && [ -t 0 ] && [ -t 1 ]; then
+    "$reconcile" || wlr-warn 'dotfile drift reconciliation failed; continuing with update'
+fi
+
 # Update a single repo with signature verification
 # Args: repo_path remote_url allowed_signers_file
 # Returns: 0 if updated, 1 if no changes or error
@@ -71,6 +84,10 @@ update_repo() {
         wlr-good "$repo_name: no new changes"
         return 1
     fi
+    if git -C "$repo_path" merge-base --is-ancestor "$remote_commit" "$local_commit"; then
+        wlr-good "$repo_name: ahead of upstream, nothing to pull"
+        return 1
+    fi
 
     # Verify signature using the signers from BEFORE the fetch
     # Create a temp file with the pre-fetch signers content
@@ -87,7 +104,25 @@ update_repo() {
         return 1
     fi
 
-    git -C "$repo_path" merge --ff-only "$remote_commit"
+    if git -C "$repo_path" merge-base --is-ancestor "$local_commit" "$remote_commit"; then
+        if ! git -C "$repo_path" merge --ff-only "$remote_commit"; then
+            wlr-err "$repo_name: update failed, could not fast-forward (uncommitted changes in the way?)"
+            return 1
+        fi
+    else
+        # Local commits (for example from wlr-reconcile-dotfiles) sit on an
+        # older upstream. Replay them on top of the verified remote commit.
+        if [ -n "$(git -C "$repo_path" status --porcelain --untracked-files=no)" ]; then
+            wlr-err "$repo_name: diverged from upstream with uncommitted changes; commit or discard them, then rerun wlr-check-update --force"
+            return 1
+        fi
+        wlr-warn "$repo_name: local commits diverge from upstream, rebasing onto $remote_commit"
+        if ! git -C "$repo_path" rebase "$remote_commit"; then
+            git -C "$repo_path" rebase --abort || true
+            wlr-err "$repo_name: rebase onto upstream failed; resolve manually with git -C $repo_path rebase $update_remote/main"
+            return 1
+        fi
+    fi
     git -C "$repo_path" submodule update --init --recursive
 
     local new_local_commit
