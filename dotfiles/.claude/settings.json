@@ -41,6 +41,7 @@
   },
   "extraKnownMarketplaces": {
     "wlr-cc-plugins": {
+      "autoUpdate": true,
       "source": {
         "repo": "wlritchi/wlr-cc-plugins",
         "source": "github"
