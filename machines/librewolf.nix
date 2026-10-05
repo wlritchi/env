@@ -170,6 +170,36 @@ in
   programs.librewolf = {
     enable = true;
 
+    # The nixpkgs wrapper makes the bundle executable a shell script that execs
+    # .librewolf-old. On macOS 27, LaunchServices reports pid -1 for apps that
+    # start this way, and AeroSpace cannot manage them. Point the bundle at the
+    # real binary and move the wrapper's MOZ_* variables into LSEnvironment.
+    # LD_LIBRARY_PATH and PATH are not copied: dyld ignores LD_LIBRARY_PATH.
+    package = pkgs.librewolf.overrideAttrs (
+      old:
+      lib.optionalAttrs pkgs.stdenv.isDarwin {
+        buildCommand = old.buildCommand + ''
+          contents="$out/Applications/LibreWolf.app/Contents"
+          cp --remove-destination "$(readlink -f "$contents/Info.plist")" "$contents/Info.plist"
+          chmod u+w "$contents/Info.plist"
+          ${pkgs.python3.interpreter} - "$contents" <<'EOF'
+          import plistlib, re, sys
+          contents = sys.argv[1]
+          with open(f"{contents}/Info.plist", "rb") as f:
+              info = plistlib.load(f)
+          with open(f"{contents}/MacOS/{info['CFBundleExecutable']}") as f:
+              wrapper = f.read()
+          env = dict(re.findall(r"^export (MOZ_\w+)='([^']*)'$", wrapper, re.M))
+          real = re.search(r'^exec "([^"]+)"', wrapper, re.M).group(1)
+          info["CFBundleExecutable"] = real.rsplit("/", 1)[1]
+          info["LSEnvironment"] = env
+          with open(f"{contents}/Info.plist", "wb") as f:
+              plistlib.dump(info, f)
+          EOF
+        '';
+      }
+    );
+
     # Baked into the nixpkgs wrapper's distribution/policies.json, so this
     # works on both darwin and Linux as long as the package comes from nixpkgs
     # (Linux machines using a distro-packaged LibreWolf need
