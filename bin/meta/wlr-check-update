@@ -23,6 +23,11 @@ fi
 
 wlr-working 'update check'
 
+# The git config names the signing wrapper (gpg.ssh.program) without a path.
+# From shell startup, bin/git is not on PATH yet, so commits made by the
+# reconcile tool and commits replayed by the rebase below could not be signed.
+export PATH="$WLR_ENV_PATH/bin/git:$PATH"
+
 # Reconcile dotfile drift before pulling, so edits that programs made to live
 # dotfiles are separated from upstream changes. Accepted edits become local
 # commits that the update below rebases onto upstream. The tool is installed

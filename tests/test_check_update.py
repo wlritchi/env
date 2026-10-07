@@ -162,7 +162,13 @@ def test_local_commits_are_rebased_onto_upstream(
     (remote / '.allowed_signers').write_text(
         f'test@example.com {key.with_suffix(".pub").read_text()}'
     )
-    run(['git', '-C', str(remote), 'add', '.allowed_signers'], env)
+    # A stand-in for the signing wrapper, so the rebase can sign without a
+    # confirmation prompt. Only the check-update script puts it on PATH.
+    wrapper = remote / 'bin/git/wlr-git-ssh-sign'
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text('#!/bin/sh\nexec ssh-keygen "$@"\n')
+    wrapper.chmod(0o755)
+    run(['git', '-C', str(remote), 'add', '.allowed_signers', 'bin'], env)
     run(['git', '-C', str(remote), 'commit', '-m', 'Initial signers'], env)
     public = home / 'public'
     env['WLR_ENV_PATH'] = str(public)
@@ -193,6 +199,13 @@ def test_local_commits_are_rebased_onto_upstream(
     (public / 'local').write_text('Local change\n')
     run(['git', '-C', str(public), 'add', 'local'], env)
     run(['git', '-C', str(public), 'commit', '-m', 'Local'], env)
+    config.write_text(
+        config.read_text()
+        + f'[user]\n\tsigningkey = {key}\n'
+        + '[gpg "ssh"]\n\tprogram = wlr-git-ssh-sign\n'
+        + '[commit]\n\tgpgsign = true\n'
+    )
+    assert run(['bash', '-c', 'command -v wlr-git-ssh-sign || true'], env) == ''
     if upstream_moved:
         (remote / 'update').write_text('New content\n')
         run(['git', '-C', str(remote), 'add', 'update'], env)
@@ -230,6 +243,20 @@ def test_local_commits_are_rebased_onto_upstream(
         assert (public / 'update').exists()
         assert run(['git', '-C', str(public), 'rev-parse', 'HEAD~1'], env) == run(
             ['git', '-C', str(remote), 'rev-parse', 'HEAD'], env
+        )
+        run(
+            [
+                'git',
+                '-C',
+                str(public),
+                '-c',
+                'gpg.ssh.program=ssh-keygen',
+                '-c',
+                f'gpg.ssh.allowedSignersFile={public / ".allowed_signers"}',
+                'verify-commit',
+                'HEAD',
+            ],
+            env,
         )
     else:
         assert result.returncode == 1, output
