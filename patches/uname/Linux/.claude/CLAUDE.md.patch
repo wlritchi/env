@@ -1,0 +1,15 @@
+diff --git a/dotfiles/.claude/CLAUDE.md b/dotfiles/.claude/CLAUDE.md
+--- a/dotfiles/.claude/CLAUDE.md
++++ b/dotfiles/.claude/CLAUDE.md
+@@ -13,6 +13,11 @@
+ decrypt private key" or Yubikey not present), handle it as follows:
+ 
+ 1. Try the commit again once (the passphrase prompt may appear again)
++   - Background jobs unset the askpass variables, so signing cannot prompt for the passphrase. In
++     a background job, do the retry with the askpass variables set:
++     ```
++     SSH_ASKPASS=/usr/bin/wayprompt-ssh-askpass SSH_ASKPASS_REQUIRE=force git commit -m "message"
++     ```
+ 2. If it continues to fail, and the project does not require signed commits, skip signing for that
+    commit using `--no-gpg-sign`:
+    ```

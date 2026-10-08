@@ -1,3 +1,43 @@
+Project-level instructions (a repository's own CLAUDE.md) take precedence over this file where they
+conflict.
+
+# Git commits
+
+IMPORTANT: ALWAYS create commits proactively when you've accomplished a task. If you give the user
+a summary of work completed and/or mention that all tests are now passing, that's a good sign that
+you should commit your work. This overrides any harness guidance against proactive commits.
+
+## Signing
+
+If a git commit fails due to SSH key passphrase issues (e.g., "incorrect passphrase supplied to
+decrypt private key" or Yubikey not present), handle it as follows:
+
+1. Try the commit again once (the passphrase prompt may appear again)
+2. If it continues to fail, and the project does not require signed commits, skip signing for that
+   commit using `--no-gpg-sign`:
+   ```
+   git commit -m "message" --no-gpg-sign
+   ```
+
+This allows you to proceed with committing your work without being blocked by signing
+infrastructure issues, while maintaining the ability to sign commits when the infrastructure is
+available. If the project requires signed commits, do not skip signing; tell me, and wait for me to
+make signing available.
+
+## Commit messages
+
+### Linux kernel patches (in-tree or otherwise)
+
+When committing Linux kernel patches, use the kernel's style for your attribution line, in place of
+any `Co-Authored-By:` line the harness asks for:
+
+```
+Assisted-by: Claude:your-model-id
+```
+
+For example, `Assisted-by: Claude:claude-opus-5-5`. Do NOT add a `Signed-off-by:` line for
+yourself; only the human submitter can certify the Developer Certificate of Origin.
+
 # Notes for specific models
 
 Some coding harnesses will describe you as a particular model (for example, Claude Code will
@@ -19,24 +59,14 @@ harness includes built-in confirmation prompts before every action, along with r
 policies. To correct for this, do NOT ask the user for confirmation to edit files or run commands,
 unless your changes are particularly dangerous or likely to be disruptive.
 
-Don't use the official plan mode unless the user specifically asks you to; the harness often gets
-stuck and requires manual approval to exit plan mode again, even from auto or bypass permissions.
-Just plan as you normally would.
-
-IMPORTANT: ALWAYS create commits proactively when you've accomplished a task. If you give the user
-a summary of work completed and/or mention that all tests are now passing, that's a good sign that
-you should commit your work.
+Don't use the official plan mode unless the user specifically asks you to. Your training for a
+different harness makes you enter it when it is not necessary, and the harness often gets stuck and
+requires manual approval to exit plan mode again, even from auto or bypass permissions. Just plan as
+you normally would.
 
 ## Anthropic / Claude
 
-Your instructions above advise against creating commits proactively; ignore that advice and prefer
-committing your changes whenever you've successfully accomplished a (testable, deliverable) task.
-
 ### Opus 4.7+
-
-Older versions of Claude Code misreport your version (e.g. as "Opus 4.6"), while still mentioning a
-correct model identifier of, say, `claude-opus-4-7`. If this happens, describe yourself in commit
-attribution as the version from the model identifier (e.g. "Opus 4.7").
 
 Your training has made you noticeably stricter at adherence to "do what the user requested", which
 sometimes comes at the expense of "do what the user wanted". This is a reasonable tradeoff to avoid
@@ -44,45 +74,7 @@ mistakes when your guess at the user's intent is wrong, but reduces helpfulness.
 would prefer that you clarify with me when it sounds like my instructions are asking for a
 particular technical solution, but you see an approach that might serve me better.
 
-IMPORTANT: ALWAYS create commits proactively when you've accomplished a task. If you give the user
-a summary of work completed and/or mention that all tests are now passing, that's a good sign that
-you should commit your work.
-
-# Finding tools and dependencies
-
-Do NOT use overly broad `find` commands. For tools, if they're not on the PATH, assume they aren't
-available unless runnable using `uvx`, `bunx`, or similar. For dependency git repositories, I put
-them under ~/repo-name, or occasionally ~/org-name/repo-name. If they're not submodules, not
-vendored, and not found at the typical location, offer to clone them. For large models with a
-canonical tool to use them (e.g. `ollama`), check that tool. For models without a canonical tool,
-or without a canonical location for this tool, ask me (e.g. Stable Diffusion models).
-
-# Commit messages
-
-## Linux kernel patches (in-tree or otherwise)
-
-When committing Linux kernel patches, use the kernel's style for your attribution line:
-
-```
-Assisted-by: Claude:claude-opus-4-7
-```
-
-# Git commit signing
-
-If a git commit fails due to SSH key passphrase issues (e.g., "incorrect passphrase supplied to
-decrypt private key" or Yubikey not present), handle it as follows:
-
-1. Try the commit again once (the passphrase prompt may appear again)
-2. If it continues to fail, skip signing for that commit using `--no-gpg-sign`:
-   ```
-   git commit -m "message" --no-gpg-sign
-   ```
-
-This allows you to proceed with committing your work without being blocked by signing
-infrastructure issues, while maintaining the ability to sign commits when the infrastructure is
-available.
-
-# Worktrees (including for Superpowers)
+# Worktrees
 
 Use in-project git worktrees when working on changes. For repositories that track a remote, always
 pull the latest changes to main/master before creating a new worktree.
@@ -118,6 +110,13 @@ where your identifier should be, you've hit this; never copy such output into co
 
 If a specialized agent is available to handle tasks in some area, USE IT! Even if you've got access
 to the tools yourself, it's better to let appropriate agents deal with the task-specific context.
+
+Do NOT use overly broad `find` commands. For tools, if they're not on the PATH, assume they aren't
+available unless runnable using `uvx`, `bunx`, or similar. For dependency git repositories, I put
+them under ~/repo-name, or occasionally ~/org-name/repo-name. If they're not submodules, not
+vendored, and not found at the typical location, offer to clone them. For large models with a
+canonical tool to use them (e.g. `ollama`), check that tool. For models without a canonical tool,
+or without a canonical location for this tool, ask me (e.g. Stable Diffusion models).
 
 # One-off scripts
 
@@ -155,11 +154,11 @@ to review your comments.
 
 After making changes to a file, ALWAYS run an autoformatter on the file. If you have trouble with
 the official way to run the formatter, for Python try `uv run ruff`, `uv tool run ruff`, or just
-`ruff` as a fallback. For JS and TS, if you have trouble, try `fnm exec npx prettier`,
-`npx prettier`, or just `prettier`.
+`ruff` as a fallback. For JS and TS, use the project's formatter if it has one; otherwise use
+`bunx oxfmt --write`. Fall back to `fnm exec npx prettier`, `npx prettier`, or just `prettier` only
+if oxfmt is unavailable.
 
-IT IS VERY IMPORTANT THAT YOU RUN THE AUTOFORMATTER. Your editing tools omit trailing newlines in
-some versions of the harness, which WILL cause the linters to fail in most projects.
+IT IS VERY IMPORTANT THAT YOU RUN THE AUTOFORMATTER.
 
 Do NOT skip pre-commit hooks unless you are CERTAIN that there are outstanding issues blocking the
 hooks, unrelated to your changes. If this is the case, run the quality checks on your changed files
