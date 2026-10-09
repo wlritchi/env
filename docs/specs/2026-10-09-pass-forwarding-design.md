@@ -69,13 +69,16 @@ Gotchas found during the test:
   open a new master connection.
 - A stale socket file on the remote blocks a new forward unless the remote sshd has
   `StreamLocalBindUnlink yes`. Without that, delete the stale file before `ssh -O forward`.
+- The forward closes with its master connection. After a reconnect, the remote has a stale socket
+  file and no forward, and gpg reports "No agent running". `sshx` must set up the forward on each
+  new connection.
 - The remote socket path uses the remote UID, which ssh cannot expand. All machines use UID 1000
   now.
 
 ## Level 1+2: verifying proxy
 
 A local daemon, `pass-fwd`, sits between the forwarded socket and `S.gpg-agent.extra`. It passes the
-Assuan protocol through, applies an allowlist, and intercepts `PKDECRYPT`.
+Assuan protocol through, applies an allowlist, and intercepts `PKDECRYPT` and `PKSIGN`.
 
 ### Which machine
 
@@ -124,62 +127,114 @@ The index can also include old versions of entries from git history, with labels
 
 ### Prompt and approval
 
-For each `PKDECRYPT`, `pass-fwd`:
+The daemon shows a confirm dialog before the agent receives the request. Thus the agent cannot show
+a PIN dialog, and the card cannot wait for a touch, before you approve.
 
-1. Shows "neon wants `Finance/bank` — touch YubiKey to approve" as a desktop notification.
-2. Sends the request to the agent. The touch is the approval. If no touch occurs, the card times out
-   and the request fails.
-3. Removes the notification when the agent replies.
+For `PKDECRYPT`, the daemon does not send the command to the agent. It acts as the agent for this
+step:
 
-The daemon sends one `PKDECRYPT` at a time, so the notification always matches the operation that
-waits on the card. A local `pass` decryption at the same time does not go through the daemon and
-can still race with it.
+1. It sends `S INQUIRE_MAXLEN 4096` and `INQUIRE CIPHERTEXT` to the client, and reads the `D` lines
+   until `END`.
+2. It finds the entry in the index, and shows the dialog: "neon wants to decrypt `Finance/bank`.
+   After you approve, touch the YubiKey."
+3. On Approve, it sends `PKDECRYPT` to the agent, answers the agent's `INQUIRE CIPHERTEXT` with the
+   data from step 1, and relays the replies of the agent to the client. Then the agent asks for the
+   PIN if necessary, and the card waits for a touch.
+4. On Deny or timeout, it sends `ERR 83886179 Operation cancelled <Pinentry>` to the client. The
+   agent receives nothing.
 
-PIN prompts come from gpg-agent and `pinentry-wayprompt` as before.
+The commands before `PKDECRYPT` (`SETKEY`, `HAVEKEY`, `SCD SERIALNO`) do not cause a PIN dialog or a
+touch, so they can go to the agent immediately.
+
+The dialog uses `pinentry-wayprompt` through the pinentry protocol: `SETTITLE`, `SETDESC`, `SETOK`,
+`SETCANCEL`, and `CONFIRM`. Tested on wayprompt 0.1.2: these work, but `SETTIMEOUT` returns "Not
+implemented". The daemon stops the pinentry process after 60 seconds and treats this as Deny.
+
+The daemon shows one dialog and runs one card operation at a time. Other requests wait in a queue.
+A local `pass` decryption does not go through the daemon. It can still ask for a touch at the same
+time as an approved remote request.
+
+### Signing
+
+The daemon also lets a remote machine sign with the YubiKey signing subkey, after a confirm dialog.
+The neon test showed this sequence:
+
+```
+SCD GETATTR KEY-FPR
+READKEY --card --no-data -- $SIGNKEYID   (the agent refuses this in restricted mode)
+SIGKEY <keygrip>
+SETKEYDESC <text>
+SETHASH 10 <SHA-512 digest, hex>
+PKSIGN
+```
+
+`PKSIGN` has no inquire. The daemon holds `PKSIGN`, shows the dialog, and sends `PKSIGN` to the
+agent only on Approve.
+
+The daemon accepts `SIGKEY` only for the keygrip of the signing subkey (`E6542F8D51DCCF82`). It
+finds the keygrip with `gpg --with-keygrip -K` at start. The primary key is not on the card, so a
+remote machine cannot make key certifications.
+
+**The local machine cannot tell what it signs.** The agent receives only a digest. A git commit, a
+tag, an email, or a signed file look the same. The dialog must say this clearly, for example:
+
+> neon wants a signature with your OpenPGP signing key (E654 2F8D 51DC CF82).
+>
+> **This machine cannot see what will be signed.** Approve only if you started a signing operation
+> on neon just now.
+>
+> SHA-512: 83A4 398E 9FCD A833 …
+
+The dialog uses a different title and button text from the decrypt dialog ("Sign", not "Approve"),
+so that you do not approve a signature by habit.
+
+A signature has more effect than a decryption. The index can trust fetched commits because they
+have your signature. If you approve a signature that a compromised remote asks for, the remote can
+make a signed commit that the index trusts.
 
 ### Command allowlist
 
-These commands occurred in the neon test and must pass:
+These commands occurred in the neon tests and must pass:
 
 `RESET`, `OPTION`, `GETINFO restricted`, `GETINFO version`, `SCD SERIALNO`,
-`SCD KEYINFO --list=encr`, `HAVEKEY`, `SETKEY`, `SETKEYDESC`, `PKDECRYPT` (with its inquire data),
-`NOP`, `BYE`.
+`SCD KEYINFO --list=encr`, `SCD GETATTR KEY-FPR`, `READKEY`, `HAVEKEY`, `SETKEY`, `SIGKEY` (signing
+subkey only), `SETKEYDESC`, `SETHASH`, `PKDECRYPT` (held for the dialog), `PKSIGN` (held for the
+dialog), `NOP`, `BYE`.
 
 The daemon refuses other commands. The agent already refuses some of them in restricted mode.
 
 `SETKEYDESC` text comes from the remote. The agent shows it only for soft keys, not for card PIN
-prompts. The daemon can replace it with its own verified text.
-
-`PKSIGN` is refused by default. The daemon sees only a digest, so it cannot show what is signed.
-Remote `pass` commits in `sshx` sessions sign with SSH, so they do not need `PKSIGN`.
+prompts. The daemon replaces it with its own text.
 
 ## passage variant
 
 The same design works with passage and `age-plugin-yubikey` (PIV applet, touch policy `always`,
 PIN policy `once`). age has no agent, so the remote uses a plugin, `age-plugin-forward`, as its
 identity. The plugin sends the `piv-p256` stanza of the file to the forwarded socket. The daemon
-finds the stanza in its index, unwraps it locally with `age-plugin-yubikey`, and returns the file
-key. Each stanza has its own ephemeral share, so the index works the same way.
+finds the stanza in its index, shows the same confirm dialog, unwraps the stanza locally with
+`age-plugin-yubikey`, and returns the file key. Each stanza has its own ephemeral share, so the
+index works the same way.
 
-Migrate to passage only to share one store between the YubiKey on Linux and the Secure Enclave on
-macOS (`age-plugin-se`). Forwarding does not require it.
+This store stays on pass for now, because Android Password Store does not support passage. The
+long-term plan is to move to age. Thus keep the index, the per-host sockets, and the dialog
+separate from the Assuan code, so that the age variant can use them.
 
 ## Plan
 
 1. Level 0 tooling: a remote setup command for `~/.gnupg-fwd` and the socket symlink, and forwarding
-   in `sshx`. `sshx` also sets `GNUPGHOME` (or `PASSWORD_STORE_GPG_OPTS`) on the remote when the
-   forward is active.
-2. `pass-fwd` daemon: per-host sockets, allowlist, `PKDECRYPT` index, notification, one request at a
-   time. Python, in `src/wlrenv/`, run as a systemd user service.
+   in `sshx` on each new connection. `sshx` also sets `GNUPGHOME` (or `PASSWORD_STORE_GPG_OPTS`) on
+   the remote when the forward is active.
+2. `pass-fwd` daemon: per-host sockets, allowlist, `PKDECRYPT` index, confirm dialogs for decryption
+   and signing, one request at a time. Python, in `src/wlrenv/`, run as a systemd user service.
 3. Fetch on index miss, with commit signature checks.
-4. Optional: passage variant.
+4. Later: passage variant, when the store moves to age.
 
-## Open questions
+## Decisions (2026-10-09)
 
-- Notification only, or a confirm dialog before the touch? A confirm dialog adds a step, and
-  it can collide with a PIN dialog from the agent.
-- Should `PKSIGN` be possible with a prompt, for remote GPG signing?
-- Is the passage store on macOS separate from this store, and should the two merge?
+- A confirm dialog comes before the agent receives the request. No notification-only mode.
+- Remote signing is allowed with the signing subkey only, behind a dialog that says the local machine
+  cannot see what is signed.
+- The store stays on pass until Android Password Store supports passage.
 
 ## Related issue
 
