@@ -76,7 +76,7 @@ if [ -n "$apply_pass_fwd" ]; then
         # Use a new remote path for each connection. A stale socket from an earlier
         # connection blocks the bind unless sshd has StreamLocalBindUnlink.
         remote_sock="/tmp/pass-fwd.$(od -An -N8 -tx8 /dev/urandom | tr -d ' \n').sock"
-        # Point the agent socket of ~/.gnupg-fwd (made by wlr-pass-fwd setup-remote) at the
+        # Point the agent socket of ~/.gnupg-fwd (made by wlr-pass-fwd-home) at the
         # forward, and make only pass use that home directory.
         cmd='pf_sock='"$remote_sock"'; pf_link=; if [ -S "$pf_sock" ] && [ -d "$HOME/.gnupg-fwd" ] && pf_link="$(gpgconf --homedir "$HOME/.gnupg-fwd" --list-dirs agent-socket 2>/dev/null)"; then ln -sfn "$pf_sock" "$pf_link"; export PASSWORD_STORE_GPG_OPTS="${PASSWORD_STORE_GPG_OPTS:+$PASSWORD_STORE_GPG_OPTS }--homedir $HOME/.gnupg-fwd"; fi; '"$cmd"
         cleanup+='if [ -n "$pf_link" ] && [ "$(readlink "$pf_link")" = "$pf_sock" ]; then rm -f "$pf_link"; fi; rm -f "$pf_sock"; '

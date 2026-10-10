@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build ~/.gnupg-fwd, the gpg home directory that pass uses in an sshx session with a
+# forwarded pass-fwd socket (see docs/specs/2026-10-09-pass-forwarding-design.md).
+# It holds only the public keys and owner trust in config/pass-fwd/ of the private
+# overlay, which `wlr-pass-fwd export-keys` writes. The secret keys stay on the
+# YubiKey of the machine that runs pass-fwd.
+#
+# Dependencies: gpg
+
+private_env_path="${PRIVATE_ENV_PATH:-$HOME/.wlrenv-private}"
+keys="$private_env_path/config/pass-fwd/recipients.asc"
+trust="$private_env_path/config/pass-fwd/ownertrust.txt"
+home="${WLR_PASS_FWD_HOME:-$HOME/.gnupg-fwd}"
+
+if ! command -v gpg >/dev/null 2>&1 || [ ! -f "$keys" ] || [ ! -f "$trust" ]; then
+    exit 0
+fi
+
+gpg_fwd() {
+    # gpg reports that no agent runs, because no-autostart stops it from starting one.
+    # This is expected outside an sshx session.
+    gpg --homedir "$home" --batch --quiet "$@" 2> >(grep -v 'no gpg-agent running' >&2)
+}
+
+primary_fingerprints() {
+    awk -F: 'previous == "pub" && $1 == "fpr" { print $10 } { previous = $1 }'
+}
+
+install -d -m 700 "$home"
+touch "$home/gpg.conf"
+grep -qx no-autostart "$home/gpg.conf" || echo no-autostart >>"$home/gpg.conf"
+
+# An import merges new subkeys, signatures, and expiry dates into the keys that exist.
+gpg_fwd --import "$keys"
+gpg_fwd --import-ownertrust "$trust"
+
+# Remove keys that the file no longer has, for example a rotated secwrap meta key.
+wanted="$(gpg_fwd --with-colons --import-options show-only --import "$keys" | primary_fingerprints)"
+gpg_fwd --with-colons --list-keys | primary_fingerprints | while read -r fingerprint; do
+    if ! grep -qxF "$fingerprint" <<<"$wanted"; then
+        gpg_fwd --yes --delete-keys "$fingerprint"
+    fi
+done

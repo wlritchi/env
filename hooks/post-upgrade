@@ -14,6 +14,9 @@ elif ! grep -q 'path.*\.wlrenv/config/git/uname/' ~/.gitconfig; then
     wlr-warn "~/.gitconfig missing include for uname gitconfig - see config/git/local.template"
 fi
 
+# update the gpg home directory for forwarded pass decryption
+"$WLR_ENV_PATH/bin/meta/wlr-pass-fwd-home"
+
 # set up git config for env
 git -C "$WLR_ENV_PATH" config --local gpg.ssh.allowedSignersFile "$WLR_ENV_PATH/.allowed_signers"
 

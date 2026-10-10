@@ -255,8 +255,13 @@ design above:
   repeated or extra elements could make the daemon and gpg-agent read different values.
 - `pinentry-wayprompt` shows the refusal message for an unknown ciphertext. It has a button only
   if `SETOK` is set. Refusal messages wait in the dialog queue, and only one can be pending.
-- `wlr-pass-fwd setup-remote HOST` makes `~/.gnupg-fwd` and imports the public keys and owner
-  trust of all recipients in the store.
+- `hooks/post-upgrade` runs `bin/meta/wlr-pass-fwd-home` on each machine. It makes
+  `~/.gnupg-fwd` and imports the public keys and owner trust from `config/pass-fwd/` in the
+  private overlay, and removes keys that the file no longer has. `wlr-pass-fwd export-keys`
+  writes these files from the local keyring. The keys are in the private overlay because the
+  public repo is published, and the keys name devices and the secwrap meta key. Thus key changes,
+  such as an extended expiry date or a rotated secwrap meta key, reach all machines with the next
+  update.
 
 ## Related issue
 

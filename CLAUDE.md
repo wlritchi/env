@@ -55,7 +55,7 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
   - Automatically built on `wlr-check-update` via `hooks/post-upgrade` → `wlr-nix-rebuild`
   - For development: use standard `cargo build` in the utility's directory
 
-- `pass-fwd` (`src/wlrenv/pass_fwd/`, spec `docs/specs/2026-10-09-pass-forwarding-design.md`) lets `pass` on a remote machine decrypt with the local YubiKey. `sshx` forwards a per-host socket of the `pass-fwd` user service, which passes only card-key requests to gpg-agent's extra socket, and shows a pinentry confirm dialog with the entry name (found from the ciphertext in the local store) before the agent sees `PKDECRYPT` or `PKSIGN`. Prepare a remote once with `wlr-pass-fwd setup-remote HOST`.
+- `pass-fwd` (`src/wlrenv/pass_fwd/`, spec `docs/specs/2026-10-09-pass-forwarding-design.md`) lets `pass` on a remote machine decrypt with the local YubiKey. `sshx` forwards a per-host socket of the `pass-fwd` user service, which passes only card-key requests to gpg-agent's extra socket, and shows a pinentry confirm dialog with the entry name (found from the ciphertext in the local store) before the agent sees `PKDECRYPT` or `PKSIGN`. `hooks/post-upgrade` builds `~/.gnupg-fwd` on each machine (`bin/meta/wlr-pass-fwd-home`) from the recipients' public keys in the private overlay's `config/pass-fwd/`. After a key changes (for example an extended expiry date or `secwrap rotate-meta`), run `wlr-pass-fwd export-keys` and commit the private overlay.
 
 ## Nix Integration
 This repository uses Nix Flakes with home-manager for declarative package and environment management:
