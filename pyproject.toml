@@ -40,6 +40,7 @@ retainer = 'wlrenv.retainer:cli_main'
 rg-shim = 'wlrenv.rgshim:main'
 mvx = 'wlrenv.mvx:main'
 secwrap = 'wlrenv.secwrap:main'
+wlr-pass-fwd = 'wlrenv.pass_fwd.cli:main'
 wlr-reconcile-dotfiles = 'wlrenv.reconcile_dotfiles:main'
 wlr-niri-librewolf-host = 'wlrenv.niri.cli:librewolf_native_host_cli'
 wlr-niri-restore-mosh = 'wlrenv.niri.cli:restore_mosh_cli'
@@ -120,6 +121,7 @@ select = [
 "src/wlrenv/niri/cli.py" = ["T201"]  # CLI entry points use print for errors
 "src/wlrenv/rgshim.py" = ["T201", "S606"]  # CLI entry point prints errors and execs rg
 "src/wlrenv/secwrap.py" = ["T201"]  # CLI entry point uses print for errors
+"src/wlrenv/pass_fwd/cli.py" = ["T201"]  # CLI prints the socket path for sshx
 
 [tool.codespell]
 ignore-words-list = "fpr"  # fpr: gpg --with-colons fingerprint record type (secwrap)
