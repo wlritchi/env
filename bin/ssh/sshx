@@ -78,7 +78,9 @@ if [ -n "$apply_pass_fwd" ]; then
         remote_sock="/tmp/pass-fwd.$(od -An -N8 -tx8 /dev/urandom | tr -d ' \n').sock"
         # Point the agent socket of ~/.gnupg-fwd (made by wlr-pass-fwd-home) at the
         # forward, and make only pass use that home directory.
-        cmd='pf_sock='"$remote_sock"'; pf_link=; if [ -S "$pf_sock" ] && [ -d "$HOME/.gnupg-fwd" ] && pf_link="$(gpgconf --homedir "$HOME/.gnupg-fwd" --list-dirs agent-socket 2>/dev/null)"; then ln -sfn "$pf_sock" "$pf_link"; export PASSWORD_STORE_GPG_OPTS="${PASSWORD_STORE_GPG_OPTS:+$PASSWORD_STORE_GPG_OPTS }--homedir $HOME/.gnupg-fwd"; fi; '"$cmd"
+        # Tell the user if the forward is there but the remote cannot use it, so that a
+        # failed pass command has an explanation.
+        cmd='pf_sock='"$remote_sock"'; pf_link=; if [ -S "$pf_sock" ]; then if [ -d "$HOME/.gnupg-fwd" ] && pf_link="$(gpgconf --homedir "$HOME/.gnupg-fwd" --list-dirs agent-socket 2>/dev/null)"; then ln -sfn "$pf_sock" "$pf_link"; export PASSWORD_STORE_GPG_OPTS="${PASSWORD_STORE_GPG_OPTS:+$PASSWORD_STORE_GPG_OPTS }--homedir $HOME/.gnupg-fwd"; else pf_link=; echo "pass-fwd: forward available, but ~/.gnupg-fwd or gpgconf is missing, so pass uses the gpg setup of this machine" >&2; fi; fi; '"$cmd"
         cleanup+='if [ -n "$pf_link" ] && [ "$(readlink "$pf_link")" = "$pf_sock" ]; then rm -f "$pf_link"; fi; rm -f "$pf_sock"; '
         args+=(-R "$remote_sock:$pass_fwd_sock")
     fi
