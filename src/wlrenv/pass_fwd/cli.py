@@ -69,6 +69,7 @@ async def serve(pinentry_program: str, dialog_timeout: float) -> None:
         policy=policy,
         lookup=lambda key: asyncio.to_thread(index.lookup, key),
         confirm=pinentry.confirm,
+        recheck=lambda: asyncio.to_thread(policy.reload),
         report_unknown=report_unknown,
     )
     server = Server(runtime_dir(), gpgconf_dir("agent-extra-socket"), ctx)

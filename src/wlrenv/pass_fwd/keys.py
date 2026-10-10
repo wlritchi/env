@@ -111,10 +111,13 @@ class PolicySource:
         self.loaded_at = float("-inf")
 
     def __call__(self) -> KeyPolicy:
-        now = time.monotonic()
-        if self.policy.empty and now - self.loaded_at >= RELOAD_INTERVAL:
-            self.loaded_at = now
-            self.policy = self.loader()
-            if self.policy.empty:
-                log.warning("no smartcard key with touch for each use is available")
+        if self.policy.empty and time.monotonic() - self.loaded_at >= RELOAD_INTERVAL:
+            return self.reload()
+        return self.policy
+
+    def reload(self) -> KeyPolicy:
+        self.loaded_at = time.monotonic()
+        self.policy = self.loader()
+        if self.policy.empty:
+            log.warning("no smartcard key with touch for each use is available")
         return self.policy

@@ -7,7 +7,15 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from wlrenv.pass_fwd.dialog import DecryptRequest, Request, SignRequest
 from wlrenv.pass_fwd.index import Lookup, ecdh_key
 from wlrenv.pass_fwd.keys import CardKey, KeyPolicy
-from wlrenv.pass_fwd.proxy import CANCELLED, FORBIDDEN, ProxyContext, Session
+from wlrenv.pass_fwd.proxy import (
+    CANCELLED,
+    FORBIDDEN,
+    ProtocolError,
+    ProxyContext,
+    Session,
+    encode_data,
+    unescape_data,
+)
 
 from .helpers import agent_ciphertext, ecdh_parts
 
@@ -20,11 +28,6 @@ POLICY = KeyPolicy(
 )
 FOUND = Lookup(current=("Social/foo",))
 DIGEST = "83A4398E9FCDA833F757160B6F00F574F0C6C1044AA679F269D004E7FD108F0A"
-
-
-def encode_data(data: bytes) -> bytes:
-    escaped = data.replace(b"%", b"%25").replace(b"\r", b"%0D").replace(b"\n", b"%0A")
-    return b"D " + escaped + b"\n"
 
 
 class FakeAgent:
@@ -84,7 +87,7 @@ class Client:
         while (line := await self.r.readline()) != b"INQUIRE CIPHERTEXT\n":
             if line.startswith(b"ERR "):
                 return [line]
-        self.w.write(encode_data(ciphertext) + b"END\n")
+        self.w.write(b"".join(encode_data(ciphertext)) + b"END\n")
         await self.w.drain()
         return await self.until_final()
 
@@ -104,7 +107,8 @@ async def wired(ctx: ProxyContext, agent: FakeAgent) -> AsyncIterator[Client]:
         yield Client(tr, tw)
     finally:
         tw.close()
-        await asyncio.wait_for(session_task, 5)
+        with contextlib.suppress(ProtocolError):
+            await asyncio.wait_for(session_task, 5)
         aw.close()
         await asyncio.wait_for(agent_task, 5)
         for writer in (cw, fw):
@@ -116,6 +120,7 @@ def make_ctx(
     lookup: Lookup,
     approve: bool,
     requests: list[Request],
+    recheck_policy: KeyPolicy = POLICY,
 ) -> ProxyContext:
     async def do_lookup(_key: bytes) -> Lookup:
         return lookup
@@ -127,19 +132,26 @@ def make_ctx(
         requests.append(request)
         return approve
 
-    return ProxyContext(policy=lambda: POLICY, lookup=do_lookup, confirm=confirm)
+    async def recheck() -> KeyPolicy:
+        return recheck_policy
+
+    return ProxyContext(
+        policy=lambda: POLICY, lookup=do_lookup, confirm=confirm, recheck=recheck
+    )
 
 
 def run(
     test: Callable[[Client, FakeAgent], Awaitable[None]],
     lookup: Lookup = FOUND,
     approve: bool = True,
+    recheck_policy: KeyPolicy = POLICY,
 ) -> list[Request]:
     requests: list[Request] = []
 
     async def main() -> None:
         agent = FakeAgent()
-        async with wired(make_ctx(agent, lookup, approve, requests), agent) as client:
+        ctx = make_ctx(agent, lookup, approve, requests, recheck_policy)
+        async with wired(ctx, agent) as client:
             await test(client, agent)
 
     asyncio.run(main())
@@ -221,7 +233,15 @@ class TestDecrypt:
             async def confirm(_request: Request) -> bool:
                 return True
 
-            ctx = ProxyContext(policy=lambda: POLICY, lookup=do_lookup, confirm=confirm)
+            async def recheck() -> KeyPolicy:
+                return POLICY
+
+            ctx = ProxyContext(
+                policy=lambda: POLICY,
+                lookup=do_lookup,
+                confirm=confirm,
+                recheck=recheck,
+            )
             async with wired(ctx, agent) as client:
                 await test(client, agent)
 
@@ -247,6 +267,32 @@ class TestDecrypt:
             assert not agent.received(b"PKDECRYPT")
 
         assert run(test, lookup=Lookup()) == []
+
+    def test_card_changed_after_approval(self) -> None:
+        async def test(client: Client, agent: FakeAgent) -> None:
+            await client.cmd(b"SETKEY " + DECRYPT_GRIP.encode())
+            assert await client.pkdecrypt(agent_ciphertext(*ecdh_parts())) == [
+                FORBIDDEN
+            ]
+            assert not agent.received(b"PKDECRYPT")
+
+        assert len(run(test, recheck_policy=KeyPolicy())) == 1
+
+    def test_malformed_escape_ends_session(self) -> None:
+        async def test(client: Client, agent: FakeAgent) -> None:
+            await client.cmd(b"SETKEY " + DECRYPT_GRIP.encode())
+            client.w.write(b"PKDECRYPT\n")
+            await client.w.drain()
+            while await client.r.readline() != b"INQUIRE CIPHERTEXT\n":
+                pass
+            client.w.write(b"D (7:enc-val%zz\nEND\n")
+            await client.w.drain()
+            # The session stops with ProtocolError. The server then closes the
+            # connection; this test only checks that the agent saw nothing.
+            await asyncio.sleep(0.2)
+            assert not agent.received(b"PKDECRYPT")
+
+        assert run(test) == []
 
     def test_sign_key_cannot_decrypt(self) -> None:
         async def test(client: Client, agent: FakeAgent) -> None:
@@ -287,9 +333,34 @@ class TestSign:
 
         assert len(run(test, approve=False)) == 1
 
+    def test_card_changed_after_approval(self) -> None:
+        async def test(client: Client, agent: FakeAgent) -> None:
+            await client.cmd(b"SIGKEY " + SIGN_GRIP.encode())
+            await client.cmd(b"SETHASH 10 " + DIGEST.encode())
+            assert await client.cmd(b"PKSIGN") == [FORBIDDEN]
+            assert not agent.received(b"PKSIGN")
+
+        assert len(run(test, recheck_policy=KeyPolicy())) == 1
+
     def test_decrypt_key_cannot_sign(self) -> None:
         async def test(client: Client, agent: FakeAgent) -> None:
             await client.cmd(b"SETKEY " + DECRYPT_GRIP.encode())
             assert await client.cmd(b"PKSIGN") == [FORBIDDEN]
 
         assert run(test) == []
+
+
+class TestDataLines:
+    def test_round_trip(self) -> None:
+        data = bytes(range(256)) * 5
+        lines = encode_data(data)
+        assert all(len(line) < 1000 for line in lines)
+        assert b"".join(unescape_data(line[2:-1]) for line in lines) == data
+
+    def test_malformed_escapes_are_refused(self) -> None:
+        for payload in (b"%zz", b"%4", b"abc%", b"%%41"):
+            try:
+                unescape_data(payload)
+            except ProtocolError:
+                continue
+            raise AssertionError(payload)

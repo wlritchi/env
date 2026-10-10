@@ -7,7 +7,7 @@ for a PIN and the card does not wait for a touch before the approval.
 
 import asyncio
 import logging
-import urllib.parse
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
@@ -22,6 +22,10 @@ CANCELLED = b"ERR 83886179 Operation cancelled <Pinentry>\n"
 OK = b"OK\n"
 INQUIRE_MAXLEN = 4096
 MAX_CIPHERTEXT = 64 * 1024
+# Each raw byte becomes at most 3 bytes, so a line stays below the Assuan limit
+# of 1000 bytes.
+DATA_CHUNK = 300
+ESCAPE_RE = re.compile(rb"%([0-9A-Fa-f]{2})")
 
 GETINFO_ALLOWED = {b"VERSION", b"RESTRICTED", b"CMD_HAS_OPTION"}
 SCD_ALLOWED = {b"SERIALNO", b"KEYINFO", b"GETATTR"}
@@ -39,6 +43,10 @@ class ProxyContext:
     policy: Callable[[], KeyPolicy]
     lookup: Callable[[bytes], Awaitable[Lookup]]
     confirm: Callable[[Request], Awaitable[bool]]
+    # Read the card again just before the agent receives an approved operation.
+    # The card can change after the policy was loaded, for example to a card
+    # with the same keys but without the touch policy.
+    recheck: Callable[[], Awaitable[KeyPolicy]]
     report_unknown: Callable[[str], None] = lambda _host: None
     # One dialog and one card operation at a time, so that a dialog always
     # belongs to the operation that waits on the card.
@@ -49,8 +57,27 @@ def is_final(line: bytes) -> bool:
     return line in (b"OK\n", b"OK\r\n") or line.startswith((b"OK ", b"ERR "))
 
 
-def unescape_data(line: bytes) -> bytes:
-    return urllib.parse.unquote_to_bytes(line.rstrip(b"\r\n")[2:])
+def unescape_data(payload: bytes) -> bytes:
+    """Decode the payload of a D line.
+
+    Refuse a "%" that is not followed by two hex digits. libassuan decodes such
+    a sequence differently, so the agent could read other bytes.
+    """
+    if payload.count(b"%") != len(ESCAPE_RE.findall(payload)):
+        raise ProtocolError("malformed escape in data line")
+    return ESCAPE_RE.sub(lambda m: bytes([int(m[1], 16)]), payload)
+
+
+def encode_data(data: bytes) -> list[bytes]:
+    """Encode bytes as D lines."""
+    lines = []
+    for start in range(0, len(data), DATA_CHUNK):
+        chunk = data[start : start + DATA_CHUNK]
+        escaped = (
+            chunk.replace(b"%", b"%25").replace(b"\r", b"%0D").replace(b"\n", b"%0A")
+        )
+        lines.append(b"D " + escaped + b"\n")
+    return lines
 
 
 class Session:
@@ -200,36 +227,34 @@ class Session:
                 await self.agent_w.drain()
                 return
 
-    async def _read_inquiry(self, keyword: bytes) -> list[bytes] | None:
-        """Ask the client for data. Return its D lines, or None if it cancels."""
+    async def _read_inquiry(self, keyword: bytes) -> bytes | None:
+        """Ask the client for data. Return it decoded, or None if it cancels."""
         await self._reply(
             b"S INQUIRE_MAXLEN %d\nINQUIRE %s\n" % (INQUIRE_MAXLEN, keyword)
         )
-        lines: list[bytes] = []
-        size = 0
+        decoded = b""
         while True:
             data = await self._client_line()
             stripped = data.rstrip(b"\r\n")
             if stripped == b"END":
-                return lines
+                return decoded
             if stripped == b"CAN":
                 return None
             if not stripped.startswith(b"D "):
                 raise ProtocolError(f"unexpected line in inquiry: {stripped[:40]!r}")
-            size += len(stripped)
-            if size > MAX_CIPHERTEXT:
+            decoded += unescape_data(stripped[2:])
+            if len(decoded) > MAX_CIPHERTEXT:
                 raise ProtocolError("inquiry data too large")
-            lines.append(stripped + b"\n")
 
     async def pkdecrypt(self, line: bytes) -> None:
         if self.keygrip not in self.ctx.policy().decrypt:
             await self._reply(FORBIDDEN)
             return
-        data = await self._read_inquiry(b"CIPHERTEXT")
-        if data is None:
+        ciphertext = await self._read_inquiry(b"CIPHERTEXT")
+        if ciphertext is None:
             await self._reply(CANCELLED)
             return
-        key = ciphertext_key(b"".join(unescape_data(d) for d in data))
+        key = ciphertext_key(ciphertext)
         lookup = await self.ctx.lookup(key) if key is not None else Lookup()
         if not lookup.found:
             log.warning("%s: refused unknown ciphertext", self.host)
@@ -247,7 +272,12 @@ class Session:
             if not approved:
                 await self._reply(CANCELLED)
                 return
-            await self.forward(line, inject={b"CIPHERTEXT": data})
+            if self.keygrip not in (await self.ctx.recheck()).decrypt:
+                log.warning("%s: card no longer needs a touch to decrypt", self.host)
+                await self._reply(FORBIDDEN)
+                return
+            # Send the bytes that were checked, not the client's lines.
+            await self.forward(line, inject={b"CIPHERTEXT": encode_data(ciphertext)})
 
     async def pksign(self, line: bytes) -> None:
         key = self.ctx.policy().sign.get(self.keygrip or "")
@@ -265,5 +295,9 @@ class Session:
             )
             if not approved:
                 await self._reply(CANCELLED)
+                return
+            if (self.keygrip or "") not in (await self.ctx.recheck()).sign:
+                log.warning("%s: card no longer needs a touch to sign", self.host)
+                await self._reply(FORBIDDEN)
                 return
             await self.forward(line)

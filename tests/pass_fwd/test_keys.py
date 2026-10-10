@@ -70,3 +70,14 @@ def test_source_reloads_while_empty() -> None:
     source.loaded_at -= 60
     assert not source().empty
     assert len(calls) == 2
+
+
+def test_reload_replaces_a_loaded_policy() -> None:
+    results = [
+        KeyPolicy(decrypt={DECRYPT.keygrip: DECRYPT}),
+        KeyPolicy(),
+    ]
+    source = PolicySource(lambda: results.pop(0))
+    assert not source().empty
+    assert source.reload().empty
+    assert source().empty
