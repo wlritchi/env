@@ -127,7 +127,7 @@ def make_ctx(
         requests.append(request)
         return approve
 
-    return ProxyContext(policy=POLICY, lookup=do_lookup, confirm=confirm)
+    return ProxyContext(policy=lambda: POLICY, lookup=do_lookup, confirm=confirm)
 
 
 def run(
@@ -221,7 +221,7 @@ class TestDecrypt:
             async def confirm(_request: Request) -> bool:
                 return True
 
-            ctx = ProxyContext(policy=POLICY, lookup=do_lookup, confirm=confirm)
+            ctx = ProxyContext(policy=lambda: POLICY, lookup=do_lookup, confirm=confirm)
             async with wired(ctx, agent) as client:
                 await test(client, agent)
 

@@ -74,6 +74,12 @@ class TestPrompts:
         assert "WARNING" in text
         assert "    Finance/bank\n    Social/x" in text
 
+    def test_control_characters_in_names(self) -> None:
+        text = decrypt_prompt(
+            DecryptRequest("neon", Lookup(current=("x\n\nAfter you approve",)))
+        ).description
+        assert "    x??After you approve" in text
+
     def test_old_version(self) -> None:
         text = decrypt_prompt(
             DecryptRequest("neon", Lookup(earlier=("Finance/bank",)))

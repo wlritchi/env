@@ -55,6 +55,8 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
   - Automatically built on `wlr-check-update` via `hooks/post-upgrade` → `wlr-nix-rebuild`
   - For development: use standard `cargo build` in the utility's directory
 
+- `pass-fwd` (`src/wlrenv/pass_fwd/`, spec `docs/specs/2026-10-09-pass-forwarding-design.md`) lets `pass` on a remote machine decrypt with the local YubiKey. `sshx` forwards a per-host socket of the `pass-fwd` user service, which passes only card-key requests to gpg-agent's extra socket, and shows a pinentry confirm dialog with the entry name (found from the ciphertext in the local store) before the agent sees `PKDECRYPT` or `PKSIGN`. Prepare a remote once with `wlr-pass-fwd setup-remote HOST`.
+
 ## Nix Integration
 This repository uses Nix Flakes with home-manager for declarative package and environment management:
 - **Flake configuration**: `flake.nix` defines a single `homeConfigurations.default` that uses impure evaluation to resolve system, hostname, and username from environment variables (`NIX_SYSTEM`, `NIX_HOSTNAME`, `USER`)

@@ -42,11 +42,17 @@ def group(text: str, size: int = 4) -> str:
     return " ".join(text[i : i + size] for i in range(0, len(text), size))
 
 
+def printable(text: str) -> str:
+    """Replace control characters, so that an entry name cannot add lines to a
+    dialog."""
+    return "".join(c if c.isprintable() else "?" for c in text)
+
+
 def decrypt_prompt(request: DecryptRequest) -> Prompt:
     lookup = request.lookup
     lines = [f"{request.host} wants to decrypt:", ""]
     if lookup.current:
-        lines += [f"    {path}" for path in lookup.current]
+        lines += [f"    {printable(path)}" for path in lookup.current]
         if len(lookup.current) > 1:
             lines += [
                 "",
@@ -54,9 +60,9 @@ def decrypt_prompt(request: DecryptRequest) -> Prompt:
                 "them can be a copy that hides the real entry.",
             ]
         if lookup.earlier:
-            lines += ["", "Earlier names: " + ", ".join(lookup.earlier)]
+            lines += ["", "Earlier names: " + ", ".join(map(printable, lookup.earlier))]
     else:
-        lines += [f"    {path}" for path in lookup.earlier]
+        lines += [f"    {printable(path)}" for path in lookup.earlier]
         lines += ["", "This is an old version. It is not in the current store."]
     lines += ["", "After you approve, touch the YubiKey."]
     return Prompt(
@@ -125,7 +131,11 @@ class Pinentry:
 
     async def message(self, title: str, description: str) -> None:
         await self._run(
-            [b"SETTITLE " + escape(title), b"SETDESC " + escape(description)],
+            [
+                b"SETTITLE " + escape(title),
+                b"SETDESC " + escape(description),
+                b"SETOK Dismiss",
+            ],
             b"MESSAGE",
         )
 

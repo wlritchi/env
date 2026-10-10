@@ -36,7 +36,7 @@ class ProtocolError(Exception):
 class ProxyContext:
     """State that all sessions share."""
 
-    policy: KeyPolicy
+    policy: Callable[[], KeyPolicy]
     lookup: Callable[[bytes], Awaitable[Lookup]]
     confirm: Callable[[Request], Awaitable[bool]]
     report_unknown: Callable[[str], None] = lambda _host: None
@@ -129,7 +129,8 @@ class Session:
         elif verb in (b"SETKEY", b"SIGKEY"):
             # gpg-agent uses one key slot for both commands.
             grip = args.decode(errors="replace").upper()
-            if grip in self.ctx.policy.decrypt or grip in self.ctx.policy.sign:
+            policy = self.ctx.policy()
+            if grip in policy.decrypt or grip in policy.sign:
                 self.keygrip = grip
                 await self.forward(line)
             else:
@@ -221,7 +222,7 @@ class Session:
             lines.append(stripped + b"\n")
 
     async def pkdecrypt(self, line: bytes) -> None:
-        if self.keygrip not in self.ctx.policy.decrypt:
+        if self.keygrip not in self.ctx.policy().decrypt:
             await self._reply(FORBIDDEN)
             return
         data = await self._read_inquiry(b"CIPHERTEXT")
@@ -249,7 +250,7 @@ class Session:
             await self.forward(line, inject={b"CIPHERTEXT": data})
 
     async def pksign(self, line: bytes) -> None:
-        key = self.ctx.policy.sign.get(self.keygrip or "")
+        key = self.ctx.policy().sign.get(self.keygrip or "")
         if key is None:
             await self._reply(FORBIDDEN)
             return

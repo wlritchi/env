@@ -82,7 +82,7 @@ class Server:
             agent_r, agent_w = await asyncio.open_unix_connection(self.agent_socket)
             session = Session(host, self.ctx, client_r, client_w, agent_r, agent_w)
             await session.run()
-        except (ProtocolError, ConnectionError, OSError) as e:
+        except (ProtocolError, ConnectionError, OSError, ValueError) as e:
             log.info("%s: session ended: %s", host, e)
         finally:
             for writer in (client_w, agent_w):

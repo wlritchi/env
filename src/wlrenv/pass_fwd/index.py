@@ -118,7 +118,10 @@ def parse_sexp(data: bytes) -> Sexp:
                 items.append(item)
             return items, pos + 1
         colon = data.index(b":", pos)
-        length = int(data[pos:colon])
+        digits = data[pos:colon]
+        if not digits.isdigit():
+            raise PacketError(f"bad atom length at offset {pos}")
+        length = int(digits)
         start = colon + 1
         if start + length > len(data):
             raise PacketError("truncated S-expression atom")
@@ -134,27 +137,24 @@ def parse_sexp(data: bytes) -> Sexp:
 
 
 def ciphertext_key(ciphertext: bytes) -> bytes | None:
-    """Return the index key of a PKDECRYPT ciphertext, or None if it is not ECDH."""
+    """Return the index key of a PKDECRYPT ciphertext, or None if it is not ECDH.
+
+    gpg-agent finds the values in the S-expression with its own search. A
+    ciphertext with extra or repeated elements could make the two parsers read
+    different values, so that the dialog names a different entry from the one
+    that the agent decrypts. Thus only the exact form that gpg sends is accepted:
+    `(enc-val (ecdh (s WRAPPED) (e EPHEMERAL)))`.
+    """
     try:
         tree = parse_sexp(ciphertext)
     except PacketError:
         return None
-    if not isinstance(tree, list) or not tree or tree[0] != b"enc-val":
-        return None
-    for item in tree[1:]:
-        if isinstance(item, list) and item and item[0] == b"ecdh":
-            fields = {
-                f[0]: f[1]
-                for f in item[1:]
-                if isinstance(f, list)
-                and len(f) == 2
-                and isinstance(f[0], bytes)
-                and isinstance(f[1], bytes)
-            }
-            ephemeral = fields.get(b"e")
-            wrapped = fields.get(b"s")
-            if isinstance(ephemeral, bytes) and isinstance(wrapped, bytes):
-                return ecdh_key(ephemeral, wrapped)
+    match tree:
+        case [
+            b"enc-val",
+            [b"ecdh", [b"s", bytes() as wrapped], [b"e", bytes() as ephemeral]],
+        ]:
+            return ecdh_key(ephemeral, wrapped)
     return None
 
 

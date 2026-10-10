@@ -1,0 +1,13 @@
+[Unit]
+Description=Verifying proxy for gpg-agent requests forwarded by sshx
+Documentation=file://%h/.wlrenv/docs/specs/2026-10-09-pass-forwarding-design.md
+# The confirm dialogs need the Wayland session.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/wlr-pass-fwd serve
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

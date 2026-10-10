@@ -65,16 +65,35 @@ class TestPackets:
         with pytest.raises(PacketError):
             file_keys(pkesk_packet(*ecdh_parts())[:-5])
 
-    def test_ciphertext_with_flags(self) -> None:
+    def test_ciphertext_with_flags_is_refused(self) -> None:
         e, s = ecdh_parts()
         ct = (
-            b"(7:enc-val(5:flags)(4:ecdh(1:e%d:" % len(e)
-            + e
-            + b")(1:s%d:" % len(s)
+            b"(7:enc-val(5:flags)(4:ecdh(1:s%d:" % len(s)
             + s
+            + b")(1:e%d:" % len(e)
+            + e
             + b")))"
         )
-        assert ciphertext_key(ct) == ecdh_key(e, s)
+        assert ciphertext_key(ct) is None
+
+    def test_repeated_fields_are_refused(self) -> None:
+        # Two parsers can pick different copies of a repeated field.
+        (e1, s1), (e2, s2) = ecdh_parts(), ecdh_parts()
+        inner = agent_ciphertext(e1, s1)[len(b"(7:enc-val(4:ecdh") : -2]
+        extra = agent_ciphertext(e2, s2)[len(b"(7:enc-val(4:ecdh") : -2]
+        ct = b"(7:enc-val(4:ecdh" + inner + extra + b"))"
+        parse_sexp(ct)
+        assert ciphertext_key(ct) is None
+
+    def test_second_algorithm_list_is_refused(self) -> None:
+        a, b = agent_ciphertext(*ecdh_parts()), agent_ciphertext(*ecdh_parts())
+        two = a[:-1] + b[len(b"(7:enc-val") : -1] + b")"
+        parse_sexp(two)
+        assert ciphertext_key(two) is None
+
+    def test_signed_length_is_refused(self) -> None:
+        with pytest.raises(PacketError):
+            parse_sexp(b"(+1:a)")
 
     def test_rsa_ciphertext_has_no_key(self) -> None:
         assert ciphertext_key(b"(7:enc-val(3:rsa(1:a3:abc)))") is None

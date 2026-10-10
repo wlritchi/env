@@ -236,6 +236,28 @@ separate from the Assuan code, so that the age variant can use them.
   cannot see what is signed.
 - The store stays on pass until Android Password Store supports passage.
 
+## Implementation (2026-10-09)
+
+Steps 1 and 2 of the plan are done: `src/wlrenv/pass_fwd/`, the `wlr-pass-fwd` command,
+`dotfiles/.config/systemd/user/pass-fwd.service`, and `bin/ssh/sshx`. Differences from the
+design above:
+
+- The remote socket is `/tmp/pass-fwd.<random>.sock`, new for each connection, so that a stale
+  socket cannot block the bind. `sshx` points the agent socket of `~/.gnupg-fwd` at it and removes
+  both when the session ends.
+- `sshx` sets `PASSWORD_STORE_GPG_OPTS="--homedir $HOME/.gnupg-fwd"`, not `GNUPGHOME`, so only
+  pass uses the forward. `tmux` copies this variable into new and attached sessions
+  (`update-environment` in `dotfiles/.tmux.conf`). Without that, a remote `tmux new-session` gets
+  the environment of the tmux server.
+- The daemon accepts only the card slots whose touch policy is `on` or `permanent`
+  (`gpg --card-status`). It refuses keys on disk, the `cached` touch modes, and other cards.
+- The ciphertext must have the exact form `(enc-val (ecdh (s ...) (e ...)))`. A form with
+  repeated or extra elements could make the daemon and gpg-agent read different values.
+- `pinentry-wayprompt` shows the refusal message for an unknown ciphertext. It has a button only
+  if `SETOK` is set. Refusal messages wait in the dialog queue, and only one can be pending.
+- `wlr-pass-fwd setup-remote HOST` makes `~/.gnupg-fwd` and imports the public keys and owner
+  trust of all recipients in the store.
+
 ## Related issue
 
 The `sshx` forward for `ssh-sk-helper` uses a random TCP port on the remote's localhost. Any user on

@@ -4,17 +4,23 @@ set -euo pipefail
 # ssh wrapper to apply several fixes:
 # - if running inside tmux, set WLR_TMUX=n on the remote to avoid tmux-in-tmux
 # - if ssh-sk-helper socket is available for forwarding, reconfigure the remote to use it
+# - if pass-fwd is running, forward its socket for the host so that pass on the remote can
+#   decrypt with the local YubiKey (see docs/specs/2026-10-09-pass-forwarding-design.md)
 
 apply_tmux_fix=
 apply_sk_helper=
+apply_pass_fwd=
 if [ -n "${TMUX:-}" ]; then
     apply_tmux_fix=y
 fi
 if command -v systemctl >/dev/null && systemctl --user status ssh-sk-helper.socket >/dev/null 2>&1; then
     apply_sk_helper=y
 fi
+if command -v wlr-pass-fwd >/dev/null; then
+    apply_pass_fwd=y
+fi
 
-if [ -z "$apply_tmux_fix$apply_sk_helper" ]; then
+if [ -z "$apply_tmux_fix$apply_sk_helper$apply_pass_fwd" ]; then
     # nothing to do, run ssh directly
     exec ssh "$@"
 fi
@@ -44,8 +50,8 @@ if [ -z "$has_pty_arg" ]; then
     args+=("-t") # unclear how this would even work without -t
 fi
 
-precmd=''
 cmd='"$SHELL"'  # TODO support passing command to the shell?
+cleanup=''
 if [ -n "$apply_tmux_fix" ]; then
     cmd="export WLR_TMUX=n; $cmd"
 fi
@@ -58,8 +64,27 @@ if [ -n "$apply_sk_helper" ]; then
         # locate corresponding file, patch git config via env
         cmd='shopt -s nullglob; for file in "$HOME/.ssh/"*.pub; do if [ "$(sha256sum "$file" | cut -c-64)" == "'$hash'" ]; then eval "export GIT_CONFIG_KEY_${GIT_CONFIG_COUNT:-0}=gpg.format; export GIT_CONFIG_VALUE_${GIT_CONFIG_COUNT:-0}=ssh; export GIT_CONFIG_KEY_$((GIT_CONFIG_COUNT+1))=user.signingKey; export GIT_CONFIG_VALUE_$((GIT_CONFIG_COUNT+1))=${file@Q}"; export GIT_CONFIG_COUNT="$((GIT_CONFIG_COUNT+2))"; break; fi; done; '"$cmd"
     fi
-    cmd='tmpdir=$(mktemp -d); cleanup() { rm -r "$tmpdir"; } ; trap cleanup EXIT ; echo "nc localhost '$port' 2>/dev/null" >"$tmpdir/ssh-sk-helper"; chmod +x "$tmpdir/ssh-sk-helper"; export SSH_SK_HELPER="$tmpdir/ssh-sk-helper"; '"$cmd"
+    cmd='tmpdir=$(mktemp -d); echo "nc localhost '$port' 2>/dev/null" >"$tmpdir/ssh-sk-helper"; chmod +x "$tmpdir/ssh-sk-helper"; export SSH_SK_HELPER="$tmpdir/ssh-sk-helper"; '"$cmd"
+    cleanup+='rm -r "$tmpdir"; '
     args+=(-R "$port:localhost:19191")
+fi
+if [ -n "$apply_pass_fwd" ]; then
+    # pass-fwd identifies the remote by the local socket, so use the host name that ssh
+    # verifies the host key for.
+    pass_fwd_host="$(ssh -G "${args[@]}" 2>/dev/null | awk '$1 == "hostname" { print $2; exit }')"
+    if pass_fwd_sock="$(wlr-pass-fwd socket "$pass_fwd_host" 2>/dev/null)"; then
+        # Use a new remote path for each connection. A stale socket from an earlier
+        # connection blocks the bind unless sshd has StreamLocalBindUnlink.
+        remote_sock="/tmp/pass-fwd.$(od -An -N8 -tx8 /dev/urandom | tr -d ' \n').sock"
+        # Point the agent socket of ~/.gnupg-fwd (made by wlr-pass-fwd setup-remote) at the
+        # forward, and make only pass use that home directory.
+        cmd='pf_sock='"$remote_sock"'; pf_link=; if [ -S "$pf_sock" ] && [ -d "$HOME/.gnupg-fwd" ] && pf_link="$(gpgconf --homedir "$HOME/.gnupg-fwd" --list-dirs agent-socket 2>/dev/null)"; then ln -sfn "$pf_sock" "$pf_link"; export PASSWORD_STORE_GPG_OPTS="${PASSWORD_STORE_GPG_OPTS:+$PASSWORD_STORE_GPG_OPTS }--homedir $HOME/.gnupg-fwd"; fi; '"$cmd"
+        cleanup+='if [ -n "$pf_link" ] && [ "$(readlink "$pf_link")" = "$pf_sock" ]; then rm -f "$pf_link"; fi; rm -f "$pf_sock"; '
+        args+=(-R "$remote_sock:$pass_fwd_sock")
+    fi
+fi
+if [ -n "$cleanup" ]; then
+    cmd="cleanup() { $cleanup}; trap cleanup EXIT; $cmd"
 fi
 args+=(-- sh -c "${cmd@Q}")
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from wlrenv.pass_fwd.dialog import DEFAULT_TIMEOUT, Pinentry
 from wlrenv.pass_fwd.index import StoreIndex
-from wlrenv.pass_fwd.keys import load_policy
+from wlrenv.pass_fwd.keys import PolicySource
 from wlrenv.pass_fwd.proxy import ProxyContext
 from wlrenv.pass_fwd.server import HOST_RE, Server, request_socket, runtime_dir
 
@@ -40,22 +40,28 @@ def gpgconf_dir(name: str) -> Path:
 
 
 async def serve(pinentry_program: str, dialog_timeout: float) -> None:
-    policy = load_policy()
-    if not policy.decrypt and not policy.sign:
-        raise SystemExit("pass-fwd: no smartcard keys found")
+    policy = PolicySource()
     index = StoreIndex(store_dir())
     pinentry = Pinentry(pinentry_program, timeout=dialog_timeout)
     background: set[asyncio.Task[None]] = set()
 
-    def report_unknown(host: str) -> None:
-        task = asyncio.create_task(
-            pinentry.message(
+    async def show_refusal(host: str) -> None:
+        # Messages wait in the same queue as confirm dialogs, so that a remote
+        # cannot show a message over a confirm dialog.
+        async with ctx.lock:
+            await pinentry.message(
                 f"pass-fwd: refused request from {host}",
                 f"{host} asked to decrypt a file that is not in the local "
                 "password store, so pass-fwd refused it.\n\nIf the entry is "
                 "new, pull the store on this machine and try again.",
             )
-        )
+
+    def report_unknown(host: str) -> None:
+        # Show at most one message at a time, so that a remote cannot fill the
+        # queue with messages.
+        if background:
+            return
+        task = asyncio.create_task(show_refusal(host))
         background.add(task)
         task.add_done_callback(background.discard)
 
@@ -67,10 +73,11 @@ async def serve(pinentry_program: str, dialog_timeout: float) -> None:
     )
     server = Server(runtime_dir(), gpgconf_dir("agent-extra-socket"), ctx)
     control = await server.start()
+    keys = policy()
     log.info(
         "ready: decrypt keys %s, sign keys %s",
-        ", ".join(k.key_id for k in policy.decrypt.values()),
-        ", ".join(k.key_id for k in policy.sign.values()),
+        ", ".join(k.key_id for k in keys.decrypt.values()) or "none",
+        ", ".join(k.key_id for k in keys.sign.values()) or "none",
     )
     async with control:
         await control.serve_forever()
