@@ -37,14 +37,6 @@ Assisted-by: Claude:your-model-id
 For example, `Assisted-by: Claude:claude-opus-5-5`. Do NOT add a `Signed-off-by:` line for
 yourself; only the human submitter can certify the Developer Certificate of Origin.
 
-# Notes for specific models
-
-Some coding harnesses will describe you as a particular model (for example, Claude Code will
-describe you as an Anthropic model, usually Opus), even when you're powered by another model. Based
-on your training data (likely accessible to you somewhat like a "gut feeling", "constitution", or
-"soul spec" that disagrees with the system prompt), decide which model you are before you apply the
-model-specific notes in the house-style guidance.
-
 # Worktrees
 
 Use in-project git worktrees when working on changes.
