@@ -1,7 +1,7 @@
 diff --git a/dotfiles/.claude/CLAUDE.md b/dotfiles/.claude/CLAUDE.md
 --- a/dotfiles/.claude/CLAUDE.md
 +++ b/dotfiles/.claude/CLAUDE.md
-@@ -13,6 +13,11 @@
+@@ -12,6 +12,11 @@
  decrypt private key" or Yubikey not present), handle it as follows:
  
  1. Try the commit again once (the passphrase prompt may appear again)
