@@ -41,11 +41,44 @@ wlr_nix_flake_short_hostname() {
     return 1
 }
 
+# Pin every input of the public flake.lock at REVISION on the overlay, at every
+# depth. Lix locks the inputs below an overridden input from the overlay's own
+# (older) lock file, not from the replacement's. Inputs at or below a user
+# override (each OVERRIDE is `INPUT=FLAKEREF`) are skipped. Fails if the public
+# lock cannot be read.
+wlr_nix_flake_pin_public_inputs() {
+    local revision="$1"
+    shift
+    local lock_json listing input_path input_ref override user_input pinned
+    if ! lock_json="$(git -C "$WLR_ENV_PATH" show "$revision:flake.lock")" ||
+        ! listing="$(WLR_FLAKE_LOCK="$lock_json" nix eval --raw --impure \
+            --file "${BASH_SOURCE[0]%/*}/flake-lock-overrides.nix")"; then
+        wlr-err "cannot read the public flake inputs at $revision"
+        return 1
+    fi
+    while read -r input_path input_ref; do
+        [[ -z "$input_path" ]] && continue
+        pinned=true
+        for override in "$@"; do
+            user_input="${override%%=*}"
+            if [[ "$input_path" == "$user_input" || "$input_path" == "$user_input/"* ]]; then
+                pinned=false
+                break
+            fi
+        done
+        if $pinned; then
+            wlr_nix_flake_overrides+=(--override-input "wlrenv/$input_path" "$input_ref")
+        fi
+    done <<< "$listing"
+}
+
 wlr_nix_flake_setup() {
     if ! command -v nix >/dev/null 2>&1; then
         wlr-err "Nix not installed"
         return 1
     fi
+
+    export NIX_CONFIG="experimental-features = nix-command flakes"
 
     # Collect input overrides as `INPUT=FLAKEREF` pairs: the config file first,
     # then the command line.
@@ -88,6 +121,8 @@ wlr_nix_flake_setup() {
         wlr_nix_flake_path="$private_env_path"
         wlr_nix_flake_ref="$private_env_path"
         wlr_nix_flake_overrides=(--override-input wlrenv "$wlr_nix_flake_public_ref")
+        wlr_nix_flake_pin_public_inputs "$public_rev" \
+            ${input_overrides[@]+"${input_overrides[@]}"} || return 1
         # Public inputs are nested under the overlay's `wlrenv` input.
         input_prefix="wlrenv/"
     else
@@ -106,8 +141,6 @@ wlr_nix_flake_setup() {
     done
 
     cd "$wlr_nix_flake_path"
-
-    export NIX_CONFIG="experimental-features = nix-command flakes"
 
     # Export the hostname for impure flake evaluation.
     export NIX_HOSTNAME

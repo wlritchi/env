@@ -1,4 +1,6 @@
+import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -7,13 +9,28 @@ import pytest
 BIN = Path(__file__).resolve().parents[1] / 'bin/meta'
 REBUILD = BIN / 'wlr-nix-rebuild'
 HM = BIN / 'wlr-nix-hm'
+LOCK_OVERRIDES = Path(__file__).resolve().parents[1] / 'lib/flake-lock-overrides.nix'
 REVISION = 'a' * 40
+LOCK_LISTING = '''ccpatch github:wlritchi/ccpatch/1
+ccpatch/sub github:example/sub/2
+nix-homebrew github:zhaofengli/nix-homebrew/3
+nix-homebrew/brew-src github:Homebrew/brew/4
+'''
 
 STARTUP = '''git() {
     printf '%s\\n' "$@" >> "$GIT_LOG"
-    printf '%s\\n' "$TEST_REVISION"
+    if [[ "$3" == show ]]; then
+        printf '%s\\n' "$TEST_LOCK_JSON"
+    else
+        printf '%s\\n' "$TEST_REVISION"
+    fi
 }
 nix() {
+    if [[ "$1" == eval ]]; then
+        [[ "$TEST_EVAL_FAILS" != true && "$WLR_FLAKE_LOCK" == "$TEST_LOCK_JSON" ]] || return 1
+        printf '%s' "$TEST_LOCK_LISTING"
+        return
+    fi
     printf '%s\\n' "$PWD" "$@" END >> "$TEST_LOG"
     if [[ "$*" == *' -- build '* ]]; then
         ln -s /new-system result
@@ -65,6 +82,9 @@ class Harness:
             'TEST_PLATFORM': 'Linux',
             'TEST_CHANGED': 'false',
             'TEST_REVISION': REVISION,
+            'TEST_LOCK_JSON': '{"nodes": {}}',
+            'TEST_LOCK_LISTING': LOCK_LISTING,
+            'TEST_EVAL_FAILS': 'false',
         }
         self.public_ref = f'git+file://{self.public}?rev={REVISION}'
         self.private = private
@@ -73,6 +93,16 @@ class Harness:
         self.overrides = (
             ['--override-input', 'wlrenv', self.public_ref] if private else []
         )
+
+    def pins(self, *skipped: str) -> list[str]:
+        if not self.private:
+            return []
+        pins: list[str] = []
+        for line in LOCK_LISTING.splitlines():
+            path, ref = line.split()
+            if path not in skipped:
+                pins += ['--override-input', f'wlrenv/{path}', ref]
+        return pins
 
     def run(self, script: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # noqa: S603
@@ -84,7 +114,11 @@ class Harness:
         )
 
     def expected_call(
-        self, tool: str, operation: list[str], extra_overrides: list[str] | None = None
+        self,
+        tool: str,
+        operation: list[str],
+        extra_overrides: list[str] | None = None,
+        pins: list[str] | None = None,
     ) -> list[str]:
         return [
             self.directory,
@@ -97,6 +131,7 @@ class Harness:
             '--flake',
             f'{self.flake_ref}#default',
             *self.overrides,
+            *(self.pins() if pins is None else pins),
             *(extra_overrides or []),
         ]
 
@@ -119,13 +154,10 @@ def test_committed_public_ref(
     harness.env['TEST_CHANGED'] = str(changed).lower()
     result = harness.run(REBUILD)
     assert result.returncode == 0, result.stderr
-    assert harness.git_log.read_text().splitlines() == [
-        '-C',
-        str(harness.public),
-        'rev-parse',
-        '--verify',
-        'HEAD^{commit}',
-    ]
+    expected_git = ['-C', str(harness.public), 'rev-parse', '--verify', 'HEAD^{commit}']
+    if private:
+        expected_git += ['-C', str(harness.public), 'show', f'{REVISION}:flake.lock']
+    assert harness.git_log.read_text().splitlines() == expected_git
     expected = [harness.expected_call('home-manager', ['switch'])]
     if platform == 'Darwin':
         expected.append(harness.expected_call('darwin-rebuild', ['build']))
@@ -166,6 +198,8 @@ def test_hm_input_overrides(tmp_path: Path, private: bool) -> None:
                 *harness.input_override('ccpatch', f'{tmp_path}/ccpatch'),
                 *harness.input_override('other', 'path:/x'),
             ],
+            # The user replaced ccpatch, so neither it nor its inputs get a pin.
+            harness.pins('ccpatch', 'ccpatch/sub'),
         )
     ]
     assert harness.warn_log.read_text().splitlines() == [
@@ -188,3 +222,65 @@ def test_rebuild_rejects_positional(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert 'usage: wlr-nix-rebuild' in result.stderr
     assert not harness.log.exists()
+
+
+def test_rebuild_fails_without_public_pins(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, private=True)
+    harness.env['TEST_EVAL_FAILS'] = 'true'
+    result = harness.run(REBUILD)
+    assert result.returncode == 1
+    assert harness.warn_log.read_text().splitlines() == [
+        f'cannot read the public flake inputs at {REVISION}'
+    ]
+    assert not harness.log.exists()
+
+
+@pytest.mark.skipif(shutil.which('nix') is None, reason='needs nix')
+def test_lock_overrides_walks_nested_inputs() -> None:
+    lock = {
+        'nodes': {
+            'root': {'inputs': {'nixpkgs': 'nixpkgs', 'tool': 'tool'}},
+            'nixpkgs': {
+                'locked': {
+                    'type': 'github',
+                    'owner': 'NixOS',
+                    'repo': 'nixpkgs',
+                    'rev': 'a' * 40,
+                }
+            },
+            'tool': {
+                'inputs': {'nixpkgs': ['nixpkgs'], 'src': 'src'},
+                'locked': {
+                    'type': 'github',
+                    'owner': 'o',
+                    'repo': 'tool',
+                    'rev': 'b' * 40,
+                },
+            },
+            'src': {
+                'locked': {
+                    'type': 'git',
+                    'url': 'https://example.com/src',
+                    'rev': 'c' * 40,
+                }
+            },
+        },
+        'root': 'root',
+        'version': 7,
+    }
+    result = subprocess.run(  # noqa: S603
+        ['nix', 'eval', '--raw', '--impure', '--file', str(LOCK_OVERRIDES)],  # noqa: S607
+        env={
+            **os.environ,
+            'NIX_CONFIG': 'experimental-features = nix-command flakes',
+            'WLR_FLAKE_LOCK': json.dumps(lock),
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.splitlines() == [
+        f'nixpkgs github:NixOS/nixpkgs/{"a" * 40}',
+        f'tool github:o/tool/{"b" * 40}',
+        f'tool/src git+https://example.com/src?rev={"c" * 40}',
+    ]
