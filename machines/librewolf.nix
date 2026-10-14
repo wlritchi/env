@@ -46,6 +46,20 @@ let
     }
   '';
 
+  # The old sidebar (sidebar.revamp = false) puts a title and close button
+  # above Sidebery, and Nova (browser.nova.enabled) draws a border with a
+  # rounded corner around the panel. Show only the extension.
+  sidebarCss = pkgs.writeText "sidebar.css" ''
+    #sidebar-box[sidebarcommand="_3c078156-979c-498b-8990-85f7987dd929_-sidebar-action"] #sidebar-header {
+      display: none !important;
+    }
+    #sidebar-box,
+    #sidebar-box #sidebar {
+      border: none !important;
+      border-radius: 0 !important;
+    }
+  '';
+
   # CustomizableUI.makeWidgetId: toolbar widget ids are the extension id
   # lowercased with everything outside [a-z0-9_-] replaced by "_"
   widgetId =
@@ -204,6 +218,7 @@ in
           [
             "${firefox-csshacks}/chrome/window_control_placeholder_support.css"
             "${firefox-csshacks}/chrome/${hideTabsCss}"
+            sidebarCss
           ]
           ++ lib.optional pkgs.stdenv.isDarwin macosWindowControlSpace
         );
