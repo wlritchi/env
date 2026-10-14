@@ -20,7 +20,6 @@ in
   imports = [
     ./common.nix
     ./launchd-services.nix
-    ./librewolf.nix
   ]
   ++ hostImports;
 

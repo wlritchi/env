@@ -16,6 +16,7 @@ let
 in
 {
   imports = [
+    ./librewolf.nix
     ./uv-tools.nix
     ccpatch.homeManagerModules.default
   ];
