@@ -542,8 +542,8 @@ binds {
     // Powers off the monitors. To turn them back on, do any input like
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
-    XF86MonBrightnessUp { spawn "light" "-A" "10"; }
-    XF86MonBrightnessDown { spawn "light" "-U" "10"; }
+    XF86MonBrightnessUp { spawn "brightnessctl" "--class=backlight" "set" "+10%"; }
+    XF86MonBrightnessDown { spawn "brightnessctl" "--class=backlight" "set" "10%-"; }
 
     // === WINDOWNAV keybinds ===
     // Synthetic keybinds emitted by the ZSA Moonlander WINDOWNAV layer.
