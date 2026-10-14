@@ -1,4 +1,9 @@
-{ pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 let
   # Pinned to the same rev as the checkout in the Linux profile's chrome/ dir
@@ -165,19 +170,56 @@ let
     };
     currentVersion = 24;
   };
+  cfg = config.programs.librewolf;
+
+  # Install hash that LibreWolf derives from its install directory, here the
+  # Arch package's /usr/lib/librewolf
+  linuxInstallHash = "6C1CE26D3274EA5B";
 in
 {
-  programs.librewolf = {
-    enable = true;
+  programs.librewolf = lib.mkMerge [
+    {
+      enable = true;
 
-    # The nixpkgs wrapper makes the bundle executable a shell script that execs
-    # .librewolf-old. On macOS 27, LaunchServices reports pid -1 for apps that
-    # start this way, and AeroSpace cannot manage them. Point the bundle at the
-    # real binary and move the wrapper's MOZ_* variables into LSEnvironment.
-    # LD_LIBRARY_PATH and PATH are not copied: dyld ignores LD_LIBRARY_PATH.
-    package = pkgs.librewolf.overrideAttrs (
-      old:
-      lib.optionalAttrs pkgs.stdenv.isDarwin {
+      # To adopt a pre-existing profile (keeping its data), run
+      # wlr-librewolf-adopt-profile before the first rebuild; it moves the
+      # profile to this path and clears the stale ini files. Alternatively,
+      # set profiles.default.path to the existing directory name in the host
+      # module, and move profiles.ini and chrome/userChrome.css aside.
+      profiles.default = {
+        isDefault = true;
+
+        settings = {
+          # LibreWolf defaults this to true ("Clear history when LibreWolf closes")
+          "privacy.sanitize.sanitizeOnShutdown" = false;
+          "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+          # The revamped sidebar puts extension panels such as Sidebery in an
+          # inset card. LibreWolf 157 resets this pref once to roll it out.
+          "sidebar.revamp" = false;
+        };
+
+        # Concatenated at build time (not builtins.readFile) so cross-platform
+        # QA evals don't require building the fetcher for the foreign system
+        userChrome = pkgs.concatText "userChrome.css" (
+          [
+            "${firefox-csshacks}/chrome/window_control_placeholder_support.css"
+            "${firefox-csshacks}/chrome/${hideTabsCss}"
+          ]
+          ++ lib.optional pkgs.stdenv.isDarwin macosWindowControlSpace
+        );
+      };
+    }
+
+    # The extension, toolbar, and search configuration below is not yet
+    # reconciled with the Linux profile, which has different extensions,
+    # toolbar placements, and custom search engines.
+    (lib.mkIf pkgs.stdenv.isDarwin {
+      # The nixpkgs wrapper makes the bundle executable a shell script that execs
+      # .librewolf-old. On macOS 27, LaunchServices reports pid -1 for apps that
+      # start this way, and AeroSpace cannot manage them. Point the bundle at the
+      # real binary and move the wrapper's MOZ_* variables into LSEnvironment.
+      # LD_LIBRARY_PATH and PATH are not copied: dyld ignores LD_LIBRARY_PATH.
+      package = pkgs.librewolf.overrideAttrs (old: {
         buildCommand = old.buildCommand + ''
           contents="$out/Applications/LibreWolf.app/Contents"
           cp --remove-destination "$(readlink -f "$contents/Info.plist")" "$contents/Info.plist"
@@ -197,57 +239,65 @@ in
               plistlib.dump(info, f)
           EOF
         '';
-      }
-    );
+      });
 
-    # Baked into the nixpkgs wrapper's distribution/policies.json, so this
-    # works on both darwin and Linux as long as the package comes from nixpkgs
-    # (Linux machines using a distro-packaged LibreWolf need
-    # ~/.librewolf/policies/policies.json instead; see librewolf-extension.nix).
-    policies = {
-      ExtensionSettings = lib.listToAttrs (
-        map (
-          e:
-          lib.nameValuePair e.id {
-            installation_mode = "force_installed";
-            install_url = "https://addons.mozilla.org/firefox/downloads/latest/${e.slug}/latest.xpi";
-          }
-        ) (extensions.left ++ extensions.right ++ extensions.unpinned)
-      );
-    };
-
-    # To adopt a pre-existing profile (keeping its data), run
-    # wlr-librewolf-adopt-profile before the first rebuild; it moves the
-    # profile to this path and clears the stale ini files.
-    profiles.default = {
-      isDefault = true;
-
-      settings = {
-        # LibreWolf defaults this to true ("Clear history when LibreWolf closes")
-        "privacy.sanitize.sanitizeOnShutdown" = false;
-        "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
-        "browser.uiCustomization.state" = uiCustomizationState;
+      # Baked into the nixpkgs wrapper's distribution/policies.json. With a
+      # distro-packaged LibreWolf, librewolf-extension.nix writes the policies
+      # to ~/.librewolf/policies/policies.json instead.
+      policies = {
+        ExtensionSettings = lib.listToAttrs (
+          map (
+            e:
+            lib.nameValuePair e.id {
+              installation_mode = "force_installed";
+              install_url = "https://addons.mozilla.org/firefox/downloads/latest/${e.slug}/latest.xpi";
+            }
+          ) (extensions.left ++ extensions.right ++ extensions.unpinned)
+        );
       };
 
-      search = {
-        force = true; # replace any existing search.json.mozlz4
-        default = "kagi";
-        engines.kagi = {
-          name = "Kagi";
-          urls = [ { template = "https://kagi.com/search?q={searchTerms}"; } ];
-          definedAliases = [ "@kagi" ];
+      profiles.default = {
+        settings."browser.uiCustomization.state" = uiCustomizationState;
+
+        search = {
+          force = true; # replace any existing search.json.mozlz4
+          default = "kagi";
+          engines.kagi = {
+            name = "Kagi";
+            urls = [ { template = "https://kagi.com/search?q={searchTerms}"; } ];
+            definedAliases = [ "@kagi" ];
+          };
         };
       };
+    })
 
-      # Concatenated at build time (not builtins.readFile) so cross-platform
-      # QA evals don't require building the fetcher for the foreign system
-      userChrome = pkgs.concatText "userChrome.css" (
-        [
-          "${firefox-csshacks}/chrome/window_control_placeholder_support.css"
-          "${firefox-csshacks}/chrome/${hideTabsCss}"
-        ]
-        ++ lib.optional pkgs.stdenv.isDarwin macosWindowControlSpace
-      );
-    };
+    # Use the distro package; manage only the profile
+    (lib.mkIf pkgs.stdenv.isLinux { package = null; })
+  ];
+
+  # The nixpkgs wrapper sets MOZ_LEGACY_PROFILES=1, but the distro package
+  # does not. Without that variable, LibreWolf reads its install's default
+  # profile only from an [Install...] section in profiles.ini. If the section
+  # is missing, LibreWolf creates a new empty profile and tries to write it to
+  # the read-only profiles.ini.
+  home.file.".librewolf/profiles.ini" = lib.mkIf pkgs.stdenv.isLinux {
+    text = lib.mkForce (
+      lib.generators.toINI { } {
+        General = {
+          StartWithLastProfile = 1;
+          Version = 2;
+        };
+        Profile0 = {
+          Name = cfg.profiles.default.name;
+          Path = cfg.profiles.default.path;
+          IsRelative = 1;
+          Default = 1;
+        };
+        "Install${linuxInstallHash}" = {
+          Default = cfg.profiles.default.path;
+          Locked = 1;
+        };
+      }
+    );
   };
 }

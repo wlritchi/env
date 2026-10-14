@@ -57,15 +57,13 @@ let
     };
   };
 
+  librewolf = config.programs.librewolf;
+
   # LibreWolf policies for automatic extension installation
   librewolfPolicies = pkgs.writeTextFile {
     name = "librewolf-policies";
     destination = "/policies.json";
-    text = builtins.toJSON {
-      policies = {
-        ExtensionSettings = extensionSettings;
-      };
-    };
+    text = builtins.toJSON { inherit (librewolf) policies; };
   };
 
 in
@@ -76,14 +74,16 @@ in
 
   # Install LibreWolf policies for automatic extension installation. Firefox's
   # policy engine does not merge ExtensionSettings across sources, so when
-  # programs.librewolf manages the browser (librewolf.nix), the entry must go
-  # through its policies option (merged into the wrapper's policies.json) and
-  # the user-level file must be absent. The user-level file is only for a
-  # distro-packaged LibreWolf.
+  # programs.librewolf supplies the browser package (librewolf.nix), the entry
+  # must go through its policies option (merged into the wrapper's
+  # policies.json) and the user-level file must be absent. The user-level file
+  # is only for a distro-packaged LibreWolf.
   programs.librewolf.policies.ExtensionSettings = extensionSettings;
-  home.file.".librewolf/policies/policies.json" = lib.mkIf (!config.programs.librewolf.enable) {
-    source = "${librewolfPolicies}/policies.json";
-  };
+  home.file.".librewolf/policies/policies.json" =
+    lib.mkIf (!librewolf.enable || librewolf.finalPackage == null)
+      {
+        source = "${librewolfPolicies}/policies.json";
+      };
 
   # Install native messaging manifest
   # LibreWolf looks for native messaging hosts in ~/.librewolf/native-messaging-hosts/
