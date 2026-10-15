@@ -244,7 +244,25 @@
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs",
+        "subspace": "subspace",
         "try": "try"
+      }
+    },
+    "subspace": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791837153,
+        "narHash": "sha256-g6q51Fz71VlLvYjvtxGqedxP00kKwt74Xxdc3JnhhFg=",
+        "owner": "wlritchi",
+        "repo": "subspace",
+        "rev": "42ef5b55496a459c2d0658ccda6ae30b67186eba",
+        "type": "github"
+      },
+      "original": {
+        "owner": "wlritchi",
+        "ref": "1.5.0",
+        "repo": "subspace",
+        "type": "github"
       }
     },
     "systems": {

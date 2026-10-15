@@ -2,9 +2,34 @@
 set -euo pipefail
 
 # Updates all lockfiles within current channel constraints
-# Lockfiles: flake.lock, uv.lock, Cargo.lock (when present)
+# Lockfiles: flake.lock (and the release tags in flake.nix), uv.lock,
+# Cargo.lock (when present)
 
 cd "$WLR_ENV_PATH"
+
+# Flake inputs pinned to a release tag (github:OWNER/REPO/X.Y.Z). `nix flake
+# update` keeps a tag ref as it is, so move each one to the newest X.Y.Z tag.
+release_tag_inputs=(
+    wlritchi/subspace
+)
+
+latest_release_tag() {
+    git ls-remote --tags --refs "https://github.com/$1" |
+        sed -nE 's|.*refs/tags/([0-9]+\.[0-9]+\.[0-9]+)$|\1|p' |
+        sort -t. -k1,1n -k2,2n -k3,3n |
+        tail -n1
+}
+
+for repo in "${release_tag_inputs[@]}"; do
+    tag=$(latest_release_tag "$repo")
+    if [[ -z "$tag" ]]; then
+        wlr-err "no X.Y.Z release tag found for $repo"
+        exit 1
+    fi
+    wlr-working "pinning $repo to release $tag"
+    sed -E -i.bak "s|(\"github:$repo/)[0-9]+\.[0-9]+\.[0-9]+\"|\1$tag\"|" flake.nix
+    rm flake.nix.bak
+done
 
 wlr-working 'updating flake.lock (within current nixpkgs channel)'
 nix flake update

@@ -27,6 +27,12 @@
       url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # A release tag: `nix flake update` alone keeps the tag, so
+    # wlr-update-locks moves it to the newest release first.
+    subspace = {
+      url = "github:wlritchi/subspace/1.5.0";
+      flake = false;
+    };
     try = {
       url = "github:tobi/try";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -42,6 +48,7 @@
       nixpkgs,
       nix-darwin,
       nix-homebrew,
+      subspace,
       try,
       ...
     }:
@@ -122,6 +129,7 @@
               hostname
               username
               krew2nix
+              subspace
               try
               ;
           };

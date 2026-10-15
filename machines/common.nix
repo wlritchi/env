@@ -17,6 +17,7 @@ in
 {
   imports = [
     ./librewolf.nix
+    ./subspace-server.nix
     ./uv-tools.nix
     ccpatch.homeManagerModules.default
   ];
