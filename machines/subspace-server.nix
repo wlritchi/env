@@ -3,7 +3,8 @@
 # the private overlay turns it on:
 #
 #   custom.subspace-server.enable = true;
-#   custom.subspace-server.environmentFile = "${config.xdg.configHome}/subspace/env";
+#
+# The server gets GITHUB_TOKEN from the gh login (githubTokenFromGh).
 #
 # The `notifications` relay finds the server through NOTIFICATIONS_WS_URL, or
 # NOTIFICATIONS_WS_HOST and NOTIFICATIONS_WS_PORT (default ws://127.0.0.1:8137).
@@ -38,6 +39,9 @@ let
   }
   // lib.optionalAttrs (cfg.environmentFile != null) {
     WLR_SUBSPACE_ENV_FILE = cfg.environmentFile;
+  }
+  // lib.optionalAttrs cfg.githubTokenFromGh {
+    WLR_SUBSPACE_GH = lib.getExe config.programs.gh.package;
   }
   // cfg.environment;
 
@@ -95,10 +99,20 @@ in
       example = lib.literalExpression ''"''${config.xdg.configHome}/subspace/env"'';
       description = ''
         File that bash sources with `set -a` before the server starts, for
-        secrets such as GITHUB_TOKEN (needed for PR monitoring). Because bash
-        runs it, a line such as `GITHUB_TOKEN=$(gh auth token)` also works;
-        give commands by absolute path, because the service has a minimal
-        PATH.
+        secrets such as a GITHUB_TOKEN other than the one from gh. Because
+        bash runs it, lines can use command substitution; give commands by
+        absolute path, because the service has a minimal PATH.
+      '';
+    };
+
+    githubTokenFromGh = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Set GITHUB_TOKEN (needed for PR monitoring) from `gh auth token` each
+        time the server starts, unless environmentFile or environment already
+        sets it. If gh has no token, the start fails and the service tries
+        again. Set this to false on a host without a gh login.
       '';
     };
 

@@ -9,6 +9,9 @@
 #       Optional. Bash sources this file with `set -a` before anything else,
 #       so it can set GITHUB_TOKEN and other secrets, also by command
 #       substitution.
+#   WLR_SUBSPACE_GH
+#       Optional path to gh. If GITHUB_TOKEN is not set after the
+#       environment file, `gh auth token` sets it.
 #   WLR_SUBSPACE_RELAY_COMPAT
 #       1 keeps `notifications` relays that use their default token path
 #       working: data of the old notifications daemon moves from
@@ -28,6 +31,17 @@ if [[ -n "${WLR_SUBSPACE_ENV_FILE:-}" ]]; then
     # shellcheck disable=SC1090
     source "$WLR_SUBSPACE_ENV_FILE"
     set +a
+fi
+
+# Read the token at each start, so that a new gh login takes effect at the
+# next restart. A failure exits, because the keyring can still be locked; the
+# service manager then tries again.
+if [[ -n "${WLR_SUBSPACE_GH:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+    if ! GITHUB_TOKEN=$("$WLR_SUBSPACE_GH" auth token); then
+        log "cannot get a GitHub token from gh: log in with 'gh auth login', or set custom.subspace-server.githubTokenFromGh = false"
+        exit 1
+    fi
+    export GITHUB_TOKEN
 fi
 
 data_dir="$SUBSPACE_DATA_DIR"
