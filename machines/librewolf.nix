@@ -304,6 +304,7 @@ in
           search = {
             force = true; # replace any existing search.json.mozlz4
             default = "kagi";
+            privateDefault = "kagi";
             engines = {
               kagi = {
                 name = "Kagi";
