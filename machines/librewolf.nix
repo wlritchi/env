@@ -14,6 +14,8 @@ let
     hash = "sha256-iTMRvEhkQ+uj+UywSLnKLS2pg5AEN3tyog3f1Tc+rtk=";
   };
 
+  cookies-txt = pkgs.callPackage ./pkgs/cookies-txt.nix { };
+
   hideTabsCss = if pkgs.stdenv.isDarwin then "hide_tabs_toolbar_osx.css" else "hide_tabs_toolbar.css";
 
   # Firefox 134+ renamed the :root attribute tabsintitlebar -> customtitlebar,
@@ -260,6 +262,10 @@ in
             url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.4.7.2.xpi";
             hash = "sha256-yj2Tip3vTy/rDd0m8SK3cB4i2kWHGhg+KyygIZZp2z4=";
           };
+        }
+        {
+          id = cookies-txt.extensionId;
+          xpi = cookies-txt;
         }
       ];
     };
