@@ -15,7 +15,7 @@ struct Fixture {
 const FAKE: &str = r#"#!/bin/sh
 printf '%s %s\n' "${0##*/}" "$*" >> "$FAKE_CALLS"
 cat > /dev/null
-printf 'out from %s\n' "${0##*/}"
+printf '%s\n' "${FAKE_STDOUT:-out from ${0##*/}}"
 printf 'err from %s\n' "${0##*/}" >&2
 exit "${FAKE_STATUS:-0}"
 "#;
@@ -239,6 +239,41 @@ fn gpg_results_expire() {
     assert_eq!(fixture.calls().len(), 2);
     fixture.gpg(&signature, b"payload", &[]);
     assert_eq!(fixture.calls().len(), 2);
+}
+
+#[test]
+fn gpg_results_end_when_the_signature_expires() {
+    let fixture = Fixture::new();
+    let signature = fixture.write("sig", b"signature");
+    let expired = [(
+        "FAKE_STDOUT",
+        "[GNUPG:] VALIDSIG F 2024-02-11 1707675526 1707675527 4",
+    )];
+    fixture.gpg(&signature, b"payload", &expired);
+    fixture.gpg(&signature, b"payload", &expired);
+    assert_eq!(fixture.calls().len(), 2);
+    let valid = [(
+        "FAKE_STDOUT",
+        "[GNUPG:] VALIDSIG F 2024-02-11 1707675526 0 4",
+    )];
+    fixture.gpg(&signature, b"payload", &valid);
+    let hit = fixture.gpg(&signature, b"payload", &valid);
+    assert_eq!(fixture.calls().len(), 3);
+    assert_eq!(
+        hit.stdout,
+        b"[GNUPG:] VALIDSIG F 2024-02-11 1707675526 0 4\n"
+    );
+}
+
+#[test]
+fn gpg_outside_keyring_disables_the_cache() {
+    let fixture = Fixture::new();
+    let signature = fixture.write("sig", b"signature");
+    fixture.write("gnupg/gpg.conf", b"keyring /elsewhere/pubring.kbx\n");
+    fixture.gpg(&signature, b"payload", &[]);
+    fixture.gpg(&signature, b"payload", &[]);
+    assert_eq!(fixture.calls().len(), 2);
+    assert!(!fixture.path("cache").exists());
 }
 
 #[test]

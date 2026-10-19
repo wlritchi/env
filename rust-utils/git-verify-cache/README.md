@@ -14,11 +14,18 @@ and `wlr-git-gpg-verify` (`gpg.program`). The name selects the mode.
   to `wlr-git-ssh-sign`, which asks for confirmation.
 - OpenPGP mode caches `--keyid-format=long --status-fd=1 --verify FILE -`. The
   key also includes file metadata for the keyring and trust database in
-  `$GNUPGHOME`. Results expire after a week. All other calls go to `gpg`.
+  `$GNUPGHOME`, so an import, a revocation or a trust change starts a new
+  entry. Results expire after a week, or when the signature expires if that
+  is earlier. A key that expires during that week shows as valid until the
+  result expires. If `gpg.conf` or `common.conf` names keyring or trust
+  database files outside `$GNUPGHOME`, nothing is cached. All other calls go
+  to `gpg`.
 
 Only successful results are kept. The cache is 256 append-only shard files in
-`$XDG_CACHE_HOME/wlr-git-verify/`, which compact themselves above 64 KiB. It
-is safe to delete.
+`$XDG_CACHE_HOME/wlr-git-verify/`, which compact themselves above 64 KiB. A
+reader stops at the first bad record and never looks for records inside one,
+because stored output can contain text that the signer chose. The cache is
+safe to delete.
 
 `bin/git/` has fallbacks with the same names, for machines whose Nix profile
 does not have this package yet. The Nix profile is earlier on PATH.

@@ -5,9 +5,12 @@
 //!   magic u32 | body length u32 | checksum [u8; 8] | body
 //!   body = key [u8; 32] | expires_at u64 | stdout length u32 | stdout | stderr
 //!
-//! The checksum is the first 8 bytes of SHA-256 over the body. A reader that
-//! finds a bad record (for example a torn write) searches forward for the
-//! next magic value, so one bad record does not hide the records after it.
+//! The checksum is the first 8 bytes of SHA-256 over the body. A reader stops
+//! at the first bad record (for example a torn write). It must not search
+//! forward for the next magic value: stored output can contain text from the
+//! signer, such as an OpenPGP user ID, and that text could hold a complete
+//! record with a valid checksum. Before a writer appends, it removes a bad
+//! tail, so that new records are not hidden behind it.
 //!
 //! Writers do not lock. Each append is one write to a file opened with
 //! O_APPEND. Compaction writes a new file and renames it over the shard, so a
@@ -15,7 +18,7 @@
 
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -87,20 +90,16 @@ fn decode_at(data: &[u8], at: usize) -> Option<(Entry, usize)> {
     ))
 }
 
-/// Decode all valid records in file order.
-pub fn decode_all(data: &[u8]) -> Vec<Entry> {
+/// Decode the valid records in file order, up to the first bad record.
+/// Return the records and the length of the valid part.
+pub fn decode_all(data: &[u8]) -> (Vec<Entry>, usize) {
     let mut entries = Vec::new();
     let mut at = 0;
-    while at + HEADER <= data.len() {
-        match decode_at(data, at) {
-            Some((entry, next)) => {
-                entries.push(entry);
-                at = next;
-            }
-            None => at += 1,
-        }
+    while let Some((entry, next)) = decode_at(data, at) {
+        entries.push(entry);
+        at = next;
     }
-    entries
+    (entries, at)
 }
 
 pub struct Store {
@@ -123,6 +122,7 @@ impl Store {
         // so only a verified record gives a safe offset for the next one.
         let data = fs::read(self.shard_path(key)).ok()?;
         decode_all(&data)
+            .0
             .into_iter()
             .rfind(|entry| &entry.key == key && entry.expires_at > now)
     }
@@ -130,7 +130,17 @@ impl Store {
     pub fn put(&self, entry: &Entry, now: u64) -> std::io::Result<()> {
         fs::create_dir_all(&self.dir)?;
         let path = self.shard_path(&entry.key);
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .read(true)
+            .open(&path)?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data)?;
+        let (_, valid) = decode_all(&data);
+        if valid < data.len() {
+            file.set_len(valid as u64)?;
+        }
         file.write_all(&entry.encode())?;
         if file.metadata()?.len() > COMPACT_THRESHOLD {
             compact(&path, now)?;
@@ -143,7 +153,7 @@ impl Store {
 pub fn compact(path: &Path, now: u64) -> std::io::Result<()> {
     let data = fs::read(path)?;
     let mut newest: HashMap<Key, usize> = HashMap::new();
-    let entries = decode_all(&data);
+    let (entries, _) = decode_all(&data);
     for (index, entry) in entries.iter().enumerate() {
         if entry.expires_at > now {
             newest.insert(entry.key, index);
@@ -204,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn torn_record_does_not_hide_later_records() {
+    fn append_after_torn_record_removes_the_torn_tail() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().to_path_buf());
         let before = entry(3, 1, u64::MAX);
@@ -214,11 +224,37 @@ mod tests {
         let torn = entry(3, 9, u64::MAX).encode();
         let mut file = OpenOptions::new().append(true).open(&path).unwrap();
         file.write_all(&torn[..torn.len() - 4]).unwrap();
+        assert_eq!(store.get(&before.key, 0), Some(before.clone()));
         store.put(&after, 0).unwrap();
         assert_eq!(store.get(&before.key, 0), Some(before));
-        assert_eq!(store.get(&after.key, 0), Some(after.clone()));
+        assert_eq!(store.get(&after.key, 0), Some(after));
         assert_eq!(store.get(&entry(3, 9, 0).key, 0), None);
-        assert_eq!(decode_all(&fs::read(&path).unwrap()).len(), 2);
+        let data = fs::read(&path).unwrap();
+        assert_eq!(decode_all(&data).1, data.len());
+        assert_eq!(decode_all(&data).0.len(), 2);
+    }
+
+    #[test]
+    fn record_inside_a_bad_record_is_never_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_path_buf());
+        // Signer-controlled output that holds a complete, valid record.
+        let smuggled = entry(8, 7, u64::MAX);
+        let mut outer = entry(8, 1, u64::MAX);
+        outer.stdout = [b"uid ".as_slice(), &smuggled.encode(), b"\n"].concat();
+        let mut record = outer.encode();
+        record.truncate(record.len() - 1);
+        fs::create_dir_all(dir.path()).unwrap();
+        fs::write(store.shard_path(&outer.key), &record).unwrap();
+        assert_eq!(store.get(&smuggled.key, 0), None);
+        assert_eq!(store.get(&outer.key, 0), None);
+        // An intact outer record also hides it: it is only output.
+        let intact = Store::new(dir.path().join("intact"));
+        let mut outer = outer.clone();
+        outer.key[1] = 2;
+        intact.put(&outer, 0).unwrap();
+        assert_eq!(intact.get(&smuggled.key, 0), None);
+        assert_eq!(intact.get(&outer.key, 0), Some(outer));
     }
 
     #[test]
@@ -226,7 +262,7 @@ mod tests {
         let mut record = entry(4, 1, u64::MAX).encode();
         let last = record.len() - 1;
         record[last] ^= 1;
-        assert!(decode_all(&record).is_empty());
+        assert_eq!(decode_all(&record), (vec![], 0));
     }
 
     #[test]
@@ -241,7 +277,7 @@ mod tests {
         store.put(&newer, 0).unwrap();
         let path = store.shard_path(&live.key);
         compact(&path, 50).unwrap();
-        assert_eq!(decode_all(&fs::read(&path).unwrap()), vec![newer]);
+        assert_eq!(decode_all(&fs::read(&path).unwrap()).0, vec![newer]);
     }
 
     #[test]
