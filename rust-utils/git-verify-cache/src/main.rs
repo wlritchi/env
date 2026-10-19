@@ -48,14 +48,18 @@ const SSH_VALUE_OPTIONS: [&str; 3] = ["-n", "-I", "-O"];
 const GPG_VERIFY_PREFIX: [&str; 3] = ["--keyid-format=long", "--status-fd=1", "--verify"];
 const GPG_DEFAULT_TTL: u64 = 7 * 24 * 60 * 60;
 // Options that make gpg read state that gnupg_fingerprint does not see.
-const GNUPG_OUTSIDE_FILE_OPTIONS: [&str; 5] = [
+const GNUPG_OUTSIDE_FILE_OPTIONS: [&str; 6] = [
     "keyring",
     "primary-keyring",
     "trustdb-name",
     "homedir",
     "no-default-keyring",
+    "options",
 ];
 const GNUPG_CONFIG_FILES: [&str; 2] = ["gpg.conf", "common.conf"];
+// gnupg 2.3 and later also read these. They can contain meta-commands
+// such as [ignore] and [force].
+const GNUPG_GLOBAL_CONFIG_FILES: [&str; 2] = ["/etc/gnupg/gpg.conf", "/etc/gnupg/common.conf"];
 const GNUPG_STATE_FILES: [&str; 11] = [
     "common.conf",
     "gpg.conf",
@@ -202,9 +206,11 @@ fn gnupg_home() -> Option<PathBuf> {
 /// and ctime changes on each write.
 fn gnupg_fingerprint(hasher: &mut Sha256, home: &Path) {
     update_field(hasher, home.as_os_str().as_encoded_bytes());
-    for name in GNUPG_STATE_FILES {
-        update_field(hasher, name.as_bytes());
-        match fs::metadata(home.join(name)) {
+    let local = GNUPG_STATE_FILES.iter().map(|name| home.join(name));
+    let global = GNUPG_GLOBAL_CONFIG_FILES.iter().map(PathBuf::from);
+    for path in local.chain(global) {
+        update_field(hasher, path.as_os_str().as_encoded_bytes());
+        match fs::metadata(&path) {
             Ok(metadata) => {
                 for value in [
                     metadata.dev(),
@@ -223,19 +229,35 @@ fn gnupg_fingerprint(hasher: &mut Sha256, home: &Path) {
     }
 }
 
-/// Return true if a gpg configuration file sets an option that makes gpg
-/// read keyring or trust database files outside `home`.
+/// Return true if a gpg configuration file could make gpg read keyring or
+/// trust database files outside `home`. The check fails closed: gpg accepts
+/// a unique abbreviation of an option name, so a name that starts any of the
+/// options counts, and so does each meta-command line.
 fn gnupg_uses_outside_files(home: &Path) -> bool {
-    GNUPG_CONFIG_FILES.iter().any(|name| {
-        fs::read_to_string(home.join(name)).is_ok_and(|config| {
-            config.lines().any(|line| {
-                let line = line.trim_start();
-                let option = line.strip_prefix("--").unwrap_or(line);
-                let name = option.split_whitespace().next().unwrap_or_default();
-                GNUPG_OUTSIDE_FILE_OPTIONS.contains(&name)
-            })
-        })
+    let local = GNUPG_CONFIG_FILES.iter().map(|name| home.join(name));
+    let global = GNUPG_GLOBAL_CONFIG_FILES.iter().map(PathBuf::from);
+    local.chain(global).any(|path| {
+        fs::read_to_string(path).is_ok_and(|config| config.lines().any(config_line_is_unsafe))
     })
+}
+
+fn config_line_is_unsafe(line: &str) -> bool {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return false;
+    }
+    if line.starts_with('[') {
+        return true;
+    }
+    let option = line.strip_prefix("--").unwrap_or(line);
+    let name = option
+        .split(|c: char| c.is_whitespace() || c == '=')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    GNUPG_OUTSIDE_FILE_OPTIONS
+        .iter()
+        .any(|sensitive| sensitive.starts_with(name.as_str()) || name.starts_with(sensitive))
 }
 
 /// Return the earliest signature expiry time in the gpg status output, as
@@ -419,10 +441,21 @@ mod tests {
         )
         .unwrap();
         assert!(!gnupg_uses_outside_files(home.path()));
+        fs::write(
+            home.path().join("gpg.conf"),
+            "keyid-format long\nkeyserver hkps://keys.example\nuse-agent\n",
+        )
+        .unwrap();
+        assert!(!gnupg_uses_outside_files(home.path()));
         for config in [
             "keyring /other/pubring.kbx",
             "  --trustdb-name /x",
             "homedir /y",
+            "keyr /abbreviated",
+            "primary-keyring=/joined",
+            "KEYRING /upper",
+            "[ignore]",
+            "options /more.conf",
         ] {
             fs::write(home.path().join("gpg.conf"), format!("armor\n{config}\n")).unwrap();
             assert!(gnupg_uses_outside_files(home.path()), "{config}");

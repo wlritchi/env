@@ -17,9 +17,10 @@ and `wlr-git-gpg-verify` (`gpg.program`). The name selects the mode.
   `$GNUPGHOME`, so an import, a revocation or a trust change starts a new
   entry. Results expire after a week, or when the signature expires if that
   is earlier. A key that expires during that week shows as valid until the
-  result expires. If `gpg.conf` or `common.conf` names keyring or trust
-  database files outside `$GNUPGHOME`, nothing is cached. All other calls go
-  to `gpg`.
+  result expires. If `gpg.conf` or `common.conf` (in `$GNUPGHOME` or
+  `/etc/gnupg`) could name keyring or trust database files outside
+  `$GNUPGHOME`, nothing is cached. That includes abbreviated option names
+  and meta-commands such as `[ignore]`. All other calls go to `gpg`.
 
 Only successful results are kept. The cache is 256 append-only shard files in
 `$XDG_CACHE_HOME/wlr-git-verify/`, which compact themselves above 64 KiB. A
