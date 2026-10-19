@@ -17,7 +17,7 @@
     "github@claude-plugins-official": false,
     "gopls-lsp@claude-plugins-official": true,
     "house-style@wlr-cc-plugins": true,
-    "hyperspace@wlr-cc-plugins": true,
+    "hyperspace@hyperspace": true,
     "lua-lsp@claude-plugins-official": false,
     "notifications@wlr-cc-plugins": true,
     "opinionated-setup@wlr-cc-plugins": true,
@@ -42,6 +42,13 @@
     "OTEL_METRICS_EXPORTER": "otlp"
   },
   "extraKnownMarketplaces": {
+    "hyperspace": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "wlritchi/hyperspace",
+        "source": "github"
+      }
+    },
     "wlr-cc-plugins": {
       "autoUpdate": true,
       "source": {
