@@ -1,0 +1,18 @@
+[package]
+name = "git-verify-cache"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Cache git signature verification results from ssh-keygen and gpg"
+
+[dependencies]
+sha2 = "0.11.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[dev-dependencies]
+tempfile = "3.27.0"

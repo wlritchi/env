@@ -13,6 +13,7 @@ from pytest_mock import MockerFixture
 
 WRAPPER = Path(__file__).resolve().parents[1] / "lib/git-ssh-sign.py"
 DISPATCHER = Path(__file__).resolve().parents[1] / "bin/git/wlr-git-ssh-sign"
+FALLBACK = Path(__file__).resolve().parents[1] / "bin/git/wlr-git-ssh-verify"
 
 
 def command(args: list[str], cwd: Path, data: bytes | None = None) -> bytes:
@@ -196,7 +197,10 @@ def test_git_commit_and_tag_invocations(signing: Path) -> None:
     assert b"BEGIN SSH SIGNATURE" in command(["git", "cat-file", "tag", "v1"], signing)
 
 
-def test_git_log_verifies_through_dispatcher(signing: Path) -> None:
+@pytest.mark.parametrize(
+    "program", [DISPATCHER, FALLBACK], ids=["dispatcher", "fallback"]
+)
+def test_git_log_verifies_through_dispatcher(signing: Path, program: Path) -> None:
     commit_payload(signing)
     public = (signing / "key.pub").read_text()
     (signing / "allowed").write_text(f"test@example.com {public}")
@@ -209,7 +213,7 @@ def test_git_log_verifies_through_dispatcher(signing: Path) -> None:
         "-c",
         "gpg.format=ssh",
         "-c",
-        f"gpg.ssh.program={DISPATCHER}",
+        f"gpg.ssh.program={program}",
         "-c",
         f"gpg.ssh.allowedSignersFile={signing / 'allowed'}",
         "-c",

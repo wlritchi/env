@@ -76,13 +76,21 @@
 
 [gpg]
 	format = ssh
+	; The Nix profile provides wlr-git-gpg-verify (rust-utils/git-verify-cache).
+	; It caches verification results for %G? in git log. Without the profile,
+	; the bin/git/ fallback with the same name runs gpg directly.
+	program = wlr-git-gpg-verify
 
 [gpg "ssh"]
 	allowedSignersFile = ~/.wlrenv/.allowed_signers
-	; wlr-git-ssh-sign (bin/git/) loads the key into ssh-agent before signing,
-	; which allows passphrase retries; found via PATH, so GUI git clients
-	; without the wlrenv PATH cannot sign with this set
-	program = wlr-git-ssh-sign
+	; Verification calls go to git-verify-cache, which caches the results.
+	; Signing calls go to wlr-git-ssh-sign (bin/git/). It asks for confirmation
+	; and loads the key into ssh-agent, so passphrase retries work. If the Nix
+	; profile has no git-verify-cache, the bin/git/ fallback with the same name
+	; runs the bash dispatcher.
+	; Git finds these programs through PATH. A GUI git client without the
+	; wlrenv PATH cannot sign or verify with this setting.
+	program = wlr-git-ssh-verify
 
 [credential "https://git.wlritchi.com"]
 	helper = store

@@ -12,6 +12,7 @@ let
   ccstatusline = pkgs.callPackage ./pkgs/ccstatusline.nix { };
   entire = pkgs.callPackage ./pkgs/entire.nix { };
   delta-realpath = import ./pkgs/delta-realpath.nix { inherit pkgs; };
+  git-verify-cache = pkgs.callPackage ./pkgs/git-verify-cache.nix { };
   tryPkg = try.packages.${pkgs.stdenv.hostPlatform.system}.default;
 in
 {
@@ -83,6 +84,7 @@ in
         (ccpatch.lib.mkPackages pkgs).ccpatch
         delta-realpath
         entire
+        git-verify-cache
         tryPkg
       ];
 

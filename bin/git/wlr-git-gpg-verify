@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Dependencies: gpg.
+
+# The git config names wlr-git-gpg-verify as gpg.program. The Nix profile
+# installs a caching version (rust-utils/git-verify-cache) with this name
+# earlier on PATH. This fallback is for a machine that does not have it yet.
+exec gpg "$@"

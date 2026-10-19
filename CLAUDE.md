@@ -55,6 +55,8 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
   - Automatically built on `wlr-check-update` via `hooks/post-upgrade` → `wlr-nix-rebuild`
   - For development: use standard `cargo build` in the utility's directory
 
+- Git signature verification: `config/git/common` sets `gpg.ssh.program = wlr-git-ssh-verify` and `gpg.program = wlr-git-gpg-verify`. The Nix profile provides caching versions of both (`rust-utils/git-verify-cache`); the `bin/git/` files with the same names are fallbacks for machines that have not rebuilt yet. Signing calls go on to `wlr-git-ssh-sign` (a bash dispatcher in `bin/git/`), which runs `lib/git-ssh-sign.py` to ask for confirmation. Do not name a Nix-provided binary `wlr-git-ssh-sign`: the cache execs that name for signing, so it would call itself.
+
 - `pass-fwd` (`src/wlrenv/pass_fwd/`, spec `docs/specs/2026-10-09-pass-forwarding-design.md`) lets `pass` on a remote machine decrypt with the local YubiKey. `sshx` forwards a per-host socket of the `pass-fwd` user service, which passes only card-key requests to gpg-agent's extra socket, and shows a pinentry confirm dialog with the entry name (found from the ciphertext in the local store) before the agent sees `PKDECRYPT` or `PKSIGN`. `hooks/post-upgrade` builds `~/.gnupg-fwd` on each machine (`bin/meta/wlr-pass-fwd-home`) from the recipients' public keys in the private overlay's `config/pass-fwd/`. After a key changes (for example an extended expiry date or `secwrap rotate-meta`), run `wlr-pass-fwd export-keys` and commit the private overlay.
 
 ## Nix Integration
