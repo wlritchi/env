@@ -122,6 +122,7 @@ select = [
 "src/wlrenv/rgshim.py" = ["T201", "S606"]  # CLI entry point prints errors and execs rg
 "src/wlrenv/secwrap.py" = ["T201"]  # CLI entry point uses print for errors
 "src/wlrenv/pass_fwd/cli.py" = ["T201"]  # CLI prints the socket path for sshx
+"lib/git-ssh-sign.py" = ["T201"]  # git signing program reports errors on stderr
 
 [tool.codespell]
 ignore-words-list = "fpr"  # fpr: gpg --with-colons fingerprint record type (secwrap)

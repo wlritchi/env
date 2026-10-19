@@ -11,7 +11,8 @@ from types import ModuleType
 import pytest
 from pytest_mock import MockerFixture
 
-WRAPPER = Path(__file__).resolve().parents[1] / "bin/git/wlr-git-ssh-sign"
+WRAPPER = Path(__file__).resolve().parents[1] / "lib/git-ssh-sign.py"
+DISPATCHER = Path(__file__).resolve().parents[1] / "bin/git/wlr-git-ssh-sign"
 
 
 def command(args: list[str], cwd: Path, data: bytes | None = None) -> bytes:
@@ -180,7 +181,7 @@ def test_git_commit_and_tag_invocations(signing: Path) -> None:
         "-c",
         "gpg.format=ssh",
         "-c",
-        f"gpg.ssh.program={WRAPPER}",
+        f"gpg.ssh.program={DISPATCHER}",
         "-c",
         f"user.signingkey={signing / 'key'}",
     ]
@@ -193,6 +194,54 @@ def test_git_commit_and_tag_invocations(signing: Path) -> None:
     assert "Tag: v1" in text
     assert "Git tag message" in text
     assert b"BEGIN SSH SIGNATURE" in command(["git", "cat-file", "tag", "v1"], signing)
+
+
+def test_git_log_verifies_through_dispatcher(signing: Path) -> None:
+    commit_payload(signing)
+    public = (signing / "key.pub").read_text()
+    (signing / "allowed").write_text(f"test@example.com {public}")
+    config = [
+        "git",
+        "-c",
+        "user.name=Test Author",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "gpg.format=ssh",
+        "-c",
+        f"gpg.ssh.program={DISPATCHER}",
+        "-c",
+        f"gpg.ssh.allowedSignersFile={signing / 'allowed'}",
+        "-c",
+        f"user.signingkey={signing / 'key'}",
+    ]
+    command([*config, "commit", "-S", "-m", "Signed"], signing)
+    (signing / "prompt.json").unlink()
+    status = command([*config, "log", "-1", "--format=%G? %GS"], signing)
+    assert status == b"G test@example.com\n"
+    assert not (signing / "prompt.json").exists()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["-Y", "sign", "-n", "git", "-f", "key", "-"],
+        ["-Ysign", "-n", "git", "-f", "key", "-"],
+        ["-n", "git", "-Y", "sign", "-f", "key", "-"],
+        ["-Y", "check-novalidate", "-n", "git", "-Y", "sign", "-f", "key", "-"],
+        ["-Y", "verify", "-n", "git", "-Ysign", "-f", "key", "-"],
+    ],
+)
+def test_dispatcher_confirms_possible_signing(
+    signing: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    monkeypatch.setenv("CANCEL", "10")
+    result = subprocess.run(  # noqa: S603
+        [str(DISPATCHER), *args], cwd=signing, input=b"payload", capture_output=True
+    )
+    assert result.returncode != 0
+    assert not result.stdout
+    assert (signing / "prompt.json").exists()
 
 
 def test_multiple_files_and_existing_signature(signing: Path) -> None:
