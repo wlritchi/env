@@ -258,9 +258,9 @@ in
           # the version and hash.
           id = "magnolia@12.34";
           xpi = pkgs.fetchurl {
-            name = "bypass_paywalls_clean-4.4.7.2.xpi";
-            url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.4.7.2.xpi";
-            hash = "sha256-yj2Tip3vTy/rDd0m8SK3cB4i2kWHGhg+KyygIZZp2z4=";
+            name = "bypass_paywalls_clean-4.4.7.7.xpi";
+            url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.4.7.7.xpi";
+            hash = "sha256-m7khKi5qW2hjvWbwqYflGR3Qfc67BBeDOSjchcM2btk=";
           };
         }
         {
