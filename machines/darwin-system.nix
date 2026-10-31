@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   username,
   homebrew-core,
@@ -155,7 +156,13 @@
     taps = {
       "homebrew/homebrew-core" = homebrew-core;
       "homebrew/homebrew-cask" = homebrew-cask;
+      # Casks that homebrew-cask does not have
+      "wlritchi/homebrew-wlrenv" = builtins.path {
+        path = ../homebrew-tap;
+        name = "homebrew-wlrenv";
+      };
     };
+    trust.casks = [ "wlritchi/wlrenv/icemelt" ];
   };
 
   # Configure homebrew cask management
@@ -163,18 +170,32 @@
     enable = true;
     onActivation = {
       autoUpdate = false;
+      # The taps are pinned in flake.lock, so an upgrade goes only to the
+      # pinned versions
+      upgrade = true;
       cleanup = "none";
     };
+    taps = builtins.attrNames config.nix-homebrew.taps;
     # Prefer nixpkgs; brews are for tools not packaged there (displayplacer is
     # Homebrew-only as of 2026-07)
     brews = [
       "displayplacer"
     ];
+    # `brew upgrade` skips casks with auto_updates unless they are greedy
     casks = [
-      "jordanbaird-ice"
-      "linearmouse"
+      {
+        name = "linearmouse";
+        greedy = true;
+      }
       "middleclick"
-      "swiftbar"
+      {
+        name = "swiftbar";
+        greedy = true;
+      }
+      {
+        name = "wlritchi/wlrenv/icemelt";
+        greedy = true;
+      }
     ];
   };
 }

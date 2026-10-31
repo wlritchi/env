@@ -80,6 +80,8 @@ This repository uses Nix Flakes with home-manager for declarative package and en
 On macOS, `wlr-nix-rebuild` also runs nix-darwin (via `darwin-rebuild`) for system-level config:
 - **Config file**: `machines/darwin-system.nix` - system-level macOS settings
 - **Homebrew casks**: For apps that need to self-update (e.g., Docker) or aren't in nixpkgs
+- **Local tap**: `homebrew-tap/Casks/` holds casks that homebrew-cask does not have (e.g. `icemelt`). It is registered as the `wlritchi/wlrenv` tap; list a cask as `wlritchi/wlrenv/NAME` and add it to `nix-homebrew.trust.casks`. To update one, change `version` and `sha256` (`curl -L URL | sha256sum`).
+- **Upgrades**: `onActivation.upgrade` moves installed casks to the versions in the pinned taps. Casks with `auto_updates true` need `greedy = true`, or `brew upgrade` skips them.
 - **When to use Homebrew**: Only for apps that manage their own updates. Prefer nixpkgs for everything else - you get reproducibility and rollback.
 
 ## Environment Integration
