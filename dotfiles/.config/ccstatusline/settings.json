@@ -156,36 +156,6 @@
     [
       {
         "color": "hex:8AADF4",
-        "id": "0a834b0f-b310-4c6b-9f14-0c7b645be7c5",
-        "metadata": {
-          "display": "progress-short"
-        },
-        "rawValue": false,
-        "type": "session-usage"
-      },
-      {
-        "character": " ",
-        "id": "2a093f4c-4c25-4a09-a758-6cf2a2275914",
-        "type": "separator"
-      },
-      {
-        "color": "hex:8AADF4",
-        "id": "1b8c7070-e970-47f3-91f8-f43ae15e4e1b",
-        "rawValue": true,
-        "type": "reset-timer"
-      },
-      {
-        "character": " ",
-        "id": "60dfa1bd-45f1-4133-8757-fda826270db9",
-        "type": "separator"
-      },
-      {
-        "character": " ",
-        "id": "6942a0d8-bb0b-447c-9c8a-27bf1fa27259",
-        "type": "separator"
-      },
-      {
-        "color": "hex:8AADF4",
         "id": "9719281b-5564-4279-bb3e-21743a9bf37d",
         "metadata": {
           "display": "progress-short"
