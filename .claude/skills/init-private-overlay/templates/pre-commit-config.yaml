@@ -1,0 +1,15 @@
+# Run wlr-sync-dotfiles after the checked-out tree changes, as the public repo
+# does, so that a commit, merge, or pull here updates the private dotfiles in
+# $HOME. The hook script is in the public repo. Install with `prek install`.
+default_install_hook_types: [post-checkout, post-commit, post-merge, post-rewrite]
+repos:
+  - repo: local
+    hooks:
+      - id: sync-dotfiles
+        name: sync dotfiles
+        description: Run wlr-sync-dotfiles after the checked-out tree changes
+        entry: bash -c 'exec "${WLR_ENV_PATH:-$HOME/.wlrenv}/bin/meta/wlr-sync-dotfiles-hook"'
+        language: system
+        stages: [post-commit, post-merge, post-rewrite, post-checkout]
+        always_run: true
+        pass_filenames: false

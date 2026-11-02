@@ -7,9 +7,11 @@ set -euo pipefail
 # that runs wlr-sync-dotfiles, so the rendered dotfiles and the links in
 # $HOME follow the checked-out tree.
 #
-# It only runs in the checkout that $HOME links to ($WLR_ENV_PATH, default
-# ~/.wlrenv). Linked worktrees and other clones are skipped, because a sync
-# from them would point $HOME at their files. It also skips the commits in
+# It only runs in the checkouts that $HOME links to: the public repo
+# ($WLR_ENV_PATH, default ~/.wlrenv) and the private overlay
+# (~/.wlrenv-private), which calls this script from its own hook config.
+# Linked worktrees and other clones are skipped, because a sync from them
+# would point $HOME at their files. It also skips the commits in
 # the middle of a rebase; post-rewrite syncs once when the rebase completes.
 #
 # The sync cannot prompt here. Each prompt (a rendered file that a program
@@ -17,9 +19,15 @@ set -euo pipefail
 # never discards local changes. Those files are left as they are and the
 # hook fails with a reminder to run wlr-sync-dotfiles by hand.
 
-root="$(git rev-parse --show-toplevel)"
-target="${WLR_ENV_PATH:-$HOME/.wlrenv}"
-if ! [ -d "$target" ] || [ "$(realpath "$root")" != "$(realpath "$target")" ]; then
+root="$(realpath "$(git rev-parse --show-toplevel)")"
+public="${WLR_ENV_PATH:-$HOME/.wlrenv}"
+private="$HOME/.wlrenv-private"
+if ! [ -d "$public" ]; then
+    exit 0
+fi
+public="$(realpath "$public")"
+if [ "$root" != "$public" ] &&
+    ! { [ -d "$private" ] && [ "$root" = "$(realpath "$private")" ]; }; then
     exit 0
 fi
 
@@ -29,7 +37,7 @@ for state in rebase-merge rebase-apply; do
     fi
 done
 
-export WLR_ENV_PATH="$root"
+export WLR_ENV_PATH="$public"
 PATH="$WLR_ENV_PATH/bin/early:$PATH"
 
 if ! "$WLR_ENV_PATH/bin/meta/wlr-sync-dotfiles" </dev/null; then

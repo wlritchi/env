@@ -37,6 +37,7 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
 ├── flake.lock         # REQUIRED — commit it; pins `wlrenv` (the rev is only used by standalone `nix`; rebuild overrides the input)
 ├── private.nix        # REQUIRED — your home-manager module (the extraModules content)
 ├── .gitignore         # REQUIRED — at least `rendered`
+├── .pre-commit-config.yaml # sync hook: runs wlr-sync-dotfiles after commit/merge/checkout
 ├── .allowed_signers   # for auto-updates: the overlay's OWN signing key(s)
 ├── dotfiles/          # optional — private dotfiles (shadow/patch the public chain)
 ├── bin/<category>/    # optional — private scripts (MUST sit in a subdir)
@@ -56,7 +57,9 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
    refuses to update the overlay.
 4. **Copy the templates** from this skill (`templates/`) and edit:
    `flake.nix` → `flake.nix`, `private.nix` → `private.nix`,
-   `gitignore` → `.gitignore`.
+   `gitignore` → `.gitignore`, `pre-commit-config.yaml` →
+   `.pre-commit-config.yaml`. Then run `prek install` in the overlay to
+   install the sync hook.
 5. **Disable fsmonitor:** `git -C ~/.wlrenv-private config --local core.fsmonitor false`
    (matches the public repo — fsmonitor's `.ipc` socket breaks Nix `path:`
    evaluation of the flake).
@@ -95,6 +98,9 @@ for secrets (those go in pass/passage via `secwrap`, never in any repo).
   `custom.krewPlugins`, per-host gating.
 - `templates/gitignore` — ignores `rendered/` (private dotfile renders) + build
   artifacts.
+- `templates/pre-commit-config.yaml` — the `sync-dotfiles` hook, which calls
+  the public `bin/meta/wlr-sync-dotfiles-hook` after a commit, merge, rewrite,
+  or checkout in the overlay.
 
 > **Stale doc warning:** `docs/plans/2025-12-24-private-config-design.md` shows an
 > older flake using `extendModules` / `homeConfigurations."<user>"`. That form is
