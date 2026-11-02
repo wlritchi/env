@@ -12,7 +12,14 @@ let
     options = {
       spec = lib.mkOption {
         type = lib.types.str;
-        description = "Argument passed to `uv tool install` (PyPI spec, git+URL, or path).";
+        description = ''
+          Argument passed to `uv tool install` (PyPI spec, git+URL, or path).
+          `uv tool install` keeps an installed version that satisfies the
+          spec, so pin an exact version. wlr-update-locks moves a
+          `NAME==X.Y.Z` pin to the newest PyPI release, and a
+          `git+https://github.com/OWNER/REPO@PREFIXX.Y.Z` pin to the newest
+          tag with the same prefix.
+        '';
       };
       python = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -61,7 +68,7 @@ in
   config = {
     home.uvTools = {
       hyfetch = {
-        spec = "hyfetch>=2.0.0,<3.0.0";
+        spec = "hyfetch==2.0.5";
       };
       # The hyperspace plugin's hooks and custom.hyperspace-launcher run this
       # client.

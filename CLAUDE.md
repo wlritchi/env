@@ -69,7 +69,7 @@ This repository uses Nix Flakes with home-manager for declarative package and en
 - **Apply changes**: `wlr-nix-rebuild` to rebuild home-manager environment (passes `--impure` and exports `NIX_HOSTNAME` automatically)
 - **Other home-manager subcommands**: `wlr-nix-hm SUBCOMMAND [ARG]...` (e.g. `wlr-nix-hm news`, `wlr-nix-hm build --dry-run`) runs home-manager with the same flake, overrides, and environment as `wlr-nix-rebuild`. Both scripts share `lib/nix-flake.bash`.
 - **Cross-platform QA**: Override `NIX_SYSTEM` to evaluate configs for other platforms (e.g., `NIX_SYSTEM=aarch64-darwin wlr-nix-rebuild`)
-- **Update dependencies**: `wlr-update-locks` updates flake.lock (and other lockfiles)
+- **Update dependencies**: `wlr-update-locks` updates flake.lock (and other lockfiles). It also moves the exact uv tool pins in `machines/uv-tools.nix` (`NAME==X.Y.Z` from PyPI, `git+https://github.com/OWNER/REPO@PREFIXX.Y.Z` from tags); `uv tool install` never upgrades a tool within a range, so pin exact versions there.
 - **Nix profile**: `~/.nix-profile/bin` is automatically added to PATH in env.bash (takes precedence over `~/.local/bin`)
 - **Special integrations**: Uses krew2nix for declarative kubectl plugin management
 - **Claude Code**: The patched `claude`, `ccpatch`, and the `cc-openai-proxy` user service come from the `ccpatch` flake input (github:wlritchi/ccpatch) via `programs.ccpatch.enable` in `machines/common.nix`. To take a new ccpatch release, run `nix flake update ccpatch`, then `wlr-nix-rebuild`.

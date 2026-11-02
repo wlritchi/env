@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # Updates all lockfiles within current channel constraints
-# Lockfiles: flake.lock (and the release tags in flake.nix), uv.lock,
-# Cargo.lock (when present)
+# Lockfiles: flake.lock (and the release tags in flake.nix), the uv tool pins
+# in machines/uv-tools.nix, uv.lock, Cargo.lock (when present)
+# Dependencies: git, curl, jq, nix, uv, cargo.
 
 cd "$WLR_ENV_PATH"
 
@@ -13,11 +14,16 @@ release_tag_inputs=(
     wlritchi/subspace
 )
 
+# Print the newest PREFIXX.Y.Z tag of github.com/REPO, or nothing.
 latest_release_tag() {
-    git ls-remote --tags --refs "https://github.com/$1" |
-        sed -nE 's|.*refs/tags/([0-9]+\.[0-9]+\.[0-9]+)$|\1|p' |
+    local repo="$1" prefix="${2:-}" version
+    version=$(git ls-remote --tags --refs "https://github.com/$repo" |
+        sed -nE "s|.*refs/tags/$prefix([0-9]+\\.[0-9]+\\.[0-9]+)\$|\\1|p" |
         sort -t. -k1,1n -k2,2n -k3,3n |
-        tail -n1
+        tail -n1)
+    if [[ -n "$version" ]]; then
+        printf '%s%s\n' "$prefix" "$version"
+    fi
 }
 
 for repo in "${release_tag_inputs[@]}"; do
@@ -30,6 +36,35 @@ for repo in "${release_tag_inputs[@]}"; do
     sed -E -i.bak "s|(\"github:$repo/)[0-9]+\.[0-9]+\.[0-9]+\"|\1$tag\"|" flake.nix
     rm flake.nix.bak
 done
+
+# uv tools are pinned to exact versions, because `uv tool install` keeps an
+# installed version that satisfies a range. Move each pin to the newest
+# release: a `NAME==X.Y.Z` spec to the newest PyPI release, and a
+# `git+https://github.com/OWNER/REPO@PREFIXX.Y.Z` spec to the newest tag with
+# the same prefix.
+uv_tools_nix=machines/uv-tools.nix
+
+while IFS= read -r name; do
+    version=$(curl -fsSL "https://pypi.org/pypi/$name/json" | jq -r '.info.version // empty')
+    if [[ -z "$version" ]]; then
+        wlr-err "no PyPI release found for uv tool $name"
+        exit 1
+    fi
+    wlr-working "pinning uv tool $name to $version"
+    sed -E -i.bak "s|(spec = \"${name//./\\.}==)[^\"]+\"|\1$version\"|" "$uv_tools_nix"
+    rm "$uv_tools_nix.bak"
+done < <(sed -nE 's|.*spec = "([A-Za-z0-9._-]+)==[^"]+".*|\1|p' "$uv_tools_nix")
+
+while read -r repo prefix; do
+    tag=$(latest_release_tag "$repo" "$prefix")
+    if [[ -z "$tag" ]]; then
+        wlr-err "no ${prefix}X.Y.Z release tag found for $repo"
+        exit 1
+    fi
+    wlr-working "pinning uv tool from $repo to release $tag"
+    sed -E -i.bak "s|(git\+https://github\.com/$repo@)${prefix}[0-9]+\.[0-9]+\.[0-9]+|\1$tag|" "$uv_tools_nix"
+    rm "$uv_tools_nix.bak"
+done < <(sed -nE 's|.*git\+https://github\.com/([^/"@]+/[^/"@]+)@([A-Za-z_-]*)[0-9]+\.[0-9]+\.[0-9]+.*|\1 \2|p' "$uv_tools_nix")
 
 wlr-working 'updating flake.lock (within current nixpkgs channel)'
 nix flake update
