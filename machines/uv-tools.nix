@@ -63,6 +63,11 @@ in
       hyfetch = {
         spec = "hyfetch>=2.0.0,<3.0.0";
       };
+      # The hyperspace plugin's hooks and custom.hyperspace-launcher run this
+      # client.
+      hyperspace-client = {
+        spec = "hyperspace-client @ git+https://github.com/wlritchi/hyperspace@client-v0.7.0#subdirectory=client";
+      };
     };
 
     home.file.".config/wlrenv/uv-tools.json".source = manifest;
