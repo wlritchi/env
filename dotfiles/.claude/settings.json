@@ -19,7 +19,6 @@
     "house-style@wlr-cc-plugins": true,
     "hyperspace@hyperspace": true,
     "lua-lsp@claude-plugins-official": false,
-    "notifications@wlr-cc-plugins": true,
     "opinionated-setup@wlr-cc-plugins": true,
     "playwright@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true,
@@ -28,6 +27,7 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
     "skill-feedback@wlr-cc-plugins": true,
+    "subspace@subspace": true,
     "swift-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true
   },
@@ -46,6 +46,13 @@
       "autoUpdate": true,
       "source": {
         "repo": "wlritchi/hyperspace",
+        "source": "github"
+      }
+    },
+    "subspace": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "wlritchi/subspace",
         "source": "github"
       }
     },
@@ -76,7 +83,7 @@
   },
   "permissions": {
     "allow": [
-      "mcp__plugin_notifications_notifications"
+      "mcp__plugin_subspace_subspace"
     ],
     "defaultMode": "auto"
   },
