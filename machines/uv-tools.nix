@@ -68,12 +68,12 @@ in
   config = {
     home.uvTools = {
       hyfetch = {
-        spec = "hyfetch==2.1.0";
+        spec = "hyfetch==2.1.1";
       };
       # The hyperspace plugin's hooks and custom.hyperspace-launcher run this
       # client.
       hyperspace-client = {
-        spec = "hyperspace-client @ git+https://github.com/wlritchi/hyperspace@client-v0.8.1#subdirectory=client";
+        spec = "hyperspace-client @ git+https://github.com/wlritchi/hyperspace@client-v0.8.4#subdirectory=client";
       };
     };
 
