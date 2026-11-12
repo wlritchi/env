@@ -30,7 +30,7 @@
     # A release tag: `nix flake update` alone keeps the tag, so
     # wlr-update-locks moves it to the newest release first.
     subspace = {
-      url = "github:wlritchi/subspace/1.6.1";
+      url = "github:wlritchi/subspace/1.8.0";
       flake = false;
     };
     try = {
