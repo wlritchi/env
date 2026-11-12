@@ -55,3 +55,7 @@ fi
 
 # Install/update declarative uv tools (manifest rendered by wlr-nix-rebuild)
 "$WLR_ENV_PATH/bin/meta/wlr-uv-tools-install"
+
+# Repair a git maintenance schedule that runs a garbage-collected git. Run it
+# after wlr-nix-rebuild, so that `git maintenance start` records the new git.
+"$WLR_ENV_PATH/bin/meta/wlr-repair-git-maintenance"
