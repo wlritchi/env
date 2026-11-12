@@ -73,7 +73,7 @@ in
       # The hyperspace plugin's hooks and custom.hyperspace-launcher run this
       # client.
       hyperspace-client = {
-        spec = "hyperspace-client @ git+https://github.com/wlritchi/hyperspace@client-v0.9.4#subdirectory=client";
+        spec = "hyperspace-client @ git+https://github.com/wlritchi/hyperspace@client-v0.11.0#subdirectory=client";
       };
     };
 
