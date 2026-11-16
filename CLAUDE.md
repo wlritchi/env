@@ -86,7 +86,7 @@ On macOS, `wlr-nix-rebuild` also runs nix-darwin (via `darwin-rebuild`) for syst
 - **When to use Homebrew**: Only for apps that manage their own updates. Prefer nixpkgs for everything else - you get reproducibility and rollback.
 
 ## Environment Integration
-- Integration with development environment tools (nodenv, pyenv, etc.)
+- Integration with development environment tools (fnm, mise, etc.). mise is optional: bash (`env.bash`) and xonsh (`xonshrc.py`) activate it only if it is on the PATH. Non-interactive bash, such as Claude Code's shell, gets shims, because the activation hooks run from the prompt.
 - Terminal multiplexer support (tmux, zellij)
 - Enhanced shell experience (xonsh)
 - Command wrapper pattern for enhanced functionality

@@ -469,8 +469,27 @@ def _setup() -> None:
 
         XSH.aliases['source'] = _source(XSH.aliases['source'])
 
+    def setup_mise() -> None:
+        if not XSH.env or not XSH.builtins:
+            raise RuntimeError('xonsh is not loaded')
+
+        if not which('mise'):
+            return
+        result = subprocess.run(
+            ['mise', 'activate', 'xonsh'],  # noqa: S607
+            env=XSH.env.detype(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            print(result.stderr, end='', file=sys.stderr)
+            return
+        XSH.builtins.execx(result.stdout)
+
     prepare_aliases()
     prepare_packages()
+    setup_mise()
 
 
 _setup()

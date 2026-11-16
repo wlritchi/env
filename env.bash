@@ -375,6 +375,21 @@ if [ -n "$wlr_interactive" ]; then
 fi
 
 
+# set up mise (after the xonsh handoff, since xonsh activates mise itself)
+if command -v mise >/dev/null 2>&1; then
+    # the activation hooks run from the prompt, so non-interactive shells use shims instead
+    mise_activate_args=()
+    [ -n "$wlr_interactive" ] || mise_activate_args+=(--shims)
+    if mise_activate_script="$(mise activate bash "${mise_activate_args[@]}")"; then
+        eval "$mise_activate_script"
+        good_steps+=('mise')
+    else
+        err_steps+=('mise')
+    fi
+    unset mise_activate_args mise_activate_script
+fi
+
+
 # initialize completions and corrections
 
 try_source /usr/share/git/completion/git-completion.bash || \
