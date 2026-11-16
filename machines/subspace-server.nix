@@ -6,10 +6,12 @@
 #
 # The server gets GITHUB_TOKEN from the gh login (githubTokenFromGh).
 #
-# The `notifications` relay finds the server through NOTIFICATIONS_WS_URL, or
-# NOTIFICATIONS_WS_HOST and NOTIFICATIONS_WS_PORT (default ws://127.0.0.1:8137).
-# A NOTIFICATIONS_WS_URL that names a remote server takes precedence over the
-# local one.
+# The `subspace` plugin's relay needs no setup for this server. With no URL
+# setting, it connects to ws://127.0.0.1:8137 with the server's token from
+# <data dir>/token. It finds the data directory with the server's rule:
+# SUBSPACE_DATA_DIR, else $XDG_DATA_HOME/subspace. If the relay has a URL (the
+# plugin's server_url option or SUBSPACE_WS_URL), it does not read that file,
+# so it also needs a credential (the token option or SUBSPACE_TOKEN).
 {
   config,
   lib,
@@ -26,7 +28,6 @@ let
     runtimeInputs = [
       cfg.package
       pkgs.coreutils
-      pkgs.diffutils
     ];
     text = builtins.readFile ./subspace-server-start.bash;
   };
@@ -35,7 +36,6 @@ let
     SUBSPACE_WS_HOST = cfg.host;
     SUBSPACE_WS_PORT = toString cfg.port;
     SUBSPACE_DATA_DIR = cfg.dataDir;
-    WLR_SUBSPACE_RELAY_COMPAT = if cfg.relayCompat then "1" else "0";
   }
   // lib.optionalAttrs (cfg.environmentFile != null) {
     WLR_SUBSPACE_ENV_FILE = cfg.environmentFile;
@@ -68,8 +68,10 @@ in
       type = lib.types.port;
       default = 8137;
       description = ''
-        WebSocket port. Relays use 8137 unless NOTIFICATIONS_WS_PORT or
-        NOTIFICATIONS_WS_URL is set in their environment.
+        WebSocket port. A relay with no URL setting connects to 8137. For a
+        different port, give the relay the URL (the plugin's server_url
+        option or SUBSPACE_WS_URL) and a credential (the token option or
+        SUBSPACE_TOKEN).
       '';
     };
 
@@ -77,7 +79,11 @@ in
       type = lib.types.str;
       default = "${config.xdg.dataHome}/subspace";
       defaultText = lib.literalExpression ''"''${config.xdg.dataHome}/subspace"'';
-      description = "Where the server keeps its state and its token.";
+      description = ''
+        Where the server keeps its state and its token. If this is not the
+        default, set SUBSPACE_DATA_DIR to the same value for Claude Code, so
+        that relays find the token.
+      '';
     };
 
     environment = lib.mkOption {
@@ -113,18 +119,6 @@ in
         time the server starts, unless environmentFile or environment already
         sets it. If gh has no token, the start fails and the service tries
         again. Set this to false on a host without a gh login.
-      '';
-    };
-
-    relayCompat = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = ''
-        Keep relays that read their token from the default path working
-        without configuration. On start, move the data of the old
-        notifications daemon from ~/.claude/notifications if the data
-        directory is empty, and link ~/.claude/notifications/token to the
-        server's token.
       '';
     };
   };

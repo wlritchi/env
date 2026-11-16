@@ -1,4 +1,4 @@
-# subspace server: the WebSocket server that the `notifications` Claude Code
+# subspace server: the WebSocket server that the `subspace` Claude Code
 # plugin's relay connects to (https://github.com/wlritchi/subspace).
 #
 # `src` is the `subspace` flake input, pinned to a release tag in flake.nix.

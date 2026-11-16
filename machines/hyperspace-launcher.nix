@@ -95,7 +95,7 @@ in
         File that bash sources with `set -a` before the launcher starts.
         Because bash runs it, lines can use command substitution. The
         sessions that the launcher resumes get this environment. For values
-        that only the resumes need, such as NOTIFICATIONS_TOKEN, prefer
+        that only the resumes need, such as SUBSPACE_TOKEN, prefer
         launcher_env and launcher_secret_env in config.toml (client 0.7.0
         and later), which keep the secrets in the keyring.
       '';
