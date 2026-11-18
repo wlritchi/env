@@ -128,6 +128,16 @@ fi
 
 if command -v nix >/dev/null 2>&1; then
     ensurepath --head "$HOME/.nix-profile/bin"
+
+    # Nix-built curses programs (tmux among them) read only Nix's terminfo database, so they
+    # reject terminal types that only the host OS defines, such as kmscon. Add the host's
+    # directories. Directories in TERMINFO_DIRS come before the library's own database, but an
+    # empty entry stands for that database, so the empty first entry keeps Nix's entries first.
+    for t in /etc/terminfo /lib/terminfo /usr/share/terminfo; do
+        if [ -d "$t" ] && [[ ":${TERMINFO_DIRS-}:" != *":$t:"* ]]; then
+            export TERMINFO_DIRS="${TERMINFO_DIRS-}:$t"
+        fi
+    done
 fi
 
 
