@@ -200,6 +200,10 @@ wlr_suspect_tty() {
             return 0
             ;;
     esac
+    # kmscon replaces the kernel console on a VT, but gives the shell a pty
+    if [ "$TERM" == 'kmscon' ]; then
+        return 0
+    fi
     return 1
 }
 
