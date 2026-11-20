@@ -3,5 +3,5 @@ set -euo pipefail
 
 target="$(fuzzel --dmenu -p 'ssh-minicom ')"
 if [ -n "$target" ]; then
-    exec alacritty -e ssh -t $target -- minicom -c on
+    exec "${TERMINAL:-alacritty}" -e ssh -t $target -- minicom -c on
 fi

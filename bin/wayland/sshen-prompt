@@ -3,5 +3,5 @@ set -euo pipefail
 
 target="$(fuzzel --dmenu -p 'sshen ')"
 if [ -n "$target" ]; then
-    exec alacritty -e sshen $target
+    exec "${TERMINAL:-alacritty}" -e sshen $target
 fi
