@@ -15,9 +15,11 @@ set -euo pipefail
 # the middle of a rebase; post-rewrite syncs once when the rebase completes.
 #
 # The sync cannot prompt here. Each prompt (a rendered file that a program
-# edited, or a link that points somewhere else) is answered no, so the hook
-# never discards local changes. Those files are left as they are and the
-# hook fails with a reminder to run wlr-sync-dotfiles by hand.
+# edited, or a link to a file with other content) is answered no, so the
+# hook never discards local changes. Those files are left as they are and
+# the hook fails with a reminder to run wlr-sync-dotfiles by hand. A link
+# that is dangling, or that points to a file with the same content, is
+# updated without a prompt.
 
 root="$(realpath "$(git rev-parse --show-toplevel)")"
 public="${WLR_ENV_PATH:-$HOME/.wlrenv}"

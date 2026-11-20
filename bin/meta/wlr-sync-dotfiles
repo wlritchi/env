@@ -284,22 +284,35 @@ link_file() {
     fi
     local rendered
     rendered="$(realpath "$rendered_raw")"
+    # Do not ask when a relink loses nothing: a dangling link, or a target with
+    # the same content. A declined prompt returns 1, so the caller counts the
+    # file as failed.
     if [ -L "$HOME/$1" ]; then
+        if ! [ -e "$HOME/$1" ]; then
+            ln -sf "$rendered" "$HOME/$1"
+            return
+        fi
         actual_target="$(realpath "$HOME/$1")"
         if [ "$rendered" != "$actual_target" ]; then
-            print_diff "$HOME/$1" "$rendered"
-            if wlr-ask "Update symlink $HOME/$1 to point to $rendered (currently $actual_target)?"; then
+            if cmp -s "$HOME/$1" "$rendered"; then
                 ln -sf "$rendered" "$HOME/$1"
+                return
             fi
+            print_diff "$HOME/$1" "$rendered"
+            if ! wlr-ask "Update symlink $HOME/$1 to point to $rendered (currently $actual_target)?"; then
+                return 1
+            fi
+            ln -sf "$rendered" "$HOME/$1"
         fi
     elif [ -f "$HOME/$1" ]; then
         if cmp -s "$HOME/$1" "$rendered"; then
             ln -sf "$rendered" "$HOME/$1"
         else
             print_diff "$HOME/$1" "$rendered"
-            if wlr-ask "Replace $HOME/$1 with a symlink to $rendered?"; then
-                ln -sf "$rendered" "$HOME/$1"
+            if ! wlr-ask "Replace $HOME/$1 with a symlink to $rendered?"; then
+                return 1
             fi
+            ln -sf "$rendered" "$HOME/$1"
         fi
     elif [ -e "$HOME/$1" ]; then
         wlr-warn "update: $HOME/$1 exists, but is not a regular file or symlink"

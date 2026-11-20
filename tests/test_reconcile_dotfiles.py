@@ -82,8 +82,8 @@ class World:
         )
         return result.stdout
 
-    def sync(self) -> None:
-        result = subprocess.run(  # noqa: S603
+    def sync_result(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603
             ['bash', str(self.public / 'bin/meta/wlr-sync-dotfiles')],  # noqa: S607
             env=self.env,
             check=False,
@@ -91,6 +91,9 @@ class World:
             capture_output=True,
             text=True,
         )
+
+    def sync(self) -> None:
+        result = self.sync_result()
         assert result.returncode == 0, result.stdout + result.stderr
 
     def reconcile(self, answers: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -348,3 +351,50 @@ def test_normalization_hides_formatting_only_drift(world: World) -> None:
     result = world.reconcile('', '--check')
     assert result.returncode == 1
     assert '.plainrc: 1 hunk(s) (detached)' in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Linking when stdin is /dev/null, as in the git hook: no prompt can be answered.
+
+
+def test_sync_relinks_moved_file_with_same_content(world: World) -> None:
+    old = world.public / 'dotfiles/.plainrc'
+    new = world.public / f'dotfiles/host/{HOST}/.plainrc'
+    new.parent.mkdir(parents=True)
+    shutil.copy(old, new)
+    world.sync()
+    assert world.live('.plainrc').resolve() == new.resolve()
+
+
+def test_sync_repairs_dangling_link(world: World) -> None:
+    old = world.public / f'dotfiles/host/{HOST}/.movedrc'
+    old.parent.mkdir(parents=True)
+    old.write_text('m\n')
+    world.sync()
+    new = world.public / 'dotfiles/.movedrc'
+    old.rename(new)
+    old.parent.rmdir()
+    world.sync()
+    assert world.live('.movedrc').resolve() == new.resolve()
+
+
+def test_sync_fails_on_relink_that_changes_content(world: World) -> None:
+    live = world.live('.plainrc')
+    other = world.home / 'elsewhere'
+    other.write_text('other\n')
+    live.unlink()
+    live.symlink_to(other)
+    result = world.sync_result()
+    assert result.returncode == 1
+    assert 'Failed to sync 1 file(s)' in result.stdout
+    assert live.resolve() == other.resolve()
+
+
+def test_sync_fails_on_regular_file_with_other_content(world: World) -> None:
+    live = world.live('.plainrc')
+    live.unlink()
+    live.write_text('edited\n')
+    result = world.sync_result()
+    assert result.returncode == 1
+    assert not live.is_symlink()
+    assert live.read_text() == 'edited\n'
