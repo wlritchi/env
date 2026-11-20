@@ -154,6 +154,24 @@
         darwin-rebuild = nix-darwin.packages.${system}.darwin-rebuild;
       };
 
+      # Toolchain for rust-utils development and its pre-commit hooks: the
+      # rustc that machines/pkgs builds the utilities with. Enter it with
+      # `nix develop --impure ~/.wlrenv#rust`.
+      devShells.${system}.rust =
+        let
+          pkgs = mkPkgs { inherit system; };
+        in
+        pkgs.mkShell {
+          packages = with pkgs; [
+            cargo
+            clippy
+            rust-analyzer
+            rustc
+            rustfmt
+          ];
+          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
+        };
+
       homeConfigurations.default = mkHomeConfiguration { };
 
       darwinConfigurations.default = nix-darwin.lib.darwinSystem {

@@ -53,7 +53,8 @@ This repository contains dotfiles, shell scripts, and utility functions for Linu
   - Built via Nix derivations in `machines/pkgs/`
   - Binaries installed to `~/.nix-profile/bin/` (e.g., `niri-spacer` → `~/.nix-profile/bin/niri-spacer`)
   - Automatically built on `wlr-check-update` via `hooks/post-upgrade` → `wlr-nix-rebuild`
-  - For development: use standard `cargo build` in the utility's directory
+  - For development: run `cargo build` in the utility's directory inside the `rust` devShell (`nix develop --impure ~/.wlrenv#rust`), which has the rustc that the derivations use. The cargo pre-commit hooks (`bin/cargo-pre-commit-wrapper.sh`) run in that shell, kept as a GC-rooted profile at `~/.local/state/wlrenv/rust-dev-shell`.
+- rustup toolchains: the Nix rustup patches each toolchain it installs to use store paths (glibc, zlib, its own `ld-wrapper.sh`) without GC roots, so a garbage collection after a rustup update breaks linking. `bin/meta/wlr-rustup-gcroots` (run from `hooks/post-upgrade`) roots those paths in `~/.local/state/wlrenv/rustup-gcroots/`, points linker wrappers at the current rustup, and reports toolchains that need a reinstall. `--check` reports only.
 
 - Git signature verification: `config/git/common` sets `gpg.ssh.program = wlr-git-ssh-verify` and `gpg.program = wlr-git-gpg-verify`. The Nix profile provides caching versions of both (`rust-utils/git-verify-cache`); the `bin/git/` files with the same names are fallbacks for machines that have not rebuilt yet. Signing calls go on to `wlr-git-ssh-sign` (a bash dispatcher in `bin/git/`), which runs `lib/git-ssh-sign.py` to ask for confirmation. Do not name a Nix-provided binary `wlr-git-ssh-sign`: the cache execs that name for signing, so it would call itself.
 

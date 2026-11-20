@@ -39,6 +39,13 @@ fi
 # Rebuild Nix environment (includes niri-spacer and other Rust utilities)
 "$WLR_ENV_PATH/bin/meta/wlr-nix-rebuild"
 
+# Keep the store paths that rustup toolchains use safe from the garbage
+# collector. Run it after wlr-nix-rebuild, so that a wrapper repair uses the
+# new rustup. A broken toolchain needs a reinstall by hand; do not stop the
+# upgrade for it.
+"$WLR_ENV_PATH/bin/meta/wlr-rustup-gcroots" \
+    || wlr-warn "A rustup toolchain needs a reinstall; see the messages above."
+
 # One-time repair for machines upgrading from before the glibc locale fix:
 # commits before mold-unwrapped (a1411f5) shadowed Arch's localedef, which
 # may have corrupted glibc's store path and wiped the system locale archive.

@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage: wlr-rustup-gcroots [--check]
+#
+# Keep the Nix store paths that rustup toolchains use safe from the garbage
+# collector.
+#
+# The Nix rustup package patches each toolchain that it installs, so that the
+# toolchain uses store paths from that rustup build: the glibc loader, zlib,
+# and the ld-wrapper.sh of the rustup package. It does not register these
+# paths as GC roots. After a rustup update, a garbage collection removes
+# them, and the toolchain breaks: first linking fails, then rustc does not
+# start.
+#
+# This script registers a GC root for each store path that a toolchain
+# refers to, and removes the roots for paths that no toolchain refers to.
+# When a linker wrapper (a text file) refers to a rustup build that is gone,
+# the script points it at the current rustup. It reports other missing paths;
+# to repair those, reinstall the toolchain.
+#
+# Exit status 1: a toolchain needs a reinstall. With --check, the script
+# only reports, and also exits 1 if a repair or a GC root is pending.
+#
+# Dependencies: nix-store, rg, sed
+
+check=
+case "${1:-}" in
+    --check) check=y ;;
+    '') ;;
+    *)
+        wlr-err "usage: wlr-rustup-gcroots [--check]"
+        exit 2
+        ;;
+esac
+
+toolchains="${RUSTUP_HOME:-$HOME/.rustup}/toolchains"
+roots="${XDG_STATE_HOME:-$HOME/.local/state}/wlrenv/rustup-gcroots"
+store_ref='/nix/store/[a-z0-9]{32}-[A-Za-z0-9+._?=-]+'
+
+if ! [ -d "$toolchains" ] || ! command -v nix-store >/dev/null 2>&1; then
+    exit 0
+fi
+
+# The store path of the rustup in PATH, if it comes from Nix.
+current_rustup=
+if rustup_bin="$(command -v rustup 2>/dev/null)"; then
+    rustup_bin="$(realpath "$rustup_bin")"
+    case "$rustup_bin" in
+        /nix/store/*-rustup-*/bin/rustup) current_rustup="${rustup_bin%/bin/rustup}" ;;
+    esac
+fi
+
+broken=
+pending=
+declare -A wanted=()
+
+for toolchain in "$toolchains"/*/; do
+    toolchain="${toolchain%/}"
+    name="${toolchain##*/}"
+    while IFS= read -r ref; do
+        if [ -e "$ref" ]; then
+            wanted["$ref"]=1
+            continue
+        fi
+
+        # The rustup build is gone. Text files (the linker wrappers) can point at
+        # the current rustup; binaries cannot.
+        if [[ "$ref" == /nix/store/*-rustup-* ]] && [ -n "$current_rustup" ] \
+            && [ -e "$current_rustup/nix-support/ld-wrapper.sh" ]; then
+            repairable=y
+            while IFS= read -r file; do
+                if ! grep -Iq . "$file"; then
+                    repairable=
+                    wlr-warn "$name: binary file $file refers to missing $ref"
+                    continue
+                fi
+                if [ -n "$check" ]; then
+                    pending=y
+                    wlr-warn "$name: $file refers to missing $ref (repairable)"
+                    continue
+                fi
+                # Write through the original file, which keeps its mode.
+                sed "s|$ref|$current_rustup|g" "$file" >"$file.wlr-tmp"
+                cat "$file.wlr-tmp" >"$file"
+                rm "$file.wlr-tmp"
+                echo "$name: pointed ${file#"$toolchain"/} at $current_rustup"
+            done < <(rg -a -l -F "$ref" "$toolchain")
+            if [ -z "$repairable" ]; then
+                broken=y
+                wlr-err "$name: reinstall with: rustup toolchain uninstall $name && rustup toolchain install $name"
+            elif [ -z "$check" ]; then
+                wanted["$current_rustup"]=1
+            fi
+            continue
+        fi
+
+        broken=y
+        wlr-err "$name: refers to missing $ref"
+        wlr-err "$name: reinstall with: rustup toolchain uninstall $name && rustup toolchain install $name"
+    done < <(rg -a -o --no-filename "$store_ref" "$toolchain" | sort -u)
+done
+
+if [ -n "$check" ]; then
+    for ref in "${!wanted[@]}"; do
+        if ! [ -L "$roots/${ref#/nix/store/}" ]; then
+            wlr-warn "no GC root for $ref"
+            pending=y
+        fi
+    done
+    if [ -n "$broken" ] || [ -n "$pending" ]; then
+        exit 1
+    fi
+    exit 0
+fi
+
+# Nix records the location of each root link, so make the links in place
+# instead of building a new directory and renaming it.
+mkdir -p "$roots"
+for ref in "${!wanted[@]}"; do
+    link="$roots/${ref#/nix/store/}"
+    if [ "$(readlink "$link" 2>/dev/null)" != "$ref" ]; then
+        nix-store --add-root "$link" --realise "$ref" >/dev/null
+    fi
+done
+for link in "$roots"/*; do
+    [ -L "$link" ] || continue
+    if [ -z "${wanted["$(readlink "$link")"]:-}" ]; then
+        rm "$link"
+    fi
+done
+
+if [ -n "$broken" ]; then
+    exit 1
+fi

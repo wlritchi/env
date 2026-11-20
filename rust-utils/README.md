@@ -27,8 +27,10 @@ All utilities are built and installed via Nix derivations defined in `machines/p
 - System dependencies (Wayland libraries, etc.) are automatically provided
 
 ### Development
-For local development and testing:
+For local development and testing, use the `rust` devShell in `flake.nix`. It has the same
+rustc that the Nix derivations use, and the pre-commit hooks run cargo in it:
 ```bash
+nix develop --impure ~/.wlrenv#rust
 cd rust-utils/niri-spacer
 cargo build
 cargo test
