@@ -1,0 +1,13 @@
+diff --git a/dotfiles/.config/waybar/style.css b/dotfiles/.config/waybar/style.css
+--- a/dotfiles/.config/waybar/style.css
++++ b/dotfiles/.config/waybar/style.css
+@@ -93,3 +93,9 @@
+ #clock {
+     padding: 0 0.5em;
+ }
++
++/* manzanate: keep the space under the notch empty. The notch is about
++ * 367 px wide, 326 at niri scale 1.125. */
++#custom-notch {
++    min-width: 326px;
++}

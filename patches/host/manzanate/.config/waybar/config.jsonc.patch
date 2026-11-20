@@ -1,0 +1,61 @@
+diff --git a/dotfiles/.config/waybar/config.jsonc b/dotfiles/.config/waybar/config.jsonc
+--- a/dotfiles/.config/waybar/config.jsonc
++++ b/dotfiles/.config/waybar/config.jsonc
+@@ -2,16 +2,21 @@
+ {
+     "layer": "top",
+     "position": "top",
+-    // "height":  // auto
++    // manzanate: fill the strip around the notch (appledrm.show_notch=1).
++    // The strip has 74 rows, but the notch is about 64 px tall (57 at niri
++    // scale 1.125). The bar has the height of the notch.
++    "height": 57,
++    // custom/notch keeps the space under the notch empty. Modules that do
++    // not fit on the right of the notch go on its left, after
++    // custom/notch-fill. custom/notch-fill expands, so those modules are
++    // next to the notch.
++    "expand-left": true,
+     // "width":  // auto
+     "spacing": 0,
+     "modules-left": [
+         "custom/weather",
+         "custom/media",
+-    ],
+-    "modules-center": [
+-    ],
+-    "modules-right": [
++        "custom/notch-fill",
+         "tray",
+         "custom/claude-usage",
+         "custom/left-arrow-light",
+@@ -19,8 +24,11 @@
+         "mpd",
+         "pulseaudio",
+         "backlight",
+-        "custom/left-arrow-light",
+-        "custom/left-arrow-dark",
++    ],
++    "modules-center": [
++        "custom/notch",
++    ],
++    "modules-right": [
+         "idle_inhibitor",
+         "custom/left-arrow-light",
+         "custom/left-arrow-dark",
+@@ -38,6 +46,16 @@
+         "custom/left-arrow-dark",
+         "clock",
+     ],
++    // A custom module with empty text is hidden, so these show a space.
++    "custom/notch": {
++        "format": " ",
++        "tooltip": false,
++    },
++    "custom/notch-fill": {
++        "format": " ",
++        "tooltip": false,
++        "expand": true,
++    },
+     "custom/left-arrow-dark": {
+         "format": "",
+         "tooltip": false,

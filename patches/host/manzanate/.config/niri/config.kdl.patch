@@ -1,0 +1,74 @@
+diff --git a/dotfiles/.config/niri/config.kdl b/dotfiles/.config/niri/config.kdl
+--- a/dotfiles/.config/niri/config.kdl
++++ b/dotfiles/.config/niri/config.kdl
+@@ -98,6 +98,28 @@
+     background-color "#181926"  // crust
+ }
+ 
++// manzanate (M3 Max, Asahi): the panel gives no EDID, so match the output
++// by connector. With the display driver (apple-drm), the connector is
++// eDP-1. With appledrm.show_notch=1, its mode includes the notch strip
++// (3456x2234). On the boot framebuffer (simpledrm), which an older m1n1 or
++// kernel gives, the connector is Unknown-1.
++// The panel is about 254 ppi. Scale 1.125 gives the same physical sizes as
++// amygdalin at scale 1.
++output "eDP-1" {
++    // 60 Hz while niri renders on the CPU (llvmpipe): 120 Hz doubles its
++    // cost during animation.
++    mode "3456x2234@60.000"
++    scale 1.125
++    position x=0 y=0
++    background-color "#181926"  // crust
++}
++
++output "Unknown-1" {
++    scale 1.125
++    position x=0 y=0
++    background-color "#181926"  // crust
++}
++
+ output "Acer Technologies XZ242Q Unknown" {
+     off
+     mode "1920x1080"
+@@ -329,17 +351,17 @@
+     Mod+Shift+Slash { show-hotkey-overlay; }
+ 
+     // Suggested binds for running programs: terminal, app launcher, screen locker.
+-    Alt+Shift+Return { spawn "alacritty"; }
++    Alt+Shift+Return { spawn "foot"; }
+     Alt+P { spawn "fuzzel"; }
+     Alt+Shift+P { spawn "yubikey-oath-dmenu" "--type" "--menu-cmd" "fuzzel -dp 'TOTP >'"; }
+     Super+Alt+L { spawn "swaylock"; }
+     Alt+Shift+S { spawn "moshen-prompt"; }
+     Alt+Shift+Ctrl+S { spawn "sshen-prompt"; }
+-    Alt+Shift+M { spawn "alacritty" "-e" "minicom"; }
++    Alt+Shift+M { spawn "foot" "-e" "minicom"; }
+     Alt+Shift+Ctrl+M { spawn "ssh-minicom-prompt"; }
+ 
+-    Alt+Dollar { spawn "alacritty" "-e" "k9s"; }
+-    Alt+Grave { spawn "alacritty" "-e" "k9s"; }
++    Alt+Dollar { spawn "foot" "-e" "k9s"; }
++    Alt+Grave { spawn "foot" "-e" "k9s"; }
+ 
+     // You can also use a shell. Do this if you need pipes, multiple commands, etc.
+     // Note: the entire command goes as a single argument in the end.
+@@ -598,7 +620,7 @@
+     Ctrl+Shift+XF86Launch8 { fullscreen-window; }        // F17 = fullscreen
+     Ctrl+Shift+XF86Launch9 { toggle-window-floating; }   // F18 = float
+     Ctrl+Shift+F19 { close-window; }                     // F19 = close
+-    Ctrl+Shift+XF86AudioMicMute { spawn "alacritty"; }   // F20 = create
++    Ctrl+Shift+XF86AudioMicMute { spawn "foot"; }   // F20 = create
+     Ctrl+Shift+XF86TouchpadToggle { maximize-column; }   // F21 = zoom
+ 
+     // --- One-shot: Workspace scope (Ctrl+Shift+Alt base) ---
+@@ -637,7 +659,9 @@
+ }
+ 
+ environment {
+-    TERMINAL "alacritty"
++    // manzanate: there is no M3 GPU driver. foot draws on the CPU, which
++    // costs less than Alacritty's OpenGL on llvmpipe.
++    TERMINAL "foot"
+     // use xwayland-satellite by default
+     DISPLAY ":0"
+     // Clear shell reentrancy guards so terminals start fresh
