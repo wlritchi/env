@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import socket
 import urllib.parse
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from wlrenv.pass_fwd.dialog import DecryptRequest, Request, SignRequest
 from wlrenv.pass_fwd.index import Lookup, ecdh_key
@@ -93,7 +93,7 @@ class Client:
 
 
 @contextlib.asynccontextmanager
-async def wired(ctx: ProxyContext, agent: FakeAgent) -> AsyncIterator[Client]:
+async def wired(ctx: ProxyContext, agent: FakeAgent) -> AsyncGenerator[Client]:
     session_client, test_client = socket.socketpair()
     session_agent, fake_agent = socket.socketpair()
     cr, cw = await asyncio.open_unix_connection(sock=session_client)

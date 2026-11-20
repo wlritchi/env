@@ -253,7 +253,7 @@ def _setup() -> None:
     def prepare_aliases() -> None:
         """Use aliases to resolve naming conflicts and overwrite default behaviour."""
 
-        if not XSH.aliases or not xonsh.dirstack:
+        if not XSH.aliases:
             raise RuntimeError('xonsh is not loaded')
 
         XSH.aliases['gap'] = 'git add -p'  # some algebra package
